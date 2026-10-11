@@ -48,6 +48,7 @@ struct ImpartIOSApp: App {
     var body: some Scene {
         WindowGroup {
             ImpartIOSRootView()
+                .koineStyleHost()
                 .preferredColorScheme(colorScheme)
         }
     }

@@ -8,9 +8,11 @@
 //
 //  `Linear` → a split, `Tabs` → a tab strip, `Grid` → a grid, `Pane` → the
 //  view kind the registry resolves. Nothing here decides anything about the
-//  layout: every gesture is a verb on `LayoutController`, and the only state
-//  any of these views hold is the IN-FLIGHT divider drag (see
-//  `LayoutLinearSplit.drag`, which is discarded on release).
+//  layout: every gesture is a verb on `LayoutController`. The only state
+//  these views hold is in-flight: the divider drag (`LayoutLinearSplit.drag`)
+//  and a pane-header drag (`LayoutPaneDragSession`). Both are discarded when
+//  the gesture ends, and each commits one verb — `resizeShare` on divider
+//  release, `move-tile` on a header drop.
 //
 //  ## What the host supplies (plan wave 6, W6)
 //
@@ -45,6 +47,7 @@
 import AppKit
 import Foundation
 import ImpressKeyboard
+import UniformTypeIdentifiers
 import ImpressLogging
 import ImpressRustCore
 import SwiftUI
@@ -195,12 +198,16 @@ public struct LayoutWindowView: View {
 
     let controller: LayoutController
 
+    /// The header drag in flight. Not layout state: cleared when the drop lands.
+    @State private var paneDrag = LayoutPaneDragSession()
+
     public init(controller: LayoutController) {
         self.controller = controller
     }
 
     public var body: some View {
         content
+            .environment(\.layoutPaneDrag, paneDrag)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .top) { treeErrorBanner }
             // Knows the NSWindow: installs the ⌘Z routing and makes this
@@ -565,8 +572,12 @@ struct LayoutLinearSplit: View {
               sizes[index + 1] > 0
         else { return }
         let neighbourShare = shares.indices.contains(index + 1) ? shares[index + 1] : 1
-        let ratio = Double(sizes[index] / sizes[index + 1])
-        let newShare = max(neighbourShare * ratio, LayoutShare.collapsed)
+        guard let ratioShare = KoineGesture.shareBeside(
+            neighbour: neighbourShare,
+            before: Double(sizes[index]),
+            after: Double(sizes[index + 1]))
+        else { return }
+        let newShare = max(ratioShare, LayoutShare.collapsed)
         controller.apply(.resizeShare(pane: children[index], share: newShare))
     }
 }
@@ -580,6 +591,8 @@ struct LayoutTabsView: View {
     let controller: LayoutController
     let children: [UInt64]
     let active: UInt64?
+
+    @Environment(\.layoutPaneDrag) private var session
 
     var body: some View {
         VStack(spacing: 0) {
@@ -598,18 +611,27 @@ struct LayoutTabsView: View {
     private var strip: some View {
         HStack(spacing: 2) {
             ForEach(children, id: \.self) { tile in
-                Button {
-                    controller.apply(.focus(target: .id(tile)))
-                } label: {
-                    Text(title(of: tile))
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                }
-                .buttonStyle(.plain)
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(tile == visibleChild ? Color.accentColor.opacity(0.18) : Color.clear))
+                Text(title(of: tile))
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(tile == visibleChild ? Color.accentColor.opacity(0.18) : Color.clear))
+                    .contentShape(Rectangle())
+                    .onDrag {
+                        session?.beginMoving(tile)
+                        return NSItemProvider(object: NSString(string: String(tile)))
+                    }
+                    .simultaneousGesture(
+                        TapGesture().onEnded {
+                            guard controller.focused != tile else { return }
+                            controller.apply(.focus(target: .id(tile)))
+                        }
+                    )
+                    .accessibilityLabel(title(of: tile))
+                    .accessibilityHint("Drag onto an edge to split this pane out of the tabs")
+                    .accessibilityIdentifier("layout.pane.tab.\(tile)")
             }
             Spacer(minLength: 0)
         }
@@ -699,33 +721,54 @@ struct LayoutPaneHost: View {
     let spec: LayoutPaneSpec
 
     @Environment(\.viewKindRegistry) private var registry
+    @Environment(\.layoutPaneDrag) private var paneDrag
+    @Environment(\.layoutToolbarBand) private var toolbarBand
 
     /// The pane as Rust resolved it — a query COMPILE, so it is fetched on
     /// appear and when RUST SAYS this pane is stale (its own refresh token),
     /// never inside `body` and never because some other pane changed.
     @State private var resolved: SharedPane?
+    /// Measured, so a drop can tell an edge from the center. Not layout state.
+    @State private var paneSize: CGSize = .zero
+
+    /// The grip is 22 pt, just below the window toolbar. Content views pad by
+    /// `layoutToolbarBand` themselves; this is the grip, not a second copy of
+    /// that band.
+    private var headerClearance: CGFloat { 22 }
 
     var body: some View {
-        Group {
-            // `resolved.tile == tile`: this host's state must never render
-            // another tile's pane (SK-K11). Identity is by tile now, so it
-            // should always hold; if it ever does not, the pane waits for its
-            // own resolve rather than borrowing a neighbour's.
-            if let resolved, resolved.tile == tile {
-                registry.make(
-                    PaneContext(
-                        tile: tile, pane: resolved, spec: spec, controller: controller))
-            } else {
-                LayoutUnavailable(
-                    "Pane Unavailable", systemImage: "rectangle.dashed",
-                    message: controller.paneError(for: tile)
-                        ?? "Pane \(String(tile))'s query has not resolved yet.")
+        ZStack(alignment: .top) {
+            Group {
+                // `resolved.tile == tile`: this host's state must never render
+                // another tile's pane (SK-K11). Identity is by tile now, so it
+                // should always hold; if it ever does not, the pane waits for its
+                // own resolve rather than borrowing a neighbour's.
+                if let resolved, resolved.tile == tile {
+                    registry.make(
+                        PaneContext(
+                            tile: tile, pane: resolved, spec: spec, controller: controller))
+                } else {
+                    LayoutUnavailable(
+                        "Pane Unavailable", systemImage: "rectangle.dashed",
+                        message: controller.paneError(for: tile)
+                            ?? "Pane \(String(tile))'s query has not resolved yet.")
+                }
+            }
+            .padding(.top, headerClearance)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // A view of its own, so a focus move re-evaluates the ring and not
+            // the pane's content. It fills the pane; the overlay used to do that.
+            LayoutFocusRing(controller: controller, tile: tile)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false)
+            LayoutPaneHeader(controller: controller, tile: tile, spec: spec)
+        }
+        .overlay {
+            if let hover = paneDrag?.hover, hover.tile == tile {
+                LayoutPaneDropHighlight(placement: hover.placement)
+                    .allowsHitTesting(false)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // A view of its own, so a focus move re-evaluates the ring and not
-        // the pane's content.
-        .overlay(LayoutFocusRing(controller: controller, tile: tile))
         .contentShape(Rectangle())
         // `simultaneousGesture`, not `onTapGesture`: a click must focus the
         // pane AND still reach the row, the button or the text view it landed
@@ -735,6 +778,23 @@ struct LayoutPaneHost: View {
                 guard controller.focused != tile else { return }
                 controller.apply(.focus(target: .id(tile)))
             }
+        )
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onChange(of: proxy.size, initial: true) { _, new in
+                        paneSize = new
+                    }
+            }
+        }
+        .onDrop(
+            of: [.utf8PlainText, .plainText],
+            delegate: LayoutPaneDropDelegate(
+                tile: tile,
+                size: paneSize,
+                controller: controller,
+                session: paneDrag ?? .unused
+            )
         )
         .onAppear { resolve("appeared") }
         // THIS tile's token only (PH-H1 / SK-K6). It moves when a verb names

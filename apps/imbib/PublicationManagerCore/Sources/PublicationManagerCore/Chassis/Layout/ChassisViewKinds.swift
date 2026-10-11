@@ -23,7 +23,9 @@
 //  `surface` override's hooks are `LayoutSurfaceHooks.swift`.
 //
 
+import AppKit
 import Foundation
+import UniformTypeIdentifiers
 import ImpressFTUI
 import ImpressLayout
 import ImpressLogging
@@ -704,6 +706,13 @@ struct LayoutInfoPaneView: View {
     @State private var manuscriptSession: ManuscriptEditorSession?
 
     @Environment(\.layoutToolbarBand) private var toolbarBand
+    @Environment(\.layoutPaneDrag) private var paneDrag
+    @State private var tabChipWidth: [String: CGFloat] = [:]
+
+    /// The publication tabs a person can pull out into their own pane.
+    /// Notes stays even when the paper is not editable, so the tab can still
+    /// be dragged. Source is a manuscript tab and is not in this strip.
+    private static let publicationTabs: [DetailTab] = [.info, .pdf, .notes, .bibtex]
 
     private var itemID: UUID? {
         guard let raw = rawItem else { return nil }
@@ -805,10 +814,19 @@ struct LayoutInfoPaneView: View {
         switch detailKind {
         case .publication:
             // Failable: the id may name a row that has since gone.
+            // The strip is the handle each tab was missing. A drag is a
+            // split of that view kind over this paper, not a change of the
+            // info pane's tab. Not focusable: DetailView already is, and a
+            // second focus target here would sit above its text.
             if let view = DetailView(publicationID: id, selectedTab: selectedTab) {
-                view
+                VStack(spacing: 0) {
+                    publicationTabStrip
+                    view
+                }
+                .padding(.top, toolbarBand)
             } else {
                 unavailable(id.uuidString)
+                    .padding(.top, toolbarBand)
             }
         case .manuscript:
             ManuscriptDetailPane(
@@ -829,6 +847,91 @@ struct LayoutInfoPaneView: View {
         }
     }
 
+    /// Grip plus label. Tap selects the tab inside this pane. Dragging the
+    /// chip onto an edge opens that tab as its own pane of the same paper.
+    private var publicationTabStrip: some View {
+        let selected = selectedTab.wrappedValue
+        return HStack(spacing: 2) {
+            ForEach(tabOrder) { tab in
+                publicationTabChip(tab, selected: selected == tab)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+    }
+
+    private func publicationTabChip(_ tab: DetailTab, selected: Bool) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "line.3.horizontal")
+                .accessibilityHidden(true)
+            Text(tab.label)
+        }
+        .font(.caption)
+        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(selected ? Color.accentColor.opacity(0.18) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onDrag {
+            if let spec = context.spec,
+               let spawned = LayoutPaneSpecJSON.spawned(
+                from: spec, viewKind: tab.rawValue, tab: tab.rawValue) {
+                paneDrag?.beginSpawning(spawned, from: context.tile)
+            }
+            return NSItemProvider(object: NSString(string: tab.rawValue))
+        }
+        .onDrop(
+            of: [.utf8PlainText, .plainText],
+            delegate: PublicationTabChipDrop(
+                tab: tab,
+                order: tabOrder,
+                width: tabChipWidth[tab.rawValue] ?? 72,
+                tile: context.tile,
+                session: paneDrag,
+                move: { dragged, index in movePublicationTab(dragged, to: index) })
+        )
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { tabChipWidth[tab.rawValue] = proxy.size.width }
+                    .onChange(of: proxy.size.width) { _, width in
+                        tabChipWidth[tab.rawValue] = width
+                    }
+            }
+        }
+        .simultaneousGesture(
+            TapGesture().onEnded { selectedTab.wrappedValue = tab }
+        )
+        .accessibilityLabel(tab.label)
+        .accessibilityHint("Drag along the strip to reorder. Drag onto a pane edge to open this tab in its own pane")
+        .accessibilityIdentifier("layout.detail.tab.\(tab.rawValue)")
+    }
+
+    /// Saved order, then any tab the save does not mention, in the default
+    /// order. The key is this pane's `view_state` and nothing else reads it.
+    private var tabOrder: [DetailTab] {
+        let stored = context.spec?.viewState["tab_order"]?.stringArrayValue ?? []
+        let known = stored.compactMap(DetailTab.init(rawValue:))
+        var ordered = known.filter { Self.publicationTabs.contains($0) }
+        for tab in Self.publicationTabs where !ordered.contains(tab) {
+            ordered.append(tab)
+        }
+        return ordered
+    }
+
+    private func movePublicationTab(_ tab: DetailTab, to index: Int) {
+        let order = tabOrder.map(\.rawValue)
+        guard let from = order.firstIndex(of: tab.rawValue),
+              let verb = KoineGesture.tabOrderVerb(
+                pane: context.tile, tabs: order, from: from, to: index)
+        else { return }
+        context.controller.apply(verb)
+    }
+
     /// The parameter resolved to something this build has no detail for.
     /// Names the KIND as well as the id: "no detail for <id>" sent every
     /// earlier reader looking for a missing row when the real answer was a
@@ -842,6 +945,37 @@ struct LayoutInfoPaneView: View {
                 + "\u{201C}\(raw)\u{201D}."
         )
         .view
+    }
+}
+
+/// A drop on a publication tab. Reorders that tab inside the strip. A drop
+/// on a pane edge is the pane's own drop, and that one splits the tab out.
+@MainActor
+private struct PublicationTabChipDrop: DropDelegate {
+    let tab: DetailTab
+    let order: [DetailTab]
+    let width: CGFloat
+    let tile: UInt64
+    let session: LayoutPaneDragSession?
+    let move: (DetailTab, Int) -> Void
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let session, session.spawnTile == tile,
+              let raw = session.spawn?["view_state"]?["tab"]?.stringValue,
+              let dragged = DetailTab(rawValue: raw)
+        else { return false }
+        session.spawn = nil
+        session.spawnTile = nil
+        if dragged != tab, let targetIndex = order.firstIndex(of: tab) {
+            var index = targetIndex
+            if info.location.x > width / 2 { index += 1 }
+            move(dragged, index)
+        }
+        return true
     }
 }
 #endif

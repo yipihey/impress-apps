@@ -10,6 +10,12 @@
 //  handler — that is `impress_surface::reduce::reduce`, in Rust, on the far
 //  side of `SharedSurface.dispatch`.
 //
+//  Delivery is the sheet in the environment (`koineStyle`). Slot names and
+//  the checks live in `KoineStyleSheet`; this file only maps a token onto
+//  the modifier the control already had. `automatic`, and the default
+//  spacings, draw what this file drew before a sheet existed. A sheet
+//  tagged for another frontend is not applied.
+//
 //  ## Keyboard (ADR-0033 Defaults, `docs/keyboard-grammar.md` "Surface
 //  panes")
 //
@@ -253,6 +259,9 @@ private struct SurfaceNodeView: View {
     let drafts: SurfaceDraftBook
     let onEvent: (SurfaceEvent) -> Void
 
+    @Environment(\.koineStyle) private var style
+
+    private var sheet: KoineStyleSheet { style.paintedBySwift }
     private var isHighlighted: Bool { highlightedID.wrappedValue == node.id }
 
     var body: some View {
@@ -264,7 +273,7 @@ private struct SurfaceNodeView: View {
     private var highlightRing: some View {
         if isHighlighted {
             RoundedRectangle(cornerRadius: 4)
-                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .strokeBorder(sheet.color("focus") ?? Color.accentColor, lineWidth: 2)
         }
     }
 
@@ -272,16 +281,17 @@ private struct SurfaceNodeView: View {
     private var content: some View {
         switch node.node {
         case .column(let items):
-            VStack(alignment: .leading, spacing: 8) { children(items) }
+            VStack(alignment: .leading, spacing: sheet.spacing("column")) { children(items) }
 
         case .row(let items):
-            HStack(alignment: .top, spacing: 8) { children(items) }
+            HStack(alignment: .top, spacing: sheet.spacing("row")) { children(items) }
 
         case .grid(let columns, let items):
             LazyVGrid(
                 columns: Array(
-                    repeating: GridItem(.flexible(), spacing: 8), count: max(1, columns)),
-                spacing: 8
+                    repeating: GridItem(.flexible(), spacing: sheet.spacing("column")),
+                    count: max(1, columns)),
+                spacing: sheet.spacing("column")
             ) {
                 children(items)
             }
@@ -299,11 +309,14 @@ private struct SurfaceNodeView: View {
 
         case .text(let text):
             hooks.renderMarkdown(text)
+                .koineFont(sheet.value("text"))
 
         case .table(let rows, let columns):
             SurfaceTableView(
                 id: node.id, rows: rows, columns: columns, focusedWidgetID: focusedWidgetID,
-                onEvent: onEvent)
+                onEvent: onEvent
+            )
+            .padding(.vertical, sheet.spacing("table"))
 
         case .list(let rows):
             // Inside the column's ScrollView a `List` has no intrinsic height
@@ -318,6 +331,7 @@ private struct SurfaceNodeView: View {
                         value: .array(ids.map(SurfaceJSONValue.string))))
             }
             .frame(minHeight: 240)
+            .padding(.vertical, sheet.spacing("list"))
 
         case .plot(let spec):
             hooks.renderPlot((try? spec.jsonString()) ?? "{}")
@@ -331,10 +345,7 @@ private struct SurfaceNodeView: View {
                 focusedWidgetID: focusedWidgetID, drafts: drafts, onEvent: onEvent)
 
         case .button(let label):
-            Button(label) {
-                onEvent(SurfaceEvent(widget: node.id, kind: .click, value: .null))
-            }
-            .focused(focusedWidgetID, equals: node.id)
+            styledButton(label)
 
         case .status(let level, let message):
             SurfaceStatusView(level: level, message: message)
@@ -353,6 +364,19 @@ private struct SurfaceNodeView: View {
 
         case .placeholder(let unknownKind, let reason):
             SurfacePlaceholderView(unknownKind: unknownKind, reason: reason)
+        }
+    }
+
+    @ViewBuilder
+    private func styledButton(_ label: String) -> some View {
+        let control = Button(label) {
+            onEvent(SurfaceEvent(widget: node.id, kind: .click, value: .null))
+        }
+        .focused(focusedWidgetID, equals: node.id)
+        if let tint = sheet.color("button") {
+            control.tint(tint)
+        } else {
+            control
         }
     }
 
@@ -377,6 +401,8 @@ private struct SurfaceSectionView: View {
     let focusedWidgetID: FocusState<String?>.Binding
     let drafts: SurfaceDraftBook
     let onEvent: (SurfaceEvent) -> Void
+
+    @Environment(\.koineStyle) private var style
 
     // Local-only: the vocabulary defines no "toggle section" action
     // (`docs/agent-surfaces.md` § Actions), so a user's expand/collapse
@@ -408,6 +434,7 @@ private struct SurfaceSectionView: View {
                 node: bodyNode, hooks: hooks, highlightedID: highlightedID,
                 focusedWidgetID: focusedWidgetID, drafts: drafts, onEvent: onEvent)
         }
+        .koineFont(style.paintedBySwift.value("section"))
     }
 }
 
@@ -512,6 +539,8 @@ private struct SurfaceFieldView: View {
     let drafts: SurfaceDraftBook
     let onEvent: (SurfaceEvent) -> Void
 
+    @Environment(\.koineStyle) private var style
+
     // Every draft is SEEDED HERE, not in `onAppear`: writing a draft in
     // `onAppear` fires its `onChange`, which is how a select bound to null
     // sent its first option and a date field wrote today into state on first
@@ -553,6 +582,11 @@ private struct SurfaceFieldView: View {
     private var isFocused: Bool { focusedWidgetID.wrappedValue == id }
 
     var body: some View {
+        controls.koineFont(style.paintedBySwift.value("field"))
+    }
+
+    @ViewBuilder
+    private var controls: some View {
         switch subKind {
         case "text": textField
         case "number": numberField
@@ -772,6 +806,8 @@ private struct SurfaceStatusView: View {
     let level: String
     let message: String
 
+    @Environment(\.koineStyle) private var style
+
     private var symbol: String {
         switch level.lowercased() {
         case "error": return "xmark.octagon.fill"
@@ -781,12 +817,19 @@ private struct SurfaceStatusView: View {
         }
     }
 
+    /// `success` and `ok` are not slots. Every other level reads its slot,
+    /// and `automatic` falls back to the color this view already used.
     private var tint: Color {
+        let sheet = style.paintedBySwift
         switch level.lowercased() {
-        case "error": return .red
-        case "warning": return .orange
-        case "success", "ok": return .green
-        default: return .secondary
+        case "error":
+            return sheet.color("status.error") ?? .red
+        case "warning":
+            return sheet.color("status.warning") ?? .orange
+        case "success", "ok":
+            return .green
+        default:
+            return sheet.color("status.info") ?? .secondary
         }
     }
 

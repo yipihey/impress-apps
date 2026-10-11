@@ -1,7 +1,6 @@
-#if os(macOS)
 //
 //  SurfaceDispatchReplyTests.swift
-//  ImpressLayoutTests
+//  ImpressSurfaceSessionTests
 //
 //  A dispatch whose effect failed — a publish that found no pane, an `open`
 //  Rust refused — answers `ok: false`, `code: "effect-failed"`, with the
@@ -11,7 +10,7 @@
 
 import XCTest
 
-@testable import ImpressLayout
+@testable import ImpressSurfaceSession
 
 final class SurfaceDispatchReplyTests: XCTestCase {
 
@@ -46,4 +45,3 @@ final class SurfaceDispatchReplyTests: XCTestCase {
         XCTAssertEqual(reply.effectsFailed, 0)
     }
 }
-#endif

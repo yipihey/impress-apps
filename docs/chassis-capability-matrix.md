@@ -1396,9 +1396,10 @@ counts, `toggle` for auto-remove), seeded from the current values, whose
 (one `impress/ui/surface@1.0.0` row per section, found by its
 `settings:<section>` tag, spec refreshed and this host's state row reseeded on
 every open — so a CLI `set` made while the window was closed shows) and drives
-`ImpressLayout.SurfacePaneModel` with `pane: nil`, the same render / dispatch /
+`ImpressSurfaceSession.SurfacePaneModel` with `pane: nil`, the same render / dispatch /
 echo discipline as a layout pane, rendered by `ImpressSurface.SurfaceView`
-with no logic of its own.
+with no logic of its own. The session package links on iOS, so the Retention
+pane is that surface on both platforms.
 
 | What | Where it is declared | Who reads it |
 |---|---|---|
@@ -3389,9 +3390,10 @@ mutation reverted.
 |---|---|---|
 | ⌃⌘S / ⌥⌘0 / ⌘0 | Bound in all five chassis apps (impel and implore since 2026-09-24, `ImpressPaneLayoutButtons`; live in both: navigator / detail / list 1 / 2 / 3 → ⌃⌘S 0.0001 → 2.5, ⌘0 0.0001 → 2.25, ⌥⌘0 0.0001 → 2.375, and ⌃⌘1 `chord: apply layout 1 → layout tree` back to 1 / 2 / 3). `resizeShare` on whichever pane carries the `navigator` / `list` / `detail` ROLE (D5), through `LayoutController` only — a chord before the tree opens is logged and ignored, never redirected. Un-collapsing restores the **sibling average** — the remembered width lives in the tree, never in a Swift value | the same tree chords (`ImpressPaneLayoutButtons()`). The pre-chassis `HostWindowPanes` path remains only as `PaneLayoutChordTarget.imbibPreChassisWindow`, which no app passes |
 | ⌃⌘1–9 | `apply-layout` ordinal N (`ImpressLayoutOrdinalButtons`: the app's presets, then its saved layouts) — all five chassis apps; impart, impel and implore gained it 2026-09-24. imprint: the tree's ordinal in its chassis window, its editor-window layouts while a manuscript editor window is key (`ImprintLayoutsMenu`) | View ▸ Layouts is `ImpressLayoutOrdinalButtons`; Save Current Layout writes the live tree |
+| ⌃⌥⌘→ / ⌃⌥⌘↓ / ⌃⌥⌘W / ⌃⌥⌘↩ | `ImpressLayoutArrangeButtons`, mounted beside the ordinals in every chassis app. Split right, split below, close, and maximize-or-restore the focused pane — each one existing verb (`split` with no new pane, `close`, `maximize`, `restore`), so ⌥⌘Z undoes it. The same menu applies and deletes saved layouts by id, sets the focused pane's view kind from `ViewKindRegistry.builtin.registeredKinds`, and moves the focused pane one step (`LayoutPaneMove`, onto the neighbour leaf). imprint binds these only while the chassis window is key | the same menu, in View ▸ Layouts |
 | h / l | `focus_direction` left/right over the tree's leaves (`TriageKeyGrammar.focusPaneLeft/Right`), including when the info pane or a hosted list claimed the key and posted `.cycleFocusLeft/Right` | the same. `ContentView` no longer cycles `FocusedPane` |
 | ⌘Z / ⇧⌘Z | `undo`/`redo` on the focused pane's **exploration** ring — unless the focused pane is session-bearing, when the chord is left to the responder chain (D7 stack 1) | the same, via the tree the window now hosts |
-| ⌥⌘Z / ⌥⇧⌘Z | `undo`/`redo` on the **arrangement** ring (`UniversalShortcut.undoArrangement` / `.redoArrangement`, new in L6) | the same, via the tree the window now hosts |
+| ⌥⌘Z / ⌥⇧⌘Z | View ▸ Layouts ▸ Undo Arrangement / Redo Arrangement. `undo`/`redo` on the **arrangement** ring. Undo History does not use this chord | the same, via the tree the window now hosts |
 
 Both new chords are in `docs/keyboard-grammar.md`'s universal table, per its
 rule 2.
@@ -3399,8 +3401,42 @@ rule 2.
 ### What holds no state
 
 Nothing in `packages/ImpressLayout` or PMC's `Chassis/Layout/` holds layout state (ADR-0019 D3 / ADR-0031
-invariant 1). The two `@State` values that exist are derived data or a
-gesture: `LayoutRowsPaneView.rows` (query results) and
-`LayoutLinearSplit.drag` (the in-flight divider drag, discarded on release —
-which is also why `resizeShare` is called exactly once, on mouse-up, instead
-of once per frame).
+invariant 1). The `@State` values that exist are derived data or a gesture:
+`LayoutRowsPaneView.rows` (query results), `LayoutLinearSplit.drag` (the
+in-flight divider drag, discarded on release — which is also why `resizeShare`
+is called exactly once, on mouse-up, instead of once per frame),
+`LayoutWindowView.paneDrag` (the in-flight pane-header drag, discarded when
+the drop lands — one `move-tile`, edge or center), and `LayoutPaneHost.paneSize`
+(the pane's measured size, so that drop can tell an edge from the center).
+
+A pane header (`layout.pane.header.<tile>`) is the drag source. It is not
+focusable. Secondary click opens `LayoutPaneActions` for that tile
+(`{"id": tile}`, not the focused pane): split on every side, close, maximize,
+restore, collapse, focus, a one-step move for every `LayoutPlacement`, every
+kind in `ViewKindRegistry` that this process has registered, and the preset
+roles (`navigator`, `list`, `detail`, `preview`, `console`, or clear). The
+View ▸ Layouts show, move, and open items are the same list, aimed at the
+focused pane. A verb the tree cannot accept — close of the last pane, collapse
+outside a split, a move with no neighbour — is listed and disabled. Verbs
+that still need a free argument (a selection, a share, a saved-layout name)
+stay on their own chords and are not invented as menu items. A missing
+sidebar, list, or detail is an Open row (`LayoutRoleSpec`). Open Papers and
+Show → List on the sidebar send `open-list`: focus the list, or split one in
+beside the navigator. Its kinds come from a remaining detail pane, or from
+the cold-start list when none remains. The sidebar's collections stay on the
+sidebar — Show of any other kind is still `set-view-kind` and does not change
+the query. Open Detail and Open Sidebar remain a `split` of that role's
+query. A tab in the
+strip (`layout.pane.tab.<tile>`) is a drag source too. Dropping a pane on a
+different pane is `move-tile`. Dropping a pane on its own edge, when it
+shares a tab strip, is the same verb aimed at the neighbouring tab, so the
+strip becomes a split again (`LayoutPaneMove.dropVerb`); the center of its
+own pane applies no verb, and neither does a self-drop of a pane that is not
+tabbed. A publication's Info, PDF, Notes, and BibTeX tabs
+(`layout.detail.tab.<tab>`) are drag sources as well. Dragging one along the
+strip sends `set-tab-order` (exploration, so ⌘Z undoes it). Dropping one on
+a pane edge is a `split` of that view kind over the same paper, with no role
+(`LayoutPaneDrop.spawnVerb`); the center of its own pane applies no verb.
+The grip is the first visible row under the window toolbar. Content
+already pads by `layoutToolbarBand`; the host adds the grip's own 22 pt and
+not a second copy of that band. A grip placed inside the band is covered.

@@ -11,7 +11,8 @@
 #   ImpressKeyboard   `.keyboardGuarded`, the h/l grammar
 #   ImpressTheme      colour helpers
 #   ImpressLogging    the three-point trace
-#   ImpressSurface    (ImpressLayout only) the RenderTree renderer
+#   ImpressSurface    (ImpressLayout, ImpressSurfaceSession) the RenderTree renderer
+#   ImpressSurfaceSession  the surface session both platforms link
 #
 # Not PublicationManagerCore, not ImpressAutomation (it pulls ImpressKit), not
 # ImpressKit, MarkdownUI or an app core. A host that wants more hands it in:
@@ -36,11 +37,17 @@ KIT_GRADE="
 LAYOUT_MANIFEST="packages/ImpressLayout/Package.swift"
 LAYOUT_ALLOWED_LOCAL="$KIT_GRADE
     ../ImpressSurface
+    ../ImpressSurfaceSession
 "
 
 SURFACE_MANIFEST="packages/ImpressSurface/Package.swift"
 SURFACE_ALLOWED_LOCAL="$KIT_GRADE
     ../ImpressLayout
+"
+
+SESSION_MANIFEST="packages/ImpressSurfaceSession/Package.swift"
+SESSION_ALLOWED_LOCAL="$KIT_GRADE
+    ../ImpressSurface
 "
 
 # No remote package is kit-grade today.
@@ -104,12 +111,13 @@ check_manifest() {
 
 check_manifest "ImpressLayout" "$LAYOUT_MANIFEST" "$LAYOUT_ALLOWED_LOCAL"
 check_manifest "ImpressSurface" "$SURFACE_MANIFEST" "$SURFACE_ALLOWED_LOCAL"
+check_manifest "ImpressSurfaceSession" "$SESSION_MANIFEST" "$SESSION_ALLOWED_LOCAL"
 
 if [[ $fail -ne 0 ]]; then
     echo ""
     echo "A kit package gained a dependency that is not kit-grade. The kit is"
-    echo "ImpressRustCore, ImpressKeyboard, ImpressTheme, ImpressLogging and"
-    echo "ImpressSurface (ADR-0033 D7). Invert the dependency (a closure or"
+    echo "ImpressRustCore, ImpressKeyboard, ImpressTheme, ImpressLogging,"
+    echo "ImpressSurface and ImpressSurfaceSession (ADR-0033 D7). Invert the dependency (a closure or"
     echo "protocol the kit declares and the host supplies) or, if the package"
     echo "really is kit-grade, add it here in the same PR — the review gate."
     exit 1

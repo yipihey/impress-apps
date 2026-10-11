@@ -209,6 +209,7 @@ struct imbibApp: App {
     var body: some Scene {
         WindowGroup {
             IOSContentView()
+                .koineStyleHost()
                 .withTheme()
                 .environment(libraryManager)
                 .environment(libraryViewModel)

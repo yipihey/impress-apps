@@ -22,6 +22,8 @@ import PackageDescription
 // opener, surface hooks, view-kind factories).
 //
 // macOS only: every file is the macOS window's renderer. iOS has no tree.
+// The surface session is ImpressSurfaceSession, which this package re-exports
+// so a macOS host keeps one import. iOS links that package directly.
 let package = Package(
     name: "ImpressLayout",
     platforms: [.macOS(.v26)],
@@ -31,13 +33,17 @@ let package = Package(
     dependencies: [
         .package(path: "../ImpressRustCore"),
         .package(path: "../ImpressSurface"),
+        .package(path: "../ImpressSurfaceSession"),
         .package(path: "../ImpressKeyboard"),
         .package(path: "../ImpressLogging")
     ],
     targets: [
         .target(
             name: "ImpressLayout",
-            dependencies: ["ImpressRustCore", "ImpressSurface", "ImpressKeyboard", "ImpressLogging"],
+            dependencies: [
+                "ImpressRustCore", "ImpressSurface", "ImpressSurfaceSession",
+                "ImpressKeyboard", "ImpressLogging"
+            ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
                 .swiftLanguageMode(.v5)

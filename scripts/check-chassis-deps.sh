@@ -68,6 +68,7 @@ PMC_ALLOWED_LOCAL="
     ../../../packages/ImpressSpotlight
     ../../../packages/ImpressStoreKit
     ../../../packages/ImpressSurface
+    ../../../packages/ImpressSurfaceSession
     ../../../packages/ImpressSyntaxHighlight
     ../../../packages/ImpressTheme
     ../../../packages/ImpressUndoHistory

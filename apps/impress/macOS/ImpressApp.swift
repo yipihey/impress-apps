@@ -108,11 +108,13 @@ struct ImpressApp: App {
 
         CommandGroup(after: .sidebar) {
             ImpressPaneLayoutButtons()
+            KoineStyleMenuButton()
 
             Divider()
 
             // ⌃⌘1–9 — presets first, then saved layouts (ADR-0031 D10 / L7).
             ImpressLayoutOrdinalButtons()
+            ImpressLayoutArrangeButtons()
 
             Divider()
 

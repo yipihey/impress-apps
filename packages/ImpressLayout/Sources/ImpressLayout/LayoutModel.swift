@@ -55,7 +55,7 @@ public typealias LayoutJSONValue = SurfaceJSONValue
 // MARK: - Small vocabulary
 
 /// `impress_layout::LinearDir` — the axis a split lays its children out on.
-public enum LayoutLinearDirection: String, Codable, Sendable, Hashable {
+public enum LayoutLinearDirection: String, Codable, Sendable, Hashable, CaseIterable {
     case horizontal
     case vertical
 }
@@ -67,7 +67,7 @@ public enum LayoutFocusDirection: String, Codable, Sendable, Hashable {
 }
 
 /// `impress_layout::Placement` — where a moved tile lands.
-public enum LayoutPlacement: String, Codable, Sendable, Hashable {
+public enum LayoutPlacement: String, Codable, Sendable, Hashable, CaseIterable {
     case left, right, above, below
     /// Rust spells this `into-tabs` (the enum is `rename_all = "kebab-case"`).
     case intoTabs = "into-tabs"

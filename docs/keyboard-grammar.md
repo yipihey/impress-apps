@@ -20,9 +20,14 @@ them.
 | ⌃⌘1…9 | Apply layout N — N spans the app's layout-tree presets first, then its saved layouts (⌃⌘1 is the app's default arrangement; a `save-layout` takes the next number). Every app's window, imbib included, applies that ordinal through `ImpressLayoutOrdinalButtons` | View ▸ Layouts (`ImpressLayoutOrdinalButtons(appID: "imbib")`, plus Save Current Layout of the live tree) | Layouts menu: the tree's ordinal N in the chassis window; the editor window's N-th saved layout while a manuscript editor window is key (`ImprintLayoutsMenu`) |
 | ⌘/ | Keyboard shortcuts reference | ✓ | ✓ |
 | ⌘Z ⇧⌘Z | Undo / redo — routed by the FOCUSED PANE (ADR-0031 D7): while a text view has focus, or when the focused pane is session-bearing (`source` / `editor`), the chord is the first responder's own undo manager; any other focused pane undoes on its **exploration** ring (parameter bindings + view state), and when that ring has nothing, the window's own undo manager answers (an app-level undo such as a deleted row). Edit ▸ Undo / Redo and their key equivalents route the same way: the kit puts a responder into each tree window's chain (`LayoutWindowResponder`) — no app mounts a command for it | the tree the window hosts | every chassis window (the tree) |
-| ⌥⌘Z ⌥⇧⌘Z | Undo / redo the window's **arrangement** (split / move / close / resize) — its own ring, so undoing a split never undoes typing | the tree the window hosts | every chassis window (the tree) |
+| ⌥⌘Z ⌥⇧⌘Z | Undo / redo the window's **arrangement** (split / move / close / resize) — View ▸ Layouts ▸ Undo Arrangement / Redo Arrangement. Its own ring, so undoing a split never undoes typing. Undo History has no chord | the tree the window hosts | every chassis window (the tree) |
+| ⌃⌥⌘→ | Split the focused pane to the right. A bare split: the new pane duplicates the focused one (`LayoutVerb.split`). ⌥⌘Z undoes it | View menu, beside the layout ordinals (`ImpressLayoutArrangeButtons`) | the same, while the chassis window is key. A manuscript editor window's Layouts menu does not bind it (`ImprintLayoutsMenu`) |
+| ⌃⌥⌘↓ | Split the focused pane below | the same | the same |
+| ⌃⌥⌘W | Close the focused pane. The last pane in the layout stays; Rust refuses that close | the same | the same |
+| ⌃⌥⌘↩ | Maximize the focused pane, or restore the window when a pane is already maximized | the same | the same |
 | ⌃⌘E | Toggle the reMarkable mirror mark on the selection (ADR-025) | Paper ▸ Mirror to reMarkable (also `e`, guarded); disabled until a device is configured, hidden per-row unless it is in individual mode | — |
 | ⌘⇧F | Global search | Focus search | Search across manuscripts — implore/impel (which had no binding) route it to the chassis's builtin "Search Everything" store-wide surface (ADR-0022 D6, `ImpressStoreSearchCommands`); impart's ⌘⇧F stays Forward Message, so its Search Everything sidebar node is click-only |
+| ⌥⌘Y | Edit the koine style sheet | View ▸ Edit Style… (`KoineStyleMenuButton`). Fonts, colors, spacing, and the text frontend's lines, stored in `<workspace>/settings/koine-style.json` | the same command |
 
 **A manuscript's papers (ADR-0032)** — imprint has no Papers panel; the papers
 are an imbib collection shown in imbib's papers window:
@@ -117,7 +122,39 @@ Both scene chords are gone.
 Tom made it: they mount `ImpressPaneLayoutButtons` and
 `ImpressLayoutOrdinalButtons` like impress, imprint and impart. impart had
 the pane toggles and not the ordinals; it mounts both now.
-`PaneLayoutCommandsTests.testEveryChassisAppMountsTheLayoutOrdinals` pins it.
+`PaneLayoutCommandsTests.testEveryChassisAppMountsTheLayoutOrdinals` pins it,
+and the same scan pins `ImpressLayoutArrangeButtons` beside those ordinals.
+
+**⌃⌥⌘→ / ⌃⌥⌘↓ / ⌃⌥⌘W / ⌃⌥⌘↩ arrange the focused pane.** They are
+`ImpressLayoutArrangeButtons` (`Chassis/Shared/LayoutArrangeCommands.swift`),
+one menu in every chassis app. The same menu lists saved layouts by name
+(apply and delete, by id), offers the view kinds this process has registered,
+and moves the focused pane one step toward its neighbour leaf — or into tabs
+with that neighbour. None of those items has a chord: ⌃⌘1–9 already recalls
+an ordinal, and a drag of the pane's header is the pointer form of the move
+(`move-tile`, one verb on drop, onto the target pane's edge or its center).
+A pane that shares a tab strip splits back out when its handle, or its tab,
+is dropped on an edge of that same pane: the neighbouring tab is the target.
+The center of its own pane does not.
+Secondary click on that header opens `LayoutPaneActions`: every verb the host
+can apply to the handle's own tile, generated from the verb vocabulary (each
+split side, close, maximize, restore, collapse, focus, one step per placement,
+each registered view kind, and the preset roles). A verb the tree cannot
+accept is listed and disabled. A role the window no longer has is an Open
+row on that menu and under View ▸ Layouts: Open Papers, Open Detail, Open
+Sidebar. Open Papers and Show → List on the sidebar send `open-list`. That
+verb focuses the list when the window has one, and otherwise splits one in
+beside the sidebar. Its kinds come from a remaining detail pane, or from the
+cold-start list when none remains. The sidebar's query is collections and
+libraries, and Show on any other kind still changes only the view kind. A
+publication's Info, PDF, Notes, and BibTeX tabs drag along their strip to
+reorder, which sends `set-tab-order` (the pane's exploration ring, so ⌘Z
+undoes it). Dropping one on an edge of a pane splits that tab out as its own
+pane of the same paper; dropping it on the center of its own pane does not.
+Those items have no chord.
+The chords are published as data (`LayoutArrangeChords`) and
+`testTheKeyboardGrammarDocumentsTheArrangeChords` fails if a row leaves this
+table. They are menu chords, in the same way ⌥⌘Y is.
 
 **⌃⌘S / ⌥⌘0 / ⌘0 act on ROLES** (ADR-0031 D5): in every window — the layout
 tree, the only chassis root since plan wave 6 W5, and imbib's window since

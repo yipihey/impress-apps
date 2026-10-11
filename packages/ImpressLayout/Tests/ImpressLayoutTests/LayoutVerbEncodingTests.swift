@@ -116,6 +116,16 @@ final class LayoutVerbEncodingTests: XCTestCase {
         XCTAssertEqual(try json(.restore), #"{"verb":"restore"}"#)
     }
 
+    func testOpenListCarriesNoSpec() throws {
+        XCTAssertEqual(try json(.openList), #"{"verb":"open-list"}"#)
+    }
+
+    func testSetTabOrderKeepsRustsFieldSpelling() throws {
+        XCTAssertEqual(
+            try json(.setTabOrder(target: .role("detail"), tabs: ["pdf", "info"])),
+            #"{"tabs":["pdf","info"],"target":{"role":"detail"},"verb":"set-tab-order"}"#)
+    }
+
     func testSetViewKindKeepsRustsFieldSpelling() throws {
         XCTAssertEqual(
             try json(.setViewKind(target: .id(3), viewKind: .pdf)),

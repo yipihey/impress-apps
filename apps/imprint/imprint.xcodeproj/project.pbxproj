@@ -445,6 +445,7 @@
 		7985931850E6899B8390851E /* imprint.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = imprint.entitlements; sourceTree = "<group>"; };
 		7B3D825F8C09DC4C79BB01CD /* ImpressLogging */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ImpressLogging; path = ../../packages/ImpressLogging; sourceTree = SOURCE_ROOT; };
 		7BD68F0571FEC0EFE9F2E246 /* SettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPage.swift; sourceTree = "<group>"; };
+		7E94219103A39A6BC8C74D30 /* ImpressSurfaceSession */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ImpressSurfaceSession; path = ../../packages/ImpressSurfaceSession; sourceTree = SOURCE_ROOT; };
 		800A1B08DC3EC98E2A098ECF /* ImprintTestApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImprintTestApp.swift; sourceTree = "<group>"; };
 		812D42B2BB9C35AEF999AC57 /* HandoffService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandoffService.swift; sourceTree = "<group>"; };
 		8267517568B0D1D010E4DB51 /* ManuscriptStoreAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManuscriptStoreAdapter.swift; sourceTree = "<group>"; };
@@ -737,6 +738,7 @@
 				44B3CAFDBA4E2E6525159725 /* ImpressSpotlight */,
 				953EB2298F9AE4A7F8ED385E /* ImpressStoreKit */,
 				49C413A1F75EF5771DB01E24 /* ImpressSurface */,
+				7E94219103A39A6BC8C74D30 /* ImpressSurfaceSession */,
 				D3DD90EFDD695E91E50BC9D3 /* ImpressSyntaxHighlight */,
 				094CAB5368BE43666D38D4A6 /* ImpressTestKit */,
 				138B1F77FC2AB4BE54DB7BFF /* ImpressTheme */,
@@ -1375,6 +1377,7 @@
 				A6BC19116865C5ACD7819561 /* XCLocalSwiftPackageReference "../../packages/ImpressSpotlight" */,
 				47B140E2D51B63F2F93E357B /* XCLocalSwiftPackageReference "../../packages/ImpressStoreKit" */,
 				C7DB5C2F4FE785C3F0B92661 /* XCLocalSwiftPackageReference "../../packages/ImpressSurface" */,
+				7255253C101D05D148EA166E /* XCLocalSwiftPackageReference "../../packages/ImpressSurfaceSession" */,
 				01F0D2977A2B8B18A016CE30 /* XCLocalSwiftPackageReference "../../packages/ImpressSyntaxHighlight" */,
 				4587DE5DB9955180BDA2029E /* XCLocalSwiftPackageReference "../../packages/ImpressTestKit" */,
 				03FD43271D5C3423A49B2FAE /* XCLocalSwiftPackageReference "../../packages/ImpressTheme" */,
@@ -2288,6 +2291,10 @@
 		5F86F3BDAC01BC8F1408F0BA /* XCLocalSwiftPackageReference "../../packages/ImpressChassis" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../packages/ImpressChassis;
+		};
+		7255253C101D05D148EA166E /* XCLocalSwiftPackageReference "../../packages/ImpressSurfaceSession" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../packages/ImpressSurfaceSession;
 		};
 		A6BC19116865C5ACD7819561 /* XCLocalSwiftPackageReference "../../packages/ImpressSpotlight" */ = {
 			isa = XCLocalSwiftPackageReference;

@@ -243,10 +243,12 @@ struct ImploreApp: App {
             // collision: the render modes are ⌘1–4, not ⌃⌘.
             CommandGroup(after: .sidebar) {
                 ImpressPaneLayoutButtons()
+                KoineStyleMenuButton()
 
                 Divider()
 
                 ImpressLayoutOrdinalButtons()
+                ImpressLayoutArrangeButtons()
             }
         }
 

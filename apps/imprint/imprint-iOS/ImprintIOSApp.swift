@@ -394,6 +394,7 @@ struct ImprintIOSApp: App {
             // both the environment value and the responder-chain manager that
             // shake-to-undo needs.
             IOSManuscriptLibraryView()
+                .koineStyleHost()
                 .undoEnabled()
                 .withAppearance()
                 .task {

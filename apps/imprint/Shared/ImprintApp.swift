@@ -955,6 +955,7 @@ struct ImprintApp: App {
             // manuscript-specific; relabelling a live menu entry is a UX
             // decision, so the label stays until someone makes it.
             ImpressPaneLayoutButtons(listTitle: "Toggle Manuscript List", appID: "imprint")
+            KoineStyleMenuButton()
 
             Button(appState.isEditorSplit ? "Close Split Editor" : "Split Editor") {
                 withAnimation { appState.isEditorSplit.toggle() }

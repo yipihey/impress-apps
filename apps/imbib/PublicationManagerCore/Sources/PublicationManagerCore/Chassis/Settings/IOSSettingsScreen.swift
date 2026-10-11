@@ -97,6 +97,25 @@ public struct IOSSettingsScreen: View {
                     }
                 }
 
+                Section {
+                    NavigationLink {
+                        KoineStyleSettingsPage()
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Style")
+                                Text("Fonts, colors, and spacing")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "paintbrush")
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                    .accessibilityIdentifier("settings.koineStyle")
+                }
+
                 // The footer hangs off its own trailing section rather than the
                 // last band's: with grouping, "the last band" is whichever
                 // capability filtering left standing, and a note about Mac-only

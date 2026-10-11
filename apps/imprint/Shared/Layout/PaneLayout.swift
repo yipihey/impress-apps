@@ -228,6 +228,7 @@ struct ImprintLayoutsMenu: View {
                 editorLayouts(withChords: true)
             } else {
                 ImpressLayoutOrdinalButtons(appID: "imprint")
+                ImpressLayoutArrangeButtons()
                 Divider()
                 editorLayouts(withChords: false)
             }

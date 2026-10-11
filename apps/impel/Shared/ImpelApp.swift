@@ -177,10 +177,12 @@ struct ImpelApp: App {
                 // bound none of them, and the keyboard grammar's "same chord,
                 // same meaning, every app" had a gap here (Tom's decision).
                 ImpressPaneLayoutButtons()
+                KoineStyleMenuButton()
 
                 Divider()
 
                 ImpressLayoutOrdinalButtons()
+                ImpressLayoutArrangeButtons()
 
                 Divider()
 

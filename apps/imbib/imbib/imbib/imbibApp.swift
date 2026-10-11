@@ -921,6 +921,7 @@ struct AppCommands: Commands {
     private var layoutsMenu: some View {
         Menu("Layouts") {
             ImpressLayoutOrdinalButtons(appID: "imbib")
+            ImpressLayoutArrangeButtons()
 
             Divider()
 
@@ -1092,7 +1093,9 @@ struct AppCommands: Commands {
             Button("Undo History") {
                 UndoHistoryPanelController.shared.toggle()
             }
-            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.edit.undo_history"))
+            // No chord. The keymap still names ⌥⌘Z for this command, and that
+            // key equivalent was closing this panel instead of undoing a split.
+            // ⌥⌘Z is View ▸ Layouts ▸ Undo Arrangement.
             #endif
         }
 
@@ -1121,6 +1124,14 @@ struct AppCommands: Commands {
             .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.show_inbox"))
 
             Divider()
+
+            Button("Open Papers") {
+                LayoutPaperList.open()
+            }
+
+            Button("Show Info Tab") {
+                NotificationCenter.default.post(name: .showInfoTab, object: nil)
+            }
 
             Button("Show PDF Tab") {
                 NotificationCenter.default.post(name: .showPDFTab, object: nil)
@@ -1157,6 +1168,7 @@ struct AppCommands: Commands {
             //
             // The window is the layout tree, same as the other apps.
             ImpressPaneLayoutButtons()
+            KoineStyleMenuButton()
 
             layoutsMenu
 

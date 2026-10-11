@@ -57,6 +57,8 @@ packages:
     path: ../../packages/ImpressLayout
   ImpressSurface:
     path: ../../packages/ImpressSurface
+  ImpressSurfaceSession:
+    path: ../../packages/ImpressSurfaceSession
   ImpressOperationQueue:
     path: ../../packages/ImpressOperationQueue
   ImpressSidebar:

@@ -260,6 +260,19 @@ final class SettingsSurfaceContractTests: XCTestCase {
         }
     }
 
+    /// The generated settings pane is one body on both platforms. The
+    /// placeholder that said iOS was still waiting on R1 must not return,
+    /// and the file must not import the macOS layout host to get the session.
+    func testGeneratedSettingsPaneIsNotMacOSOnly() throws {
+        let text = try ChassisSourceRoots.text(of: "Settings/SettingsSurfacePane.swift")
+        XCTAssertFalse(text.contains("#if os(macOS)"))
+        XCTAssertFalse(text.contains("macOS-only for now"))
+        XCTAssertFalse(text.contains("import ImpressLayout"))
+        XCTAssertTrue(text.contains("import ImpressSurfaceSession"))
+        let settings = try ChassisSourceRoots.text(of: "Chassis/Settings/IOSSettingsScreen.swift")
+        XCTAssertTrue(settings.contains("settings.koineStyle"))
+    }
+
     /// The renderers are the split-out halves, one gate each. The split is only
     /// worth anything if each really is separate.
     ///

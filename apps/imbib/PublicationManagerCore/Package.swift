@@ -44,6 +44,7 @@ let package = Package(
         // suite-aware bits (MarkdownUI, ImprintCore's `renderPlotSvg`,
         // `SharedSurface`) through `LayoutSurfacePaneView`'s `SurfaceHooks`.
         .package(path: "../../../packages/ImpressSurface"),
+        .package(path: "../../../packages/ImpressSurfaceSession"),
         .package(path: "../../../packages/ImpressMailStyle"),
         .package(path: "../../../packages/ImpressLogging"),
         .package(path: "../../../packages/ImpressStoreKit"),
@@ -86,6 +87,7 @@ let package = Package(
                 "ImpressSidebar",
                 "ImpressFTUI",
                 "ImpressSurface",
+                "ImpressSurfaceSession",
                 "ImpressMailStyle",
                 "ImpressLogging",
                 "ImpressStoreKit",

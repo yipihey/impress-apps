@@ -274,6 +274,7 @@ struct ImpartApp: App {
                 // value so they keep their position in this group, ahead of the
                 // view-mode accelerators below.
                 ImpressPaneLayoutButtons()
+                KoineStyleMenuButton()
 
                 Divider()
 
@@ -306,6 +307,7 @@ struct ImpartApp: App {
                 // the grammar's "every chassis app: Apply Layout N" was untrue
                 // here until 2026-09-24. ⌘1–5 above are view modes; no clash.
                 ImpressLayoutOrdinalButtons()
+                ImpressLayoutArrangeButtons()
 
                 Divider()
 

@@ -23,7 +23,9 @@ struct ImpressIOSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            IOSImpressHostView().preferredColorScheme(colorScheme)
+            IOSImpressHostView()
+                .koineStyleHost()
+                .preferredColorScheme(colorScheme)
         }
     }
 

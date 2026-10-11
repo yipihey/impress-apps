@@ -144,6 +144,11 @@ public enum LayoutVerb: Sendable, Hashable {
     // ---- content (tree verbs) ----
     case setViewKind(target: LayoutPaneRef, viewKind: ViewKindID)
     case setRole(target: LayoutPaneRef, role: String?)
+    /// Focus the list, or split one in beside the navigator. Kinds are
+    /// decided in Rust: a remaining detail pane, else the cold-start list.
+    case openList
+    /// Write `view_state.tab_order` on `target`. Exploration-ring undo.
+    case setTabOrder(target: LayoutPaneRef, tabs: [String])
 
     // ---- focus (tree verb) ----
     case focus(target: LayoutPaneRef)
@@ -217,6 +222,16 @@ public enum LayoutVerb: Sendable, Hashable {
                 "role": role.map { LayoutJSONValue.string($0) } ?? .null,
             ])
 
+        case .openList:
+            return .object(["verb": .string("open-list")])
+
+        case .setTabOrder(let target, let tabs):
+            return .object([
+                "verb": .string("set-tab-order"),
+                "target": target.json,
+                "tabs": .array(tabs.map { .string($0) }),
+            ])
+
         case .focus(let target):
             return .object(["verb": .string("focus"), "target": target.json])
 
@@ -238,6 +253,8 @@ public enum LayoutVerb: Sendable, Hashable {
             return "set-collapsed(\(collapsed.map { String($0) } ?? "toggle"))"
         case .setViewKind(_, let kind): return "set-view-kind(\(kind.rawValue))"
         case .setRole(_, let role): return "set-role(\(role ?? "nil"))"
+        case .openList: return "open-list"
+        case .setTabOrder(_, let tabs): return "set-tab-order(\(tabs.joined(separator: ",")))"
         case .focus: return "focus"
         case .focusDirection(let direction): return "focus-direction(\(direction.rawValue))"
         case .select(let pane, let kind, let ids):

@@ -197,7 +197,55 @@ final class PaneLayoutCommandsTests: XCTestCase {
             XCTAssertTrue(
                 try Self.source(of: path).contains(expected),
                 "\(path) must mount the chassis's ⌃⌘1–9 (ImpressLayoutOrdinalButtons)")
+            XCTAssertTrue(
+                try Self.source(of: path).contains("ImpressLayoutArrangeButtons()"),
+                "\(path) must mount the shared arrange menu beside the ordinals")
         }
+    }
+
+    /// The arrange menu applies the verbs that already exist. SwiftUI cannot
+    /// enumerate a built menu, so the wiring is the source: the performer
+    /// calls `controller.apply`, and show/move rows are `LayoutPaneActions`
+    /// — the same list a pane header's context menu renders for its tile.
+    func testTheArrangeMenuAppliesExistingVerbs() throws {
+        let source = try Self.source(
+            of: "apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/"
+                + "Chassis/Shared/LayoutArrangeCommands.swift")
+        XCTAssertTrue(source.contains("apply(arrange.verb)"))
+        XCTAssertTrue(source.contains("controller.apply(verb)"))
+        XCTAssertTrue(source.contains("LayoutPaneActions.actions"))
+        XCTAssertTrue(source.contains("targeting: .focused"))
+        XCTAssertTrue(source.contains("section == .open"))
+        XCTAssertTrue(source.contains("undoArrangement()"))
+        XCTAssertTrue(source.contains("LayoutPaperList.open()"))
+        XCTAssertTrue(source.contains(".openList"))
+        XCTAssertTrue(
+            source.contains(".keyboardShortcut(\"z\", modifiers: [.option, .command])"))
+        XCTAssertTrue(source.contains(".applySaved(row.id)"))
+        XCTAssertTrue(source.contains(".deleteSaved(row.id)"))
+        XCTAssertFalse(
+            source.contains(".focusable("),
+            "the arrange menu must not add a focus target")
+
+        let header = try Self.source(
+            of: "packages/ImpressLayout/Sources/ImpressLayout/LayoutPaneMove.swift")
+        XCTAssertTrue(header.contains(".contextMenu"))
+        XCTAssertTrue(header.contains("LayoutPaneActions.actions"))
+        XCTAssertTrue(header.contains("targeting: .id(tile)"))
+        XCTAssertTrue(header.contains("LayoutPaneMove.verb"))
+        XCTAssertFalse(
+            header.contains(".focusable("),
+            "a pane header must not become a focus target")
+
+        let info = try Self.source(
+            of: "apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/"
+                + "Chassis/Layout/ChassisViewKinds.swift")
+        XCTAssertTrue(info.contains("beginSpawning"))
+        XCTAssertTrue(info.contains("layout.detail.tab."))
+        XCTAssertTrue(info.contains("setTabOrder"))
+        XCTAssertFalse(
+            info.contains(".focusable("),
+            "a detail tab handle must not become a focus target")
     }
 
     private static let repoRoot: URL = {
@@ -322,10 +370,20 @@ final class PaneLayoutCommandsTests: XCTestCase {
             if chord.modifiers.contains(.command) { names.append("command") }
             chords.append("\(names.joined(separator: "+"))-\(chord.key)")
         }
+        // ⌃⌘1–9 left imbibApp when they became `ImpressLayoutOrdinalButtons`.
+        // The fallback chord is what the menu binds: no keymap row overrides it.
+        let ordinals = try Self.source(
+            of: "apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/"
+                + "Chassis/Shared/PaneLayoutCommands.swift")
         XCTAssertTrue(
-            source.contains("KeyEquivalent(Character(\"\\(index + 1)\")), modifiers: [.command, .control]"),
+            ordinals.contains(
+                "KeyEquivalent(Character(\"\\(ordinal)\")), modifiers: [.control, .command])"),
             "View ▸ Layouts' ⌃⌘1–9 moved; update this scan")
+        XCTAssertTrue(
+            source.contains("ImpressLayoutOrdinalButtons(appID: \"imbib\")"),
+            "imbib's View ▸ Layouts must still mount the shared ordinals")
         chords += (1...9).map { "control+command-\($0)" }
+        chords += LayoutArrangeChords.all.map(LayoutArrangeChords.collisionKey)
 
         for chord in chords { seen[chord, default: 0] += 1 }
         let shared = seen.filter { $0.value > 1 }.keys.sorted()
@@ -370,5 +428,26 @@ final class PaneLayoutCommandsTests: XCTestCase {
                 grammar.contains(chord),
                 "docs/keyboard-grammar.md must carry a row for \(chord)")
         }
+    }
+
+    /// The four arrange chords are universal. They live on the shared menu,
+    /// so this file is what fails if one leaves the grammar.
+    func testTheKeyboardGrammarDocumentsTheArrangeChords() throws {
+        let grammar = try Self.source(of: "docs/keyboard-grammar.md")
+        for chord in ["⌃⌥⌘→", "⌃⌥⌘↓", "⌃⌥⌘W", "⌃⌥⌘↩"] {
+            XCTAssertTrue(
+                grammar.contains(chord),
+                "docs/keyboard-grammar.md must carry a row for \(chord)")
+        }
+        let keys = LayoutArrangeChords.all.map(LayoutArrangeChords.collisionKey)
+        XCTAssertEqual(Set(keys).count, keys.count, "two arrange actions share a chord")
+        XCTAssertEqual(
+            keys,
+            [
+                "control+option+command-rightArrow",
+                "control+option+command-downArrow",
+                "control+option+command-w",
+                "control+option+command-return",
+            ])
     }
 }
