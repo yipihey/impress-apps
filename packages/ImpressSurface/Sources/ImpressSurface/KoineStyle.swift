@@ -53,7 +53,11 @@ public enum KoineStyleError: Error, Equatable, LocalizedError {
 public struct KoineStyleSheet: Equatable, Sendable {
     public static let swiftID = "swift"
     public static let tuiID = "tui"
-    public static let frontendIDs = [swiftID, tuiID]
+    /// The browser (koine `koine-dioxus`, docs/plan-koine-web.md D3). Its
+    /// value kinds are Swift's; Swift never paints its sheet, it only keeps
+    /// the book complete so a file an agent or the page wrote round-trips.
+    public static let webID = "web"
+    public static let frontendIDs = [swiftID, tuiID, webID]
     public static let colorTokens = [
         "automatic", "accent", "primary", "secondary", "error", "warning", "info",
     ]
@@ -208,6 +212,20 @@ public struct KoineStyleSheet: Equatable, Sendable {
             KoineSlot(name: "status.warning", kind: .line, defaultValue: "status warning: {message}"),
             KoineSlot(name: "status.info", kind: .line, defaultValue: "status info: {message}"),
             KoineSlot(name: "focus", kind: .line, defaultValue: ">"),
+        ],
+        webID: [
+            KoineSlot(name: "column", kind: .spacing, defaultValue: "8"),
+            KoineSlot(name: "row", kind: .spacing, defaultValue: "8"),
+            KoineSlot(name: "text", kind: .font, defaultValue: "automatic"),
+            KoineSlot(name: "section", kind: .font, defaultValue: "automatic"),
+            KoineSlot(name: "button", kind: .color, defaultValue: "automatic"),
+            KoineSlot(name: "field", kind: .font, defaultValue: "automatic"),
+            KoineSlot(name: "list", kind: .spacing, defaultValue: "0"),
+            KoineSlot(name: "table", kind: .spacing, defaultValue: "0"),
+            KoineSlot(name: "status.error", kind: .color, defaultValue: "error"),
+            KoineSlot(name: "status.warning", kind: .color, defaultValue: "warning"),
+            KoineSlot(name: "status.info", kind: .color, defaultValue: "info"),
+            KoineSlot(name: "focus", kind: .color, defaultValue: "automatic"),
         ],
     ]
 }
