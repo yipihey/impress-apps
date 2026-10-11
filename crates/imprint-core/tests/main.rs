@@ -5,6 +5,7 @@
 
 mod golden_parity;
 mod plot_render_typst;
+mod plot_shape;
 mod project_graph;
 mod source_map_pagination;
 mod synctex_fixture;

@@ -1,9 +1,7 @@
 //! Completeness statement 1 (plan-auto-gui-and-self-docs.md § "What complete
 //! means"): `verb_surface` returns a valid `SurfaceSpec` for every verb in
-//! the linked inventory. This test links every service crate except
-//! `capabilities-service` itself (see `Cargo.toml`'s comment on the
-//! dev-dependency cycle that would otherwise create), so it proves the
-//! property over the ~433-verb inventory minus the 3 this plan adds.
+//! the linked inventory. This binary is an `impress-capabilities` test, so
+//! the default `full` feature set is what it sees.
 
 use impress_service_core::VerbDescriptor;
 use impress_surface::validate;

@@ -1032,7 +1032,7 @@ impl DefaultLayoutService {
                 let verb = match (&built, build.take()) {
                     (Some(verb), _) => verb.clone(),
                     (None, Some(build)) => {
-                        let verb = build(session)?;
+                        let verb = supply_open_list_fallback(build(session)?);
                         built = Some(verb.clone());
                         check_verb(&verb).map_err(|r| r.context(verb_label(&verb)))?;
                         verb
@@ -1113,6 +1113,7 @@ impl DefaultLayoutService {
                 "apply_verbs needs at least one verb",
             ));
         }
+        let verbs: Vec<Verb> = verbs.into_iter().map(supply_open_list_fallback).collect();
         for verb in &verbs {
             if let Err(refusal) = check_verb(verb) {
                 return refused_verb(
@@ -1379,7 +1380,25 @@ pub fn check_verb(verb: &Verb) -> Result<(), Refusal> {
         Verb::Split {
             new: Some(spec), ..
         } => check_query_kinds(&spec.query),
+        Verb::OpenList { kinds: Some(kinds) } => {
+            for kind in kinds {
+                check_record_kind(kind)?;
+            }
+            Ok(())
+        }
         _ => Ok(()),
+    }
+}
+
+/// A bare `open-list` names no kinds. Fill the cold-start list so the tree
+/// has a fallback when the window no longer has a detail pane to copy.
+/// A detail pane's kinds still win: the tree reads those first.
+fn supply_open_list_fallback(verb: Verb) -> Verb {
+    match verb {
+        Verb::OpenList { kinds: None } => Verb::OpenList {
+            kinds: Some(crate::store::default_list_query().kinds),
+        },
+        other => other,
     }
 }
 
@@ -1615,6 +1634,8 @@ fn intent_text(verb: &Verb) -> String {
         Verb::SetPane { .. } => "replaced a pane's spec".to_string(),
         Verb::SetQuery { .. } => "re-pointed a pane's query".to_string(),
         Verb::SetViewKind { view_kind, .. } => format!("re-rendered a pane as '{view_kind}'"),
+        Verb::OpenList { .. } => "opened the list".to_string(),
+        Verb::SetTabOrder { tabs, .. } => format!("ordered {} detail tabs", tabs.len()),
         Verb::BindParam { name, .. } => format!("re-bound the parameter '{name}'"),
         Verb::SetChannel { channel, .. } => format!("moved a pane to channel {channel}"),
         Verb::SetRole { role, .. } => match role {
@@ -3397,4 +3418,25 @@ impress_service_impl! {
             actor: Option<String>
         ) -> PresetResult,
     ],
+}
+
+#[cfg(test)]
+mod open_list_fallback_tests {
+    use super::supply_open_list_fallback;
+    use impress_layout::Verb;
+
+    #[test]
+    fn a_bare_open_list_uses_the_cold_start_kinds() {
+        let verb = supply_open_list_fallback(Verb::OpenList { kinds: None });
+        assert_eq!(
+            verb,
+            Verb::OpenList {
+                kinds: Some(vec!["publication".into()])
+            }
+        );
+        let kept = Verb::OpenList {
+            kinds: Some(vec!["manuscript".into()]),
+        };
+        assert_eq!(supply_open_list_fallback(kept.clone()), kept);
+    }
 }

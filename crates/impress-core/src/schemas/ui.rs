@@ -977,15 +977,11 @@ mod store_tests {
     /// value — as produced by `impress_layout::preset::three_column(...)`.
     ///
     /// Embedded as the committed golden file rather than constructed by
-    /// calling `three_column()` directly: `impress-layout` depends on
-    /// `impress-core`, so taking it as a dev-dependency here would be a
-    /// dev-dependency cycle *and* an edit to the workspace manifest, which is
-    /// owned elsewhere right now (see the L2 report). The golden is the same
-    /// bytes `crates/impress-layout/tests` asserts against, so it cannot
-    /// silently stop being a real layout: if the layout value's serde shape
-    /// changes, that crate's golden test fails first.
-    const THREE_COLUMN_GOLDEN: &str =
-        include_str!("../../../impress-layout/tests/golden/three_column.json");
+    /// calling `three_column()` directly. The canonical bytes live with the
+    /// layout crate; this copy is what the store test reads, so the grammar
+    /// crate does not have to sit beside this one. If the layout value's
+    /// serde shape changes, that crate's golden test fails first.
+    const THREE_COLUMN_GOLDEN: &str = include_str!("../../tests/fixtures/three_column.json");
 
     fn open() -> SqliteItemStore {
         SqliteItemStore::open_in_memory().expect("open in-memory store")

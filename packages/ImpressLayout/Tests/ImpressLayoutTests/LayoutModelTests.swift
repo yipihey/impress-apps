@@ -27,25 +27,11 @@ final class LayoutModelTests: XCTestCase {
 
     // MARK: - The golden
 
-    /// The repo root, five directories up from this file:
-    /// `…/packages/ImpressLayout/Tests/ImpressLayoutTests/<this>` (it lived
-    /// two levels deeper in PublicationManagerCore until W6 moved it with
-    /// the host; `testTheGoldenIsWhereThisSuiteThinksItIs` is what caught a
-    /// stale count).
-    private static let repoRoot: URL = {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // …/ImpressLayoutTests
-            .deletingLastPathComponent()   // …/Tests
-            .deletingLastPathComponent()   // …/ImpressLayout
-            .deletingLastPathComponent()   // …/packages
-            .deletingLastPathComponent()   // repo root
-    }()
-
+    /// The golden in the pinned koine checkout, not a second copy in this package.
     private static let goldenPath = "crates/impress-layout/tests/golden/three_column.json"
 
     private func goldenJSON() throws -> String {
-        try String(
-            contentsOf: Self.repoRoot.appendingPathComponent(Self.goldenPath), encoding: .utf8)
+        try String(contentsOf: KoineCheckout.file(Self.goldenPath), encoding: .utf8)
     }
 
     /// A moved test file turns every read above into a silent skip.

@@ -76,6 +76,10 @@ impress-keymap = { workspace = true }
 # G7b: pipeline_bench's aggregator-installed variant.
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Completeness of the generated verb forms, and the catalogue proof, live
+# here so the grammar crate does not depend on this inventory.
+impress-verb-surface = { workspace = true }
+impress-surface = { workspace = true }
 
 [features]
 perf = ["dep:perf-service"]

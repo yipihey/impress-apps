@@ -30,22 +30,12 @@ import Testing
 @Suite("RenderTree golden fixture")
 struct RenderTreeGoldenTests {
 
-    /// The repo root, five directories up from this file:
-    /// `…/packages/ImpressSurface/Tests/ImpressSurfaceTests/<this>`.
-    private static let repoRoot: URL = {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()  // …/ImpressSurfaceTests
-            .deletingLastPathComponent()  // …/Tests
-            .deletingLastPathComponent()  // …/ImpressSurface
-            .deletingLastPathComponent()  // …/packages
-            .deletingLastPathComponent()  // repo root
-    }()
-
+    /// The golden in the pinned koine checkout, not a second copy in this package.
     private static let goldenPath =
         "crates/impress-surface/tests/golden/signal-explorer.render.json"
 
     private func goldenData() throws -> Data {
-        try Data(contentsOf: Self.repoRoot.appendingPathComponent(Self.goldenPath))
+        try Data(contentsOf: KoineCheckout.file(Self.goldenPath))
     }
 
     /// A moved test file (or a moved golden) turns every read below into a

@@ -59,23 +59,23 @@
 //! rule is enforced where the invalidations are delivered — the FFI feed's
 //! grace period (`SharedLayout::set_startup_grace_secs`) — not here.
 //!
-//! [`OperationIntent`]: impress_core::operation::OperationIntent
-//! [`RetentionTier::Ephemeral`]: impress_core::operation::RetentionTier::Ephemeral
-//! [`OperationIntent::Routine`]: impress_core::operation::OperationIntent::Routine
-//! [`RetentionTier::Durable`]: impress_core::operation::RetentionTier::Durable
-//! [`OperationIntent::Editorial`]: impress_core::operation::OperationIntent::Editorial
+//! [`OperationIntent`]: impress_item::operation::OperationIntent
+//! [`RetentionTier::Ephemeral`]: impress_item::operation::RetentionTier::Ephemeral
+//! [`OperationIntent::Routine`]: impress_item::operation::OperationIntent::Routine
+//! [`RetentionTier::Durable`]: impress_item::operation::RetentionTier::Durable
+//! [`OperationIntent::Editorial`]: impress_item::operation::OperationIntent::Editorial
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use impress_core::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
-use impress_core::operation::{OperationSpec, OperationType};
 use impress_core::pane_query::PaneQuery;
-use impress_core::query::ItemQuery;
 use impress_core::schemas::LAYOUT_SCHEMA_REF;
-use impress_core::sqlite_store::{GuardedWrite, SqliteItemStore};
-use impress_core::store::AttributedStore;
+use impress_core::sqlite_store::SqliteItemStore;
+use impress_item::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
+use impress_item::operation::{OperationSpec, OperationType};
+use impress_item::query::ItemQuery;
+use impress_item::store::{AttributedStore, GuardedWrite};
 use impress_layout::{preset, Layout, ViewKindId};
 use impress_service_core::Refusal;
 

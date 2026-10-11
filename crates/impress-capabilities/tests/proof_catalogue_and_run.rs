@@ -18,15 +18,6 @@ use impress_surface::{Event, EventKind};
 use impress_surface_service::dto::SpecArg;
 use impress_surface_service::{DefaultImpressSurfaceService, ImpressSurfaceService};
 
-// Linked so `surface-demo-service_series` is in the inventory this test's
-// binary sees, and so `capabilities-service_list-verbs`'s own build (a
-// dev-dependency of this crate) is unaffected — see Cargo.toml's comment on
-// why the completeness test above excludes it.
-use surface_demo_service as _;
-// Linked so `capabilities-service_list-verbs`/`verb-surface`, which the
-// catalogue names, resolve against the inventory `surface_create` checks.
-use capabilities_service as _;
-
 const HOST: &str = "verb-surface-proof";
 
 fn world() -> (Arc<SqliteItemStore>, DefaultImpressSurfaceService) {
@@ -37,6 +28,7 @@ fn world() -> (Arc<SqliteItemStore>, DefaultImpressSurfaceService) {
 
 #[tokio::test]
 async fn the_catalogue_renders_and_the_generated_form_runs_a_verb_into_its_result_view() {
+    impress_capabilities::force_link();
     let (_store, service) = world();
 
     // 1. The catalogue renders headlessly.
@@ -129,10 +121,11 @@ async fn the_catalogue_renders_and_the_generated_form_runs_a_verb_into_its_resul
 /// `impress_service_core::pipeline`, never a direct Rust method call on
 /// `SurfaceDemoService`. This test proves the verb is reachable ONLY that
 /// way from this binary — there is no `use surface_demo_service::...Series`
-/// import anywhere in this file, only the inventory lookup below and the
-/// `as _` link above.
+/// import anywhere in this file, only the inventory lookup below. The
+/// capabilities library links the demo and the capabilities service.
 #[test]
 fn the_series_verb_is_reached_only_through_the_pipeline() {
+    impress_capabilities::force_link();
     let descriptor = McpToolDescriptor::iter()
         .find(|d| d.name == "surface-demo-service_series")
         .expect("linked");

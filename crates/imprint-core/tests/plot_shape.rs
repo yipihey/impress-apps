@@ -4,9 +4,11 @@
 //! (ADR-0033 "Defaults": "the widget renders through imprint-core's existing
 //! `render_plot_svg`").
 //!
-//! `imprint-core` (with its heavy `typst-render` feature) is a dev-dependency
-//! only — see `src/plot.rs`'s module docs for why the crate itself never
-//! needs it: it builds this JSON from a local mirror struct.
+//! `imprint-core`'s `typst-render` feature is what exposes `FfiPlotSpec`.
+//! The demo crate builds this JSON from a local mirror struct and does not
+//! depend on imprint.
+
+#![cfg(feature = "typst-render")]
 
 use impress_service_core::{runtime, McpToolDescriptor};
 use imprint_core::plot_ffi::{FfiColormap, FfiPlotSpec, FfiSeriesKind, FfiStrategy};

@@ -228,10 +228,47 @@ trap 'rm -f "$report_file"' EXIT
 echo "kit crates (docs/kit-manifest.md): $(printf '%s ' $KIT_NAMES)"
 echo "allowed reach: $REACH, features: $STORE_FEATURES(required: $REQUIRED_FEATURES)"
 
+# Pure crates that have left live in yipihey/koine. One rev, no local tree.
+KOINE_GIT="https://github.com/yipihey/koine"
+koine_revs="$(python3 - <<'PY'
+import tomllib
+with open("Cargo.toml", "rb") as manifest:
+    root = tomllib.load(manifest)
+deps = root["workspace"]["dependencies"]
+print(" ".join(
+    f"{name}={spec.get('rev', '')}"
+    for name, spec in deps.items()
+    if isinstance(spec, dict) and spec.get("git") == "https://github.com/yipihey/koine"
+))
+PY
+)"
+koine_rev_of() {
+    local name="$1" pair
+    for pair in $koine_revs; do
+        if [[ "${pair%%=*}" == "$name" ]]; then
+            printf '%s\n' "${pair#*=}"
+            return 0
+        fi
+    done
+    return 1
+}
+if [[ -n "$koine_revs" ]]; then
+    distinct="$(printf '%s\n' $koine_revs | awk -F= '{ print $2 }' | sort -u | wc -l | tr -d ' ')"
+    if [[ "$distinct" != 1 ]]; then
+        echo "FAIL: koine git dependencies do not share one rev: $koine_revs" >&2
+        exit 1
+    fi
+fi
+
 while read -r crate tier; do
     [[ -z "$crate" ]] && continue
     if [[ ! -f "crates/$crate/Cargo.toml" ]]; then
-        echo "FAIL: docs/kit-manifest.md lists $crate, but crates/$crate does not exist" >&2
+        rev="$(koine_rev_of "$crate" || true)"
+        if [[ -n "$rev" ]]; then
+            echo "ok: $crate [$tier] ($KOINE_GIT @ $rev)"
+            continue
+        fi
+        echo "FAIL: docs/kit-manifest.md lists $crate, but crates/$crate does not exist and it is not a $KOINE_GIT dependency" >&2
         status=1
         continue
     fi

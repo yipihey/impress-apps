@@ -2,18 +2,18 @@
 # scripts/check-kit-standalone.sh: "the kit can leave" as a command (ADR-0033 D7,
 # plan-wave-6 W6).
 #
-# Copies the kit crates (the table in docs/kit-manifest.md) plus impress-core,
-# the kit's one allowed reach into this repository, into a scratch directory,
-# gives them a workspace of their own and runs `cargo check` there. The scratch
-# workspace contains nothing else from this repository. If a kit crate needs
+# Copies the pure kit crates (the table in docs/kit-manifest.md) into a scratch
+# directory, gives them a workspace of their own and runs `cargo check` there.
+# The scratch workspace contains nothing else from this repository, and it does
+# not copy impress-core. The store-tier crates stay in impress-apps: they open
+# SqliteItemStore (docs/plan-koine-separation.md, K1b). If a copied crate needs
 # a crate that was not copied, this fails, whether or not check-kit-deps.sh
 # was told about it.
 #
 # What the scratch workspace is:
-#   * crates/<name> for each crate, the tracked and untracked-but-not-ignored
-#     files only (no target/, no build products). The layout is kept because
-#     impress-core's tests include_str! an impress-layout golden by relative
-#     path.
+#   * crates/<name> for each pure crate, the tracked and untracked-but-not-ignored
+#     files only (no target/, no build products). The crates/<name> layout is
+#     kept so a relative include still resolves.
 #   * The real root Cargo.toml with `members` replaced by the copied set and
 #     every [workspace.dependencies] path entry for an uncopied crate removed.
 #     Everything else (registry versions, [workspace.package], profiles) is
@@ -37,10 +37,11 @@
 #     the targets that use it (for a tests/main.rs binary, without the modules
 #     that use it), and the output names them.
 #
-# Crates under the manifest's `kit-open-findings` block are left out and
+# Pure crates under the manifest's `kit-open-findings` block are left out and
 # named. --strict keeps them in, so they fail the way they would if the kit
 # really left. Strict mode also runs the fast dependency-tree classifier first:
-# the scratch build alone cannot detect a forbidden impress-core feature.
+# the scratch build alone cannot detect a forbidden impress-core feature on a
+# store-tier crate, and those crates are not in this copy.
 #
 # It never writes to the repository. The build goes to $CARGO_TARGET_DIR when
 # set (CI points it at a persistent directory), otherwise to this checkout's
@@ -77,7 +78,6 @@ ROOT = Path(os.environ["KIT_ROOT"])
 STRICT = os.environ["KIT_STRICT"] == "1"
 KEEP = os.environ["KIT_KEEP"] == "1"
 MANIFEST = ROOT / "docs" / "kit-manifest.md"
-REACH = ["impress-core"]
 # The cargo-hakari crate (B4). Copied as the stub a leaving crate takes: the
 # generated section between these markers is emptied in the scratch copy.
 HAKARI = "impress-workspace-hack"
@@ -103,8 +103,14 @@ def block(name):
 
 feature_selection = dict(re.findall(r"^- `([^`]+)`: `([^`]+)`", block("kit-feature-selection"), re.M))
 
-kit = [re.match(r"\| `([^`]+)`", l).group(1)
-       for l in block("kit-crates").splitlines() if l.startswith("| `")]
+kit_rows = []
+for l in block("kit-crates").splitlines():
+    m = re.match(r"\| `([^`]+)` \| ([a-z]+) \|", l)
+    if m:
+        kit_rows.append((m.group(1), m.group(2)))
+kit = [name for name, _tier in kit_rows]
+pure = [name for name, tier in kit_rows if tier == "pure"]
+store = [name for name, tier in kit_rows if tier == "store"]
 findings = {}
 for l in block("kit-open-findings").splitlines():
     m = re.match(r"- `([^`]+)`:(.*)", l)
@@ -113,8 +119,10 @@ for l in block("kit-open-findings").splitlines():
 if not kit:
     fail("the kit-crates table in docs/kit-manifest.md is empty")
 
-left_out = [] if STRICT else [c for c in kit if c in findings]
-members = [c for c in kit if c not in left_out] + REACH
+# The store tier opens SqliteItemStore and stays in impress-apps. An open
+# finding on a pure crate is the only thing this copy leaves out.
+left_out = [] if STRICT else [c for c in pure if c in findings]
+members = [c for c in pure if c not in left_out]
 member_set = set(members)
 
 root_text = (ROOT / "Cargo.toml").read_text()
@@ -154,8 +162,36 @@ def sections(manifest):
             yield f"target.{tgt}.{s}", tbl.get(s, {})
 
 
-print(f"kit (docs/kit-manifest.md): {' '.join(kit)}")
-print(f"allowed reach, copied with it: {' '.join(REACH)}")
+KOINE_GIT = "https://github.com/yipihey/koine"
+leaving = [c for c in pure if c != HAKARI]
+
+
+def koine_rev(name):
+    spec = ws_deps.get(name)
+    if (
+        isinstance(spec, dict)
+        and spec.get("git") == KOINE_GIT
+        and spec.get("rev")
+        and "path" not in spec
+    ):
+        return spec["rev"]
+    return None
+
+
+revs = {koine_rev(c) for c in leaving}
+local = [c for c in leaving if (ROOT / "crates" / c / "Cargo.toml").exists()]
+if leaving and not local and revs == {next(iter(revs))} and None not in revs:
+    rev = next(iter(revs))
+    print(f"koine grammar is {KOINE_GIT} @ {rev}")
+    print(f"store tier stays in impress-apps: {' '.join(store)}")
+    print(
+        f"kit standalone OK: {len(leaving)} pure crates live in that repository; "
+        "the store tier stays here"
+    )
+    sys.exit(0)
+
+print(f"pure kit, copied: {' '.join(pure)}")
+print(f"store tier stays in impress-apps: {' '.join(store)}")
 for c in left_out:
     print(f"LEFT OUT (open finding, ask-first, docs/kit-manifest.md): {c} reaches "
           f"{' '.join(findings[c])}; run with --strict to include it")

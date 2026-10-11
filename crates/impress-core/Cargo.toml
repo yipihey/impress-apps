@@ -9,10 +9,10 @@ autotests = false
 
 [features]
 default = []
-sqlite = ["rusqlite"]
+sqlite = ["rusqlite", "impress-item/sqlite"]
 # Derive `schemars::JsonSchema` on the kernel DTOs that cross an
 # `#[impress_service]` boundary. Enabled by `impress-store-service`.
-schema = ["schemars", "impress-pane-query/schema"]
+schema = ["schemars", "impress-pane-query/schema", "impress-item/schema"]
 # Automerge-backed manuscript bodies (ADR-0027). Needs the store: the
 # document cache hangs off SqliteItemStore and chunks are store items.
 collab = ["dep:automerge", "dep:base64", "sqlite"]
@@ -25,6 +25,8 @@ effects-spy = ["sqlite"]
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+# The item protocol (K1b). This crate keeps SqliteItemStore and re-exports it.
+impress-item = { workspace = true }
 # The ADR-0031 D2 pane-query algebra's types (ADR-0033 D7): this crate keeps
 # only the compiler that lowers a query onto its store and the built-in kind
 # manifest, which is domain data.
@@ -52,10 +54,6 @@ impress-workspace-hack.workspace = true
 [dev-dependencies]
 proptest = "1.4"
 tempfile = "3.10"
-
-[build-dependencies]
-# P7: generate both language vocabularies from the existing schema manifest.
-serde_json.workspace = true
 
 # One integration-test binary, tests/main.rs, with a `mod` per file in tests/
 # (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would

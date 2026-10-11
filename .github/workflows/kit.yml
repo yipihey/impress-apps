@@ -9,9 +9,10 @@ name: kit - the layout + surface kit can leave
 #               no workspace crate outside the kit, except impress-core's store
 #               from the store tier. --self-test first, so a check that can no
 #               longer fail does not pass silently.
-#   standalone  scripts/check-kit-standalone.sh: the kit crates plus
-#               impress-core, copied into a scratch workspace with nothing else
-#               from this repository, pass `cargo check --all-targets`.
+#   standalone  scripts/check-kit-standalone.sh: the pure kit crates are the
+#               pinned https://github.com/yipihey/koine revision, not a
+#               second tree in this repository. The store tier stays here.
+#               That repository's CI is what compiles them.
 #   coverage    scripts/check-verb-coverage.sh: every workspace crate has a
 #               verdict in docs/verb-coverage.md and every service an
 #               `impress_service_impl!` block has a row (plan-auto-gui G0).
@@ -53,6 +54,7 @@ on:
       - 'docs/verbs/**'
       - 'packages/ImpressLayout/**'
       - 'packages/ImpressSurface/**'
+      - 'packages/ImpressSurfaceSession/**'
       - 'packages/ImpressRustCore/**'
       - '.github/workflows/kit.yml'
   pull_request:
@@ -73,6 +75,7 @@ on:
       - 'docs/verbs/**'
       - 'packages/ImpressLayout/**'
       - 'packages/ImpressSurface/**'
+      - 'packages/ImpressSurfaceSession/**'
       - 'packages/ImpressRustCore/**'
       - '.github/workflows/kit.yml'
   workflow_dispatch:
@@ -120,17 +123,18 @@ jobs:
         run: cargo hakari generate --diff
 
   standalone:
-    name: Kit builds without the rest of the repository
-    # macOS, because that is where the kit ships and where the script is run
-    # locally, so a green here means what a green there means.
-    runs-on: macos-15
+    name: Pure kit is the pinned koine revision
+    # The grammar compiles in the koine repository. This job checks that
+    # this tree does not contain a second copy and that every pure crate
+    # names the same git rev. Text only, so the cheapest runner will do.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Kit plus impress-core in a scratch workspace
+      - name: Koine pin (ADR-0033 D7)
         run: ./scripts/check-kit-standalone.sh --strict
 
   coverage:

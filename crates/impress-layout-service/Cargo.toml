@@ -12,6 +12,7 @@ autotests = false
 # `impress/ui/layout@1.0.0` rows). `schema`: `PaneQuery`, `ParamDecl` and
 # `Bindings` cross the `#[impress_method]` boundary, so they need
 # `schemars::JsonSchema`.
+impress-item = { workspace = true }
 impress-core = { workspace = true, features = ["sqlite", "schema"] }
 # The pure tree. `schema` so `Layout`, `PaneSpec`, `Verb` and friends publish
 # their JSON schemas as verb arguments and results — which is exactly the

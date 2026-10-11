@@ -4518,7 +4518,9 @@ dependencies = [
  "impress-service-core",
  "impress-smart-search-service",
  "impress-store-service",
+ "impress-surface",
  "impress-surface-service",
+ "impress-verb-surface",
  "impress-workflow-service",
  "impress-workspace-hack",
  "imprint-selftest",
@@ -4568,6 +4570,7 @@ dependencies = [
  "automerge",
  "base64 0.22.1",
  "chrono",
+ "impress-item",
  "impress-pane-query",
  "impress-service-core",
  "impress-workspace-hack",
@@ -4625,9 +4628,9 @@ dependencies = [
 [[package]]
 name = "impress-fs-lock"
 version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 dependencies = [
- "impress-workspace-hack",
- "tempfile",
+ "koine-workspace-hack",
 ]
 
 [[package]]
@@ -4661,10 +4664,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-item"
+version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
+dependencies = [
+ "chrono",
+ "impress-pane-query",
+ "impress-schema-ref-codegen",
+ "koine-workspace-hack",
+ "rusqlite",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
 name = "impress-keymap"
 version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 dependencies = [
- "impress-workspace-hack",
+ "koine-workspace-hack",
  "serde",
  "serde_json",
 ]
@@ -4672,9 +4693,10 @@ dependencies = [
 [[package]]
 name = "impress-layout"
 version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 dependencies = [
  "impress-pane-query",
- "impress-workspace-hack",
+ "koine-workspace-hack",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -4689,6 +4711,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "impress-core",
+ "impress-item",
  "impress-layout",
  "impress-scenario",
  "impress-service-core",
@@ -4765,8 +4788,9 @@ dependencies = [
 [[package]]
 name = "impress-pane-query"
 version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 dependencies = [
- "impress-workspace-hack",
+ "koine-workspace-hack",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -4835,16 +4859,15 @@ dependencies = [
 [[package]]
 name = "impress-scenario"
 version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 dependencies = [
  "async-trait",
  "impress-service-core",
  "impress-surface",
- "impress-workspace-hack",
- "schemars 0.8.22",
+ "koine-workspace-hack",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "tokio",
  "uuid",
 ]
 
@@ -4873,16 +4896,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-schema-ref-codegen"
+version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
+dependencies = [
+ "koine-workspace-hack",
+ "serde_json",
+]
+
+[[package]]
 name = "impress-service-core"
 version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 dependencies = [
  "async-trait",
  "chrono",
  "clap",
- "impress-service-macros",
- "impress-workspace-hack",
+ "impress-schema-ref-codegen",
  "inventory",
- "pyo3",
+ "koine-workspace-hack",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -4891,16 +4923,17 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "uniffi",
  "uuid",
 ]
 
 [[package]]
 name = "impress-service-macros"
 version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 dependencies = [
  "darling 0.20.11",
- "impress-workspace-hack",
+ "impress-schema-ref-codegen",
+ "koine-workspace-hack",
  "proc-macro2",
  "quote",
  "serde_json",
@@ -4910,13 +4943,14 @@ dependencies = [
 [[package]]
 name = "impress-settings"
 version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 dependencies = [
  "impress-fs-lock",
+ "impress-schema-ref-codegen",
  "impress-surface",
- "impress-workspace-hack",
+ "koine-workspace-hack",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror 2.0.18",
 ]
 
@@ -4981,6 +5015,7 @@ dependencies = [
  "impress-keymap",
  "impress-layout",
  "impress-layout-service",
+ "impress-schema-ref-codegen",
  "impress-service-core",
  "impress-settings",
  "impress-store-service",
@@ -5030,10 +5065,10 @@ dependencies = [
 [[package]]
 name = "impress-surface"
 version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 dependencies = [
  "impress-pane-query",
- "impress-workspace-hack",
- "jsonschema",
+ "koine-workspace-hack",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -5048,6 +5083,7 @@ dependencies = [
  "chrono",
  "imbib-service",
  "impress-core",
+ "impress-item",
  "impress-layout",
  "impress-layout-service",
  "impress-scenario",
@@ -5102,25 +5138,22 @@ dependencies = [
 [[package]]
 name = "impress-verb-surface"
 version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 dependencies = [
- "capabilities-service",
- "impress-capabilities",
- "impress-core",
  "impress-service-core",
  "impress-surface",
- "impress-surface-service",
- "impress-workspace-hack",
+ "koine-workspace-hack",
  "serde_json",
- "surface-demo-service",
- "tokio",
 ]
 
 [[package]]
 name = "impress-workflow"
 version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 dependencies = [
+ "impress-schema-ref-codegen",
  "impress-surface",
- "impress-workspace-hack",
+ "koine-workspace-hack",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -5321,6 +5354,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "surface-demo-service",
  "tar",
  "tectonic",
  "tectonic_bundles",
@@ -5783,25 +5817,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "koine"
+name = "koine-workspace-hack"
 version = "0.1.0"
-dependencies = [
- "impress-layout",
- "impress-pane-query",
- "impress-surface",
- "impress-verb-surface",
- "impress-workspace-hack",
- "serde_json",
-]
-
-[[package]]
-name = "koine-tui"
-version = "0.1.0"
-dependencies = [
- "impress-workspace-hack",
- "koine",
- "serde_json",
-]
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 
 [[package]]
 name = "kqueue"
@@ -9521,17 +9539,15 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "surface-demo-service"
 version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=94bfefdacb80eaa198ea048f227d7890a42f92d5#94bfefdacb80eaa198ea048f227d7890a42f92d5"
 dependencies = [
  "async-trait",
  "impress-service-core",
  "impress-service-macros",
- "impress-surface",
- "impress-workspace-hack",
- "imprint-core",
+ "koine-workspace-hack",
  "schemars 0.8.22",
  "serde",
  "serde_json",
- "tokio",
 ]
 
 [[package]]

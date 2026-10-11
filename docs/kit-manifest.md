@@ -6,9 +6,10 @@
 (the Swift half) `scripts/check-kit-packages.sh`, all run by `.github/workflows/kit.yml`.
 
 The kit is the layer that shows a layout tree of panes and agent-authored surfaces
-without knowing what a publication, a manuscript or a message is. It lives in this
-repository today. It is built so that it *could* leave as its own package, and this
-file states what "could" means precisely enough for a script to check it.
+without knowing what a publication, a manuscript or a message is. The pure crates
+live in [koine](https://github.com/yipihey/koine). This repository depends on that
+git revision and keeps the store tier, which opens `SqliteItemStore`. This file
+is still the list both checks read.
 
 ## The crate set
 
@@ -26,11 +27,14 @@ change with it. They do not keep a second list.
 | `impress-service-core` | pure | Runtime types for `#[impress_service]`: the inventory entries that become MCP tools, CLI subcommands and impel tools. |
 | `impress-service-macros` | pure | The `#[impress_service]` / `#[impress_method]` proc macros that generate those entries from one trait. |
 | `impress-pane-query` | pure | The ADR-0031 D2 pane-query algebra (`PaneQuery`, scopes, filters, sorts), moved out of impress-core by S0. |
+| `impress-item` | pure | The item protocol below `impress-core` (K1b): `Item`, `ItemQuery`, `OperationSpec`, the `ItemStore` / `AttributedStore` traits, and the schema-ref constants. Depends on `impress-pane-query` for the edge-type conversion. `impress-core` keeps `SqliteItemStore` and re-exports this crate. |
+| `impress-schema-ref-codegen` | pure | Build-time reader of `schema-refs.json` (`IMPRESS_SCHEMA_REFS`, else the snapshot two directories up). Emits the Rust constants and the UniFFI enum text. No dependency on `impress-core`; the generated `as_core` match is source text that only `impress-store-ffi` compiles. |
 | `impress-layout` | pure | The layout tree as pure values: panes, containers, channels, the D8 verbs, patches and undo rings. |
 | `impress-surface` | pure | Surfaces as pure values: spec, JSON schema, plan / resolve / reduce, `RenderTree`. |
 | `impress-verb-surface` | pure | `verb_surface(&VerbDescriptor) -> SurfaceSpec` and `catalogue()`: the generated form, Run button, review step and result view for every linked verb (ADR-0035 D2, plan-auto-gui-and-self-docs.md G4). Depends on `impress-service-core` (the descriptor) and `impress-surface` (the vocabulary) alone. |
-| `koine` | pure | The public name of the grammar: re-exports `impress-layout`, `impress-pane-query`, `impress-surface` and `impress-verb-surface`. No new behaviour. |
-| `koine-tui` | pure | A text performance of `RenderTree`. j/k/Enter become events; `reduce` still decides what they mean. |
+| `koine` | pure | The public name of the grammar, the style sheet every frontend applies, and the shared gesture (`koine::gesture`) a click or a key is. `layout_verb` is the layout verb that gesture already determines. Shared slot names, one value kind per frontend, `set`/`reset` that refuse an unknown slot (`docs/plan-koine-style.md`). The style document (`koine::style_file`) is bytes; this crate does not open the file. Re-exports `impress-layout`, `impress-pane-query`, `impress-surface` and `impress-verb-surface`. |
+| `koine-style-file` | pure | The native writer for `<workspace>/settings/koine-style.json`. Locks the path with `impress-fs-lock` and defaults to the suite group container. Depends on `koine` for the document. A host with no filesystem does not link it. |
+| `koine-tui` | pure | A text performance of `RenderTree`. Line templates and indent come from the tui sheet. j/k/Enter become events; `reduce` still decides what they mean. The pane frame (grip, border, tabs) and h/j/k/l become the same `koine::gesture`, and `layout_verb` / `verb_for_pointer` / `verb_for_drag` are that gesture as a layout verb. The style command reads the file through `koine-style-file`. |
 | `impress-fs-lock` | pure | The advisory `flock` for the suite's device-local files, lifted out of `impress-ai` (ADR-0036 D-R8, plan-self-reflective-layer R1) so `impress-settings` can lock its files without a store-tier dependency. No dependencies. |
 | `impress-settings` | pure | The settings registry as data (key, type, default, scope, legacy keys, doc), its per-scope files under `<workspace>/settings/`, and the generated settings pane per section (ADR-0036 D5). Reaches `impress-fs-lock` and `impress-surface` only. |
 | `surface-demo-service` | pure | The D8 demo capability, the scaffold's output and the worked example. A member of `impress-capabilities`. |
@@ -71,19 +75,18 @@ nothing else outside it. The features it may turn on are:
   `impress-store-service` and the FFI enable it.
 
 **Why this reach is still here.** D7's rule is that no kit crate depends on
-impress-core's *domain modules*. The pane-query algebra was the one domain-shaped thing
-the pure crates needed, and S0 moved it out. The store is different: the service crates
-persist their state as impress-core items, and the store is a concrete
-`SqliteItemStore`, not a trait the kit could own and a host could implement. D7 allows
-the reach "until the store trait itself is generic". `cargo tree` cannot tell a store
-import from a domain import, because both are the same crate. So the checks pin what they
-can: which crates may reach impress-core at all (store tier only), and with which features.
-Keeping the service crates' `use impress_core::…` lines to the store is a review rule,
+impress-core's *domain modules*. The pane-query algebra moved out in S0, and the
+item protocol (`Item`, `ItemQuery`, `OperationSpec`, `AttributedStore`) moved to
+`impress-item` in K1b. What remains is `SqliteItemStore`: the service crates open
+that concrete store, so they still depend on `impress-core`. `cargo tree` cannot
+tell that import from a domain import, because both are the same crate. The checks
+pin what they can: which crates may reach impress-core at all (store tier only),
+and with which features. Keeping those imports to the store is a review rule,
 not something a script checks.
 
 ## The Swift packages
 
-The kit is also three Swift packages. The Swift half of W6 builds and polices them;
+The kit is also four Swift packages. The Swift half of W6 builds and polices them;
 they are listed here so the manifest describes the whole kit:
 
 - **ImpressRustCore**: the Swift face of `impress-store-ffi` (its xcframework plus
@@ -95,6 +98,11 @@ they are listed here so the manifest describes the whole kit:
   `LayoutTreeRuntime` (the process's live windows), `LayoutSurfacePaneView` and
   `LayoutConsolePaneView`.
 - **ImpressSurface**: the `RenderTree` → SwiftUI renderer, with no logic of its own.
+- **ImpressSurfaceSession**: the session that opens one generated surface
+  (`SurfacePaneModel`, the invalidation feed, and the one `Sendable`
+  conformance of `SharedSurface` / `SharedSurfaceChange`). Both platforms
+  link it. ImpressLayout re-exports it; iOS links it directly because
+  ImpressLayout is the macOS window.
 
 Their allowed dependencies (ImpressKeyboard, ImpressTheme, ImpressLogging and each
 other, nothing else) are pinned by `scripts/check-kit-packages.sh`.
@@ -156,11 +164,15 @@ one surface pane.
   surface-coherence package owns it. Today each surface pane opens its own handle on
   the controller's store.
 
-## What leaving would mean, mechanically
+## What leaving meant, mechanically
 
-1. Copy the crates in the table plus `impress-core` into a new repository, keeping the
-   `crates/<name>` layout (impress-core's tests `include_str!` an impress-layout golden
-   by relative path).
+The pure crates are https://github.com/yipihey/koine, pinned by `rev` in this
+repository's `[workspace.dependencies]`. The store-tier crates stay here: they
+open `SqliteItemStore`. `scripts/check-kit-standalone.sh` checks that pin.
+
+1. Copy the pure crates in the table into a new repository, keeping the
+   `crates/<name>` layout. The store-tier crates stay here: they open
+   `SqliteItemStore`. That copy is the koine repository.
 2. Give it a root `Cargo.toml` whose `[workspace.dependencies]` is this repository's
    table, with path entries for crates that were not copied removed. Bring
    `rust-toolchain.toml`, `.cargo/config.toml` and `Cargo.lock` along.
@@ -172,24 +184,25 @@ one surface pane.
    between `### BEGIN HAKARI SECTION` and `### END HAKARI SECTION` emptied, which is
    what `cargo hakari disable` writes. The generated section lists the whole suite's
    dependencies; the new repository runs `cargo hakari generate` for its own.
-5. Copy the three Swift packages. `ImpressRustCore` points at the FFI's xcframework by
+5. Copy the four Swift packages. `ImpressRustCore` points at the FFI's xcframework by
    relative path, which moves with it.
 6. Afterwards this repository depends on the kit rather than containing it: the apps'
    `ChassisRootView` registers their view kinds into `ViewKindRegistry`, and
    `impress-capabilities` depends on the kit's inventory crate.
 
-Steps 1–4 are exactly what `scripts/check-kit-standalone.sh` does in a scratch directory
-on every CI run, so "can leave" is a command. Layout and surface persistence
-now speak `AttributedStore` (`docs/plan-koine-separation.md`, K1). Until the
-item, query and operation types themselves move out of `impress-core` (K1b),
-impress-core goes along and is the kit's one vendored dependency.
+Steps 1–4, for the pure crates, are what `scripts/check-kit-standalone.sh` does
+in a scratch directory on every CI run, so "can leave" is a command. Layout
+and surface persistence speak `AttributedStore` (`docs/plan-koine-separation.md`,
+K1). The item, query and operation types live in `impress-item` (K1b). The
+store-tier crates still construct `SqliteItemStore` and stay in this
+repository; the scratch workspace does not copy them or `impress-core`.
 
 ## How each check enforces it
 
 | Check | What it proves | How it fails |
 |---|---|---|
 | `scripts/check-kit-deps.sh` | For every crate in the table, `cargo tree -e normal` reaches no workspace crate outside the kit, except `impress-core` from a store-tier crate with only the features above. A reach into a domain core (`imbib-*`, `imprint-*`, `implore-*`, `impart-*`, `impel-*`) is reported as the ask-first case. `--self-test` feeds the classifier known-bad trees, so the failure path is tested too. | `FAIL: <crate> reaches <dep>`, followed by the `cargo tree -i` path. Exit 1. |
-| `scripts/check-kit-standalone.sh` | The kit plus `impress-core` compiles (`cargo check`, all targets it can) in a scratch workspace that contains nothing else from this repository. A dependency missing from the table shows up here even if the first check was never updated. | A normal (non-dev) path dependency on an uncopied crate is named before cargo runs. Otherwise the cargo error. Exit 1. |
+| `scripts/check-kit-standalone.sh` | The pure crates compile (`cargo check`, all targets it can) in a scratch workspace that contains nothing else from this repository, and does not contain `impress-core`. A dependency missing from the table shows up here even if the first check was never updated. | A normal (non-dev) path dependency on an uncopied crate is named before cargo runs. Otherwise the cargo error. Exit 1. |
 | `scripts/check-kit-packages.sh` (Swift half) | The Swift packages depend on nothing outside their allowlist. | `DISALLOWED … dependency`. Exit 1. |
 
 ## Open findings

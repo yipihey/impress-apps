@@ -62,7 +62,7 @@ These generated verbs cover the retained imbib store behavior. Their HTTP regist
 
 `search_publications` matches `cite_key` with a LIKE beside title, author, abstract, and note. The full-text index still has no cite-key field. An exact key is placed first in the citation palette. A key the library does not have, one edit away from a key it does, is `CiteKeyNearMiss`: the palette and the compile diagnostic name that neighbour.
 
-The UI grammar's name is koine. `docs/plan-koine-separation.md` is the cut. K0–K3 are in this tree: the `koine` re-export, `AttributedStore` for layout and surface rows, imbib's window hosting `ChassisRootView`, and `koine-tui` rendering the same `RenderTree`. K1b, moving the item and operation types out of `impress-core`, is what has to happen before a second repository. The HTTP arms for library membership and the formatted tag tree stay, as the table above says, until a hosted proof.
+The UI grammar's name is koine. `docs/plan-koine-separation.md` is the cut. K0–K3 and K1b are in this tree: the `koine` re-export, `AttributedStore` and the item protocol in `impress-item`, imbib's window hosting `ChassisRootView`, and `koine-tui` rendering the same `RenderTree`. `check-kit-standalone.sh` builds that pure grammar without `impress-core`. The store services stay in this repository. The HTTP arms for library membership and the formatted tag tree stay, as the table above says, until a hosted proof.
 
 ## Still platform-owned
 

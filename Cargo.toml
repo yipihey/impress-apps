@@ -16,8 +16,6 @@ members = [
     "crates/impress-collab",
     "crates/impress-flags",
     "crates/impress-tags",
-    # R2: the one registry of app chords (plan-self-reflective-layer.md § Registries)
-    "crates/impress-keymap",
     "crates/imprint-core",
     "crates/imbib-core",
     # P3c step 1: the three legacy semantic-search MCP tools as a real
@@ -26,12 +24,6 @@ members = [
     "crates/imbib-semantic-service",
     # local-network (SFTP) transport for reMarkable tablets
     "crates/impress-remarkable",
-    # impress-fs-lock - the advisory flock impress-ai and impress-settings
-    # share; pure, no dependencies (ADR-0036 D-R8)
-    "crates/impress-fs-lock",
-    # impress-settings - the declared settings registry and its per-scope
-    # files (ADR-0036 D5); pure
-    "crates/impress-settings",
     # provenance-first local/remote inference over the shared item graph
     "crates/impress-ai",
     "crates/impress-ai-service",
@@ -81,34 +73,17 @@ members = [
     "crates/impress-git",
     # impress-toolbox - unsandboxed local tool execution server
     "crates/impress-toolbox",
-    # impress-core - unified item protocol
+    # impress-core - unified item protocol. The item protocol it re-exports
+    # lives in koine (impress-item).
     "crates/impress-core",
-    # impress-layout - the ADR-0031 layout tree: query-addressed panes,
-    # containers, channels and the D8 verbs as pure functions over a value.
-    "crates/impress-layout",
     # impress-layout-service - the ADR-0031 D8 verbs over a store-backed live
     # layout: one `#[impress_service]` trait, so MCP, the CLI and impel get
     # split/move/retype/save/recall together. Depends on impress-layout for
     # the tree and impress-core for the `impress/ui/layout@1.0.0` rows.
     "crates/impress-layout-service",
-    # the ADR-0031 D2 pane-query algebra, free of impress-core (ADR-0033 D7)
-    "crates/impress-pane-query",
-    # ADR-0033 surfaces: spec, schema, plan/resolve/reduce, pure
-    "crates/impress-surface",
-    # W1 (plan-self-reflective-layer): the workflow spec (trigger + steps in
-    # the surface action vocabulary), its validator and its pure planner,
-    # reusing impress-surface's reduce rather than forking it. Pure.
-    "crates/impress-workflow",
     # W1: the workflow verbs (validate/create/get/list/dry-run/enable/disable)
     # over impress-core's `impress/workflow@1.0.0` rows.
     "crates/impress-workflow-service",
-    # ADR-0035 D2: verb_surface(&VerbDescriptor) -> SurfaceSpec + catalogue(), pure (plan G4)
-    "crates/impress-verb-surface",
-    # Koine: the public name of the pure grammar (layout, surface, pane query,
-    # verb surface). The repository cut is docs/plan-koine-separation.md.
-    "crates/koine",
-    "crates/koine-tui",
-    "crates/impress-scenario",
     "crates/impress-scenario-service",
     # the one place the #[impress_service] inventory is linked (ADR-0033 D4)
     "crates/impress-capabilities",
@@ -117,8 +92,6 @@ members = [
     # without the impress-capabilities package cycle (plan-agent-surfaces.md S6)
     # ADR-0033 surface verbs, store records and runtime
     "crates/impress-surface-service",
-    # ADR-0033 D8 demo capability: the scaffold's output and the worked example
-    "crates/surface-demo-service",
     "crates/perf-service",
     # impress-plot - native Typst-first plotting (declarative spec → Typst + raster)
     "crates/impress-plot",
@@ -144,9 +117,6 @@ members = [
     # over impress-core::memory_ops, exposed as MCP tools, CLI subcommands and
     # impel agent tools. FTS tier only.
     "crates/impress-memory-service",
-    # impress-service-core + macros - codegen pipeline for Swift/Python/MCP/CLI bindings
-    "crates/impress-service-core",
-    "crates/impress-service-macros",
     # imprint-service - Phase 2D/2E: manuscript persistence + search + stateless HTTP handlers
     "crates/imprint-service",
     # imbib-service - Phase 3: ImbibTextService trait exposed via #[impress_service]
@@ -238,28 +208,31 @@ im-identifiers = { path = "crates/im-identifiers" }
 impress-collab = { path = "crates/impress-collab" }
 impress-flags = { path = "crates/impress-flags" }
 impress-tags = { path = "crates/impress-tags" }
-impress-keymap = { path = "crates/impress-keymap" }
+impress-keymap = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
 imprint-core = { path = "crates/imprint-core" }
 imprint-service = { path = "crates/imprint-service" }
 imprint-selftest = { path = "crates/imprint-selftest" }
 imbib-service = { path = "crates/imbib-service" }
 imbib-semantic-service = { path = "crates/imbib-semantic-service" }
 imbib-core = { path = "crates/imbib-core" }
+impress-item = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-schema-ref-codegen = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
 impress-core = { path = "crates/impress-core" }
-impress-layout = { path = "crates/impress-layout" }
+impress-layout = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
 impress-layout-service = { path = "crates/impress-layout-service" }
-impress-pane-query = { path = "crates/impress-pane-query" }
-impress-surface = { path = "crates/impress-surface" }
-impress-workflow = { path = "crates/impress-workflow" }
+impress-pane-query = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-surface = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-workflow = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
 impress-workflow-service = { path = "crates/impress-workflow-service" }
-impress-verb-surface = { path = "crates/impress-verb-surface" }
-koine = { path = "crates/koine" }
-koine-tui = { path = "crates/koine-tui" }
-impress-scenario = { path = "crates/impress-scenario" }
+impress-verb-surface = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+koine = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+koine-style-file = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+koine-tui = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-scenario = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
 impress-scenario-service = { path = "crates/impress-scenario-service" }
 impress-capabilities = { path = "crates/impress-capabilities", default-features = false }
 impress-surface-service = { path = "crates/impress-surface-service" }
-surface-demo-service = { path = "crates/surface-demo-service" }
+surface-demo-service = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
 perf-service = { path = "crates/perf-service" }
 # default-features = false HERE, not at the call site: a member inheriting a
 # workspace dependency can only add features, never remove them, so a member
@@ -276,8 +249,8 @@ impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }
 impress-remarkable = { path = "crates/impress-remarkable" }
-impress-fs-lock = { path = "crates/impress-fs-lock" }
-impress-settings = { path = "crates/impress-settings" }
+impress-fs-lock = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-settings = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
 impress-ai = { path = "crates/impress-ai" }
 impress-ai-service = { path = "crates/impress-ai-service" }
 impress-ai-tools = { path = "crates/impress-ai-tools" }
@@ -357,8 +330,8 @@ toml = "0.8"
 dirs = "6"
 
 # impress-service-* (Phase 0 codegen pipeline)
-impress-service-core = { path = "crates/impress-service-core" }
-impress-service-macros = { path = "crates/impress-service-macros" }
+impress-service-core = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-service-macros = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
 inventory = "0.3"
 schemars = { version = "0.8", features = ["uuid1"] }
 syn = { version = "2", features = ["full"] }

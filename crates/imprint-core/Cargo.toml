@@ -148,6 +148,10 @@ impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+# `tests/plot_shape.rs` checks the demo histogram payload against
+# `plot_ffi::FfiPlotSpec`. The demo crate builds that JSON without this
+# dependency; the assertion stays on the type the suite renders through.
+surface-demo-service = { workspace = true }
 
 
 # One integration-test binary, tests/main.rs, with a `mod` per file in tests/

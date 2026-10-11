@@ -2,9 +2,10 @@
 
 The layer's name is **koine**. The crate `koine` re-exports the pure grammar
 (`impress-layout`, `impress-pane-query`, `impress-surface`, `impress-verb-surface`).
-`koine-tui` is a text performance of `RenderTree`. The repository does not
-split until the three conditions below are all true, and two of them still
-have a remainder.
+`koine-tui` is a text performance of `RenderTree`. The conditions below are
+met. `scripts/check-kit-standalone.sh` builds that grammar in a scratch
+workspace that does not contain `impress-core`. The services that open
+`SqliteItemStore` stay in this repository.
 
 ADR-0033 D7 decided the standalone line and scheduled the move for last.
 `scripts/check-kit-standalone.sh` is that decision as a command. This plan is
@@ -19,38 +20,32 @@ those crates is part of the repository cut, not a precondition of it.
 
 ## K1 — layout and surface state go through a store trait
 
-Done in this change. `AttributedStore` (`crates/impress-core/src/store.rs`)
-is `ItemStore` plus the attributed operation and the compare-and-swap.
-`SqliteItemStore` implements it. `LayoutStore<S: AttributedStore>` and
+Done. `AttributedStore` (`crates/impress-item/src/store.rs`) is `ItemStore`
+plus the attributed operation and the compare-and-swap. `SqliteItemStore`
+in `impress-core` implements it. `LayoutStore<S: AttributedStore>` and
 `SurfaceStore<S: AttributedStore>` default `S` to `SqliteItemStore`, so every
 existing caller is unchanged and a second backend can host the same rows.
 
 ### K1b — the types leave `impress-core`
 
-Not done. This is what lets `impress-core` stay in impress-apps when koine
-leaves. Today the trait's arguments (`Item`, `ItemQuery`, `OperationSpec`,
-`GuardedWrite`) are still types this crate owns, and every store-tier kit
-crate may depend on `impress-core` with features `sqlite`, `schema`, `collab`
-(the kit manifest). The cut is:
+The types have moved. `impress-item` owns `Item`, `ItemQuery`,
+`OperationSpec`, `GuardedWrite`, the `ItemStore` / `AttributedStore` traits,
+and the schema-ref constants, including `impress/ui/layout` and
+`impress/ui/surface`. `impress-core` keeps `SqliteItemStore` and the SQL
+compiler, and re-exports the crate, so `impress_core::Item` is that `Item`.
+`LayoutStore` and `SurfaceStore` name `impress-item` for the protocol.
 
-1. Move `item`, `query`, `operation`, `store` (the traits and the error), and
-   the schema-ref constants the layout and surface rows name, into a crate
-   below both `impress-core` and the kit. `impress-core` keeps `SqliteItemStore`
-   and the SQL compiler.
-2. Point `LayoutStore` and `SurfaceStore` at that crate. Drop `impress-core`
-   from their `Cargo.toml`.
-3. Repeat for the other store-tier kit crates (`impress-layout-service`'s
-   presets, `impress-workflow-service`, `impress-store-service`,
-   `impress-ai`, `impress-store-ffi`) or leave them on this side of the cut.
-   Koine the grammar is the pure rows in the kit manifest (`koine`,
-   `koine-tui`, `impress-surface`, `impress-layout`, `impress-pane-query`,
-   `impress-verb-surface`). The services that persist are the host's.
-4. `check-kit-deps.sh --strict` then fails a pure crate that reaches
-   `impress-core`. The standalone scratch workspace stops copying
-   `impress-core`.
+The services that open `SqliteItemStore` stay in this repository:
+`impress-layout-service`, `impress-surface-service`, `impress-store-service`,
+`impress-workflow-service`, `impress-ai`, `impress-store-ffi`, and
+`impress-capabilities`. They still depend on `impress-core` for the concrete
+store, the pane-query compiler, and the loopback token. `check-kit-deps.sh`
+allows that reach from a store-tier crate, with features `sqlite`, `schema`,
+`collab`.
 
-Until step 4, leaving still vendors `impress-core`. Do not open the other
-repository before that.
+`check-kit-standalone.sh` copies the pure crates only. It does not copy
+`impress-core` or the store tier. That scratch workspace is the grammar
+leaving on its own.
 
 ## K2 — every app hosts the kit
 
@@ -65,8 +60,10 @@ no longer registered; the tree's routes are `/api/layout/tree`,
 `PaneLayoutStore` remains the appearance mirror (app appearance, PDF dark
 mode). It is not the window's pane model.
 
-iOS imbib is still `IOSContentView`. That shell is outside this cut; the kit
-packages this plan talks about are the macOS window.
+iOS imbib is still `IOSContentView`. That shell is outside this cut; the
+layout tree is the macOS window. A generated surface on iOS uses
+`ImpressSurfaceSession`, the same session the macOS tree re-exports, and
+paints the `swift` sheet.
 
 ## K3 — one non-Swift frontend renders the same tree
 
@@ -77,8 +74,42 @@ resolves, renders, and dispatches — is the next host of this mapping, the
 way `ImpressSurface` is the SwiftUI host of the same tree. The mapping is
 the frontend the contract required; the program is an app.
 
-## What is still not the repository
+## Style
 
-Do not create the koine repository until K1b is done. The mechanical copy is
-already the standalone check, and running it as a second repo while
-`impress-core` is vendored puts the database in the UI library.
+Each frontend applies a sheet. The slot names are shared and the value kind
+is the frontend's. The rules, and the Swift and text implementations, are
+`docs/plan-koine-style.md`. The sheet is the file
+`<workspace>/settings/koine-style.json`. It is not a store record: a pure
+crate does not take `impress-core` to remember a colour. `koine::style_file`
+is the document. `koine-style-file` is the native writer the text host
+links. Swift reads and writes the same JSON with its own file helper. A
+host with no filesystem parses the bytes and does not link the writer.
+
+## Navigation
+
+A click, a drag, and a direction key are one `koine::gesture::Gesture`. The
+frontend names the element it hit. `koine::gesture::layout_verb` is the
+layout verb that gesture already determines: a tile focus, a direction, a
+drag of one tile onto another, a tab click that names a known view kind.
+The host applies that verb, so a split, a move, a close, and a tab reorder
+stay on the arrangement or exploration ring. A button that is not a view
+kind stays a surface event for `reduce`. A secondary click stays a menu.
+A tab pulled out of its pane uses `split_axes`, and the host attaches the
+new spec. A resize uses `resize_verb` once the host has measured the two
+sides. `tab_order_verb` is a strip reorder. The cases are
+`crates/koine/tests/fixtures/gesture-verbs.json`, and the Swift host is
+pinned to that file. On the text frontend the box-drawing frame is the
+border, the `≡` on the top edge is the grip, and tab labels share that edge
+(`koine_tui::frame`). `verb_for_pointer` and `verb_for_drag` call
+`layout_verb`. A drag that starts in the body stays with the pane's content.
+The pointer is an SGR 1006 report. `j`/`k` and `h`/`l` are the same `Move`
+a pointer step is. A sheet colours the focused frame and does not choose
+the gesture.
+
+## The repository
+
+The pure grammar is [koine](https://github.com/yipihey/koine). This repository
+depends on one `rev` of that git URL for every pure crate in the kit table.
+The store services stay here, because they open `SqliteItemStore`.
+`scripts/check-kit-standalone.sh` checks the pin. The koine repository's own
+CI runs `cargo test`.

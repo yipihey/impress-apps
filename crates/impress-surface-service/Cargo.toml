@@ -15,6 +15,7 @@ reqwest = { workspace = true }
 # `sqlite`: this crate owns the store side of a surface (the
 # `impress/ui/surface@1.0.0` / `-state` / `-event` rows). `schema`: the DTOs
 # that cross the `#[impress_method]` boundary need `schemars::JsonSchema`.
+impress-item = { workspace = true }
 impress-core = { workspace = true, features = ["sqlite", "schema"] }
 # The pure vocabulary: `SurfaceSpec`, `validate`, `plan`, `resolve`, `reduce`.
 # `schema` so `SurfaceSpec` and friends publish their JSON schema, which

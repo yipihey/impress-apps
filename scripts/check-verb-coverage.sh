@@ -229,7 +229,28 @@ for svc in $BLOCK_SERVICES; do
     in_list "$k" "$SERVICE_ROWS" || fail "service $svc ($k) has an impress_service_impl! block but no row in $DOC (run the census test's dump for the row)"
 done
 KEBABS="$(for svc in $BLOCK_SERVICES; do kebab "$svc"; done)"
+# A service whose crate moved to yipihey/koine has no block in this tree.
+# The row stays: the inventory still links it.
+KOINE_CRATES="$(python3 - <<'PY'
+import tomllib
+with open("Cargo.toml", "rb") as manifest:
+    root = tomllib.load(manifest)
+print(" ".join(
+    name for name, spec in root["workspace"]["dependencies"].items()
+    if isinstance(spec, dict) and spec.get("git") == "https://github.com/yipihey/koine"
+))
+PY
+)"
+SERVICE_CRATES="$(block verb-coverage-services | awk -F'|' '/^\| `/ {
+    svc = $2; crate = $3
+    gsub(/[` ]/, "", svc); gsub(/[` ]/, "", crate)
+    print svc, crate
+}')"
 for row in $SERVICE_ROWS; do
+    crate="$(printf '%s\n' "$SERVICE_CRATES" | awk -v s="$row" '$1 == s { print $2; exit }')"
+    if in_list "$crate" "$KOINE_CRATES"; then
+        continue
+    fi
     in_list "$row" "$KEBABS" || fail "$DOC has a row for $row, but no impress_service_impl! block under crates/*/src names it; delete the row"
 done
 
@@ -264,7 +285,12 @@ for v in $(verbs_in "$EFFECTS_DOC" verb-effects-exceptions); do
     in_list "$v" "$EFFECTS_VERBS" || fail "$EFFECTS_DOC's exception table names $v, which its verb table does not"
 done
 for v in $EFFECTS_VERBS; do
-    in_list "${v%%_*}" "$KEBABS" || fail "$EFFECTS_DOC row $v names service ${v%%_*}, which has no impress_service_impl! block"
+    svc="${v%%_*}"
+    crate="$(printf '%s\n' "$SERVICE_CRATES" | awk -v s="$svc" '$1 == s { print $2; exit }')"
+    if in_list "$crate" "$KOINE_CRATES"; then
+        continue
+    fi
+    in_list "$svc" "$KEBABS" || fail "$EFFECTS_DOC row $v names service $svc, which has no impress_service_impl! block"
 done
 
 if [[ $status -eq 0 ]]; then

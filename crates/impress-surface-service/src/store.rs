@@ -31,10 +31,10 @@
 //! reasoning the layout store gives for why a row's *creation* is a plain
 //! insert.
 //!
-//! [`RetentionTier::Durable`]: impress_core::operation::RetentionTier::Durable
-//! [`OperationIntent::Editorial`]: impress_core::operation::OperationIntent::Editorial
-//! [`RetentionTier::Ephemeral`]: impress_core::operation::RetentionTier::Ephemeral
-//! [`OperationIntent::Routine`]: impress_core::operation::OperationIntent::Routine
+//! [`RetentionTier::Durable`]: impress_item::operation::RetentionTier::Durable
+//! [`OperationIntent::Editorial`]: impress_item::operation::OperationIntent::Editorial
+//! [`RetentionTier::Ephemeral`]: impress_item::operation::RetentionTier::Ephemeral
+//! [`OperationIntent::Routine`]: impress_item::operation::OperationIntent::Routine
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -42,19 +42,18 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 // Aliased: this module's own public API speaks `serde_json::Value` (the
 // shape every other module in this crate uses), and only converts to the
-// store's own `impress_core::item::Value` at the point of writing a payload
+// store's own `impress_item::item::Value` at the point of writing a payload
 // field — see `spec_json`/`parse_json` and the `ItemValue::String(...)`
 // constructions below.
-use impress_core::item::Value as ItemValue;
-use impress_core::item::{ActorKind, Item, ItemId, Priority, Visibility};
-use impress_core::operation::{OperationSpec, OperationType};
-use impress_core::query::{ItemQuery, Predicate, SortDescriptor};
 use impress_core::schemas::{
     SURFACE_EVENT_SCHEMA_REF, SURFACE_SCHEMA_REF, SURFACE_STATE_SCHEMA_REF,
 };
-use impress_core::sqlite_store::{GuardedBatch, SqliteItemStore};
-use impress_core::store::AttributedStore;
-use impress_core::store::StoreError;
+use impress_core::sqlite_store::SqliteItemStore;
+use impress_item::item::Value as ItemValue;
+use impress_item::item::{ActorKind, Item, ItemId, Priority, Visibility};
+use impress_item::operation::{OperationSpec, OperationType};
+use impress_item::query::{ItemQuery, Predicate, SortDescriptor};
+use impress_item::store::{AttributedStore, GuardedBatch, StoreError};
 pub use impress_layout_service::authorship::actor_from;
 use impress_layout_service::authorship::{author_for_service, Ephemerality};
 use impress_service_core::Refusal;
