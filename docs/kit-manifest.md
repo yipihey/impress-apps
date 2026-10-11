@@ -35,6 +35,7 @@ change with it. They do not keep a second list.
 | `koine` | pure | The public name of the grammar, the style sheet every frontend applies, the shared gesture (`koine::gesture`) a click or a key is, the focus cursor and key vocabulary every frontend shares (`koine::cursor`), and the frame decisions a grip, tab, edge or divider makes (`koine::frame`). `layout_verb` is the layout verb that gesture already determines. Shared slot names, one value kind per frontend, `set`/`reset` that refuse an unknown slot (`docs/plan-koine-style.md`). The style document (`koine::style_file`) is bytes; this crate does not open the file. Re-exports `impress-layout`, `impress-pane-query` and `impress-surface` always, and `impress-service-core` / `impress-verb-surface` under the default `verbs` feature, which a browser build turns off. |
 | `koine-style-file` | pure | The native writer for `<workspace>/settings/koine-style.json`. Locks the path with `impress-fs-lock` and defaults to the suite group container. Depends on `koine` for the document. A host with no filesystem does not link it. |
 | `koine-tui` | pure | A text performance of `RenderTree`. Line templates and indent come from the tui sheet. j/k/Enter become events; `reduce` still decides what they mean. The pane frame (grip, border, tabs) and h/j/k/l become the same `koine::gesture`, and `layout_verb` / `verb_for_pointer` / `verb_for_drag` are that gesture as a layout verb. The style command reads the file through `koine-style-file`. |
+| `koine-store-conformance` | pure | The store conformance suite (koine docs/plan-koine-store.md D6): the semantics of the `impress-item` port as eighty named cases, instantiated per backend by one macro. `impress-core` runs it against `SqliteItemStore` as a dev-dependency (`tests/store_conformance.rs`), the oracle the cases were written from; koine runs it against its memory and directory backends. |
 | `impress-fs-lock` | pure | The advisory `flock` for the suite's device-local files, lifted out of `impress-ai` (ADR-0036 D-R8, plan-self-reflective-layer R1) so `impress-settings` can lock its files without a store-tier dependency. No dependencies. |
 | `impress-settings` | pure | The settings registry as data (key, type, default, scope, legacy keys, doc), its per-scope files under `<workspace>/settings/`, and the generated settings pane per section (ADR-0036 D5). Reaches `impress-fs-lock` and `impress-surface` only. |
 | `surface-demo-service` | pure | The D8 demo capability, the scaffold's output and the worked example. A member of `impress-capabilities`. |
@@ -53,15 +54,20 @@ change with it. They do not keep a second list.
 
 ### Built, not linked
 
-Two koine crates are performed, not linked: no crate in this repository
-depends on them, so `check-kit-deps.sh` does not see them, and they live
-outside the `kit-crates` block above on purpose. They are built by `dx`
-and served as files (`GET /ui/*`, `scripts/build-koine-web.sh`).
+These koine crates are not linked by any crate in this repository, so
+`check-kit-deps.sh` does not see them, and they live outside the
+`kit-crates` block above on purpose: the browser pair is built by `dx` and
+served as files (`GET /ui/*`, `scripts/build-koine-web.sh`), and the store
+backends are what a bespoke app or a headless host opens instead of
+`SqliteItemStore`.
 
 | Crate | Tier | Role |
 |---|---|---|
 | `koine-dioxus` | pure | The Dioxus performance of `RenderTree` (koine `docs/plan-koine-web.md` D1–D3): one mapping to HTML, performed as the DOM in a browser, as a string on the server (`render_html`, the conformance suite's point of comparison) and as a native window. Elements are chosen by kind, every one carries its node id, the DOM tab order is the focus order, and the web sheet lands as CSS custom properties `koine.css` reads. No fetch, no store, no decision. |
 | `koine-web` | host | The page (D6–D8): a router over `/surface/:id`, `/layout` and `/style`, the same-origin transport to the surface and layout routes, the wait loop, the keys through `koine::cursor`, the loopback token from the page's meta tag or a pasted value, and the layout page's pane frames through `koine::frame`. Served by every app at `GET /ui/*` (`KoineWebRoutes`); built by `scripts/build-koine-web.sh`. |
+| `koine-store-memory` | pure | The in-memory store backend and `eval`, the one pure evaluation of predicates, sorts and paging for every scanning backend. Not linked here; the Apple apps keep `SqliteItemStore`. |
+| `koine-store-dir` | pure | The directory store backend: one JSON file per item under `items/<schema ref>/`, blobs beside them, a journal for atomic batches, a writer lock from `impress-fs-lock`, rsync-able. Not linked here. |
+| `koine-store` | pure | The port by name and a backend from a URL (`memory:`, `dir:<path>`; `sqlite:` is impress-core's to register). Not linked here. |
 
 
 The inventory crate has both kit and app features. The checks select this

@@ -5264,6 +5264,24 @@ impl AttributedStore for SqliteItemStore {
 }
 
 impl ItemStore for SqliteItemStore {
+    /// What this backend can do (koine docs/plan-koine-store.md D1). A
+    /// file-backed store (one with a reader pool) is durable and shared;
+    /// `:memory:` is private to its one connection. Events are this
+    /// process's only; another process's commits are seen through
+    /// `data_version`, not `subscribe`. Blobs live outside this file.
+    fn capabilities(&self) -> impress_item::store::StoreCapabilities {
+        let file_backed = self.readers.is_some();
+        impress_item::store::StoreCapabilities {
+            indexed_query: true,
+            atomic_batch: true,
+            subscribe: true,
+            cross_process_events: false,
+            durable: file_backed,
+            shared: file_backed,
+            blobs: false,
+        }
+    }
+
     fn insert(&self, item: Item) -> Result<ItemId, StoreError> {
         let conn = self
             .conn

@@ -53,6 +53,10 @@ impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 proptest = "1.4"
+# The koine store conformance suite, run against SqliteItemStore in
+# tests/store_conformance.rs: this store is the suite's oracle, and the suite
+# is how the memory and directory backends stay the same store.
+koine-store-conformance = { workspace = true }
 tempfile = "3.10"
 
 # One integration-test binary, tests/main.rs, with a `mod` per file in tests/
