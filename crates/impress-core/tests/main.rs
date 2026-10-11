@@ -12,6 +12,7 @@ mod prop_schema_validation;
 mod prop_store_graph;
 mod schema_ref_construction;
 mod schema_ref_manifest;
+mod store_conformance;
 mod sync_convergence;
 
 #[path = "support/schema_fixture.rs"]
