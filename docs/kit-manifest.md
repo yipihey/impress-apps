@@ -32,7 +32,7 @@ change with it. They do not keep a second list.
 | `impress-layout` | pure | The layout tree as pure values: panes, containers, channels, the D8 verbs, patches and undo rings. |
 | `impress-surface` | pure | Surfaces as pure values: spec, JSON schema, plan / resolve / reduce, `RenderTree`. |
 | `impress-verb-surface` | pure | `verb_surface(&VerbDescriptor) -> SurfaceSpec` and `catalogue()`: the generated form, Run button, review step and result view for every linked verb (ADR-0035 D2, plan-auto-gui-and-self-docs.md G4). Depends on `impress-service-core` (the descriptor) and `impress-surface` (the vocabulary) alone. |
-| `koine` | pure | The public name of the grammar, the style sheet every frontend applies, and the shared gesture (`koine::gesture`) a click or a key is. `layout_verb` is the layout verb that gesture already determines. Shared slot names, one value kind per frontend, `set`/`reset` that refuse an unknown slot (`docs/plan-koine-style.md`). The style document (`koine::style_file`) is bytes; this crate does not open the file. Re-exports `impress-layout`, `impress-pane-query`, `impress-surface` and `impress-verb-surface`. |
+| `koine` | pure | The public name of the grammar, the style sheet every frontend applies, the shared gesture (`koine::gesture`) a click or a key is, the focus cursor and key vocabulary every frontend shares (`koine::cursor`), and the frame decisions a grip, tab, edge or divider makes (`koine::frame`). `layout_verb` is the layout verb that gesture already determines. Shared slot names, one value kind per frontend, `set`/`reset` that refuse an unknown slot (`docs/plan-koine-style.md`). The style document (`koine::style_file`) is bytes; this crate does not open the file. Re-exports `impress-layout`, `impress-pane-query` and `impress-surface` always, and `impress-service-core` / `impress-verb-surface` under the default `verbs` feature, which a browser build turns off. |
 | `koine-style-file` | pure | The native writer for `<workspace>/settings/koine-style.json`. Locks the path with `impress-fs-lock` and defaults to the suite group container. Depends on `koine` for the document. A host with no filesystem does not link it. |
 | `koine-tui` | pure | A text performance of `RenderTree`. Line templates and indent come from the tui sheet. j/k/Enter become events; `reduce` still decides what they mean. The pane frame (grip, border, tabs) and h/j/k/l become the same `koine::gesture`, and `layout_verb` / `verb_for_pointer` / `verb_for_drag` are that gesture as a layout verb. The style command reads the file through `koine-style-file`. |
 | `impress-fs-lock` | pure | The advisory `flock` for the suite's device-local files, lifted out of `impress-ai` (ADR-0036 D-R8, plan-self-reflective-layer R1) so `impress-settings` can lock its files without a store-tier dependency. No dependencies. |
@@ -50,6 +50,19 @@ change with it. They do not keep a second list.
 | `impress-store-ffi` | store | The UniFFI bindings the Swift side links (`ImpressRustCore`'s xcframework): store, layout, surface, and the AI conversation and registry bindings. |
 | `impress-workspace-hack` | pure | Dependency glue, no code: the cargo-hakari crate every workspace member depends on so every lane resolves one third-party feature set (plan-verb-pipeline-and-transport § Build cost, B4). In the table because every kit crate reaches it; it reaches no workspace crate. The standalone check copies it as the **stub** hakari prescribes for a crate that leaves (its generated section emptied), because the real one names the whole suite's dependencies. |
 <!-- kit-crates:end -->
+
+### Built, not linked
+
+Two koine crates are performed, not linked: no crate in this repository
+depends on them, so `check-kit-deps.sh` does not see them, and they live
+outside the `kit-crates` block above on purpose. They are built by `dx`
+and served as files (`GET /ui/*`, `scripts/build-koine-web.sh`).
+
+| Crate | Tier | Role |
+|---|---|---|
+| `koine-dioxus` | pure | The Dioxus performance of `RenderTree` (koine `docs/plan-koine-web.md` D1–D3): one mapping to HTML, performed as the DOM in a browser, as a string on the server (`render_html`, the conformance suite's point of comparison) and as a native window. Elements are chosen by kind, every one carries its node id, the DOM tab order is the focus order, and the web sheet lands as CSS custom properties `koine.css` reads. No fetch, no store, no decision. |
+| `koine-web` | host | The page (D6–D8): a router over `/surface/:id`, `/layout` and `/style`, the same-origin transport to the surface and layout routes, the wait loop, the keys through `koine::cursor`, the loopback token from the page's meta tag or a pasted value, and the layout page's pane frames through `koine::frame`. Served by every app at `GET /ui/*` (`KoineWebRoutes`); built by `scripts/build-koine-web.sh`. |
+
 
 The inventory crate has both kit and app features. The checks select this
 feature set for the standalone cut; full clients retain their app features.

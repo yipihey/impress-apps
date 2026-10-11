@@ -125,3 +125,7 @@ crates/imbib-core/generated/
 # CI xcodebuild output (self-hosted runner): kept out of the developer's
 # shared ~/Library/Developer/Xcode/DerivedData.
 .ci-derived/
+
+# The koine-web browser bundle is built, not committed (scripts/build-koine-web.sh).
+packages/ImpressAutomation/Sources/ImpressAutomation/Resources/koine-web/*
+!packages/ImpressAutomation/Sources/ImpressAutomation/Resources/koine-web/README.md

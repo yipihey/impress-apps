@@ -360,6 +360,7 @@ extension HTTPServer {
             return
         }
         request.localPort = Self.localPort(of: connection) ?? boundPort
+        request.peerIsLoopback = Self.isLoopbackPeer(connection)
 
         logger?.debug("HTTP \(request.method) \(request.path)")
 
