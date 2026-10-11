@@ -3218,6 +3218,40 @@ Two GET mutations went with it (SEC-6): `GET /api/performance/reset` and
 token `POST /agents` issued (returned once as `auth_token`), and its
 `impel-` prefix, `system` and no-header arms are deleted (SEC-8).
 
+### The web frontend: `GET /ui/*` (koine plan-koine-web D8, D9; 2026-10-11)
+
+Koine's third frontend is a Dioxus build of `crates/koine-web` in the koine
+repository: one mapping (`koine-dioxus`) performs a `RenderTree` in a
+browser, as a server string and in a desktop window. Every app serves the
+bundle from `SharedAutomationRoutes` through `KoineWebRoutes`, the first
+static route the server has:
+
+| Route | Answers |
+|---|---|
+| `GET /ui/<file>` | a file of the bundle (`wasm/koine-web.js`, `wasm/koine-web_bg.wasm`, `assets/…`) with its content type; matched on the RAW path, since a bundle file name keeps its case |
+| `GET /ui`, `/ui/`, `/ui/surface/<id>`, `/ui/layout`, `/ui/style` | `index.html`; the page's own router owns those paths |
+| any other method under `/ui` | 405 |
+| no bundle in the build | 503 naming `scripts/build-koine-web.sh` |
+
+The page talks to the same origin: `GET /api/surface/<id>/render`, `POST
+…/dispatch`, `GET …/wait`, `GET /api/layout/tree`, `POST /api/layout/verb`.
+A POST needs the loopback token, which a page cannot read from the file,
+so the `index.html` served to a **loopback peer** carries it as
+`<meta name="koine-token" content="…">` (`HTTPRequest.peerIsLoopback`,
+set by `HTTPServer` from the connection, never from a header). A remote
+peer gets the page without it and the page asks for one to be pasted;
+without a token the page is read-only and says so. No CORS header is
+added: the page is same-origin by construction.
+
+The bundle is **built, not committed**: `scripts/build-koine-web.sh` runs
+`dx build --platform web --release` in the koine checkout cargo already
+has for the pinned rev and copies the output into
+`packages/ImpressAutomation/Sources/ImpressAutomation/Resources/koine-web/`
+(SwiftPM copies the folder; its README is the one tracked file). Rebuild
+it when the koine rev moves. Pinned by `KoineWebRoutesTests` (file vs
+page, content types, token only for loopback, no `..`, 503 without a
+bundle).
+
 ### What a pane LOOKS like (2026-09-21)
 
 L6's `list` and `outline` panes drew a hand-written two-line row — title and

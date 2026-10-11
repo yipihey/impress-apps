@@ -21,6 +21,11 @@ public struct HTTPRequest: Sendable {
     /// can say something else: the port table's default, or a port edited
     /// in Settings since the server started.
     public var localPort: UInt16?
+    /// Whether the transport peer is positively loopback, as `HTTPServer`
+    /// determined it from the connection (never from a header). False for a
+    /// request built by hand or parsed from text. `KoineWebRoutes` reads it
+    /// to decide whether the page it serves may carry the loopback token.
+    public var peerIsLoopback: Bool = false
 
     public init(
         method: String,

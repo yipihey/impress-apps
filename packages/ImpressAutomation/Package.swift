@@ -20,6 +20,9 @@ let package = Package(
         .target(
             name: "ImpressAutomation",
             dependencies: ["ImpressKit", "ImpressLogging", "ImpressRustCore"],
+            // The koine web frontend's bundle, served at `GET /ui/*`
+            // (`KoineWebRoutes`). Built, not committed: see its README.
+            resources: [.copy("Resources/koine-web")],
             swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "ImpressAutomationTests", dependencies: ["ImpressAutomation"], swiftSettings: [.swiftLanguageMode(.v5)])
     ]

@@ -88,7 +88,7 @@ public enum SharedAutomationRoutes {
         "/api/performance/reset",
         "/api/store-timings",
         "/api/store-timings/reset",
-    ]).union(LayoutAutomationRoutes.paths).union(["/api/surface", "/api/verb"])
+    ]).union(LayoutAutomationRoutes.paths).union(["/api/surface", "/api/verb", KoineWebRoutes.prefix])
 
     /// Answer `request` if it is one of the generic routes; return `nil` to let
     /// the caller fall through to its own dispatch.
@@ -107,6 +107,12 @@ public enum SharedAutomationRoutes {
     ) async -> HTTPResponse? {
         if includeCORSPreflight, request.method.uppercased() == "OPTIONS" {
             return corsPreflight()
+        }
+
+        // The koine web frontend (`GET /ui/*`), on the RAW path: a bundle
+        // file name keeps its case, and `normalize` below lowercases.
+        if let page = KoineWebRoutes.route(request) {
+            return page
         }
 
         let path = normalize(request.path)
