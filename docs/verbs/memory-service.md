@@ -9,6 +9,7 @@ Record that a memory was independently re-observed, WITHOUT writing a duplicate 
 `remember` already calls this automatically when its dedup gate finds a near-duplicate — call it directly only when you already hold the exact id (from a prior `recall` or `memory_brief`) and want to record that it still holds without restating the prose.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "memory/claim@1.0.0"
 - **writes**: "memory/claim@1.0.0"
 - **reach**: —
@@ -35,6 +36,7 @@ Record that a memory was independently re-observed, WITHOUT writing a duplicate 
 Withhold a memory from `recall` and `memory_brief` WITHOUT deleting it — for something that turned out to be private, unwanted, or wrong in a way `supersede_claim` does not express (there is no correct replacement text). The row and its evidence edges stay in the store; this only flips the flag every read path already honours, so the action is reversible by a direct store edit even though no verb here un-forgets it.
 
 - **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"
 - **writes**: "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"
 - **reach**: —
@@ -65,6 +67,7 @@ The "start of session" digest: standing instructions, then claims (optionally sc
 `text` is ready to paste or inject directly into a system prompt; read `sections` instead when the structured fields (id, confidence, confirmations) matter more than prose.
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **reads**: "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"
 - **writes**: —
 - **reach**: —
@@ -95,6 +98,7 @@ Row counts per memory schema (heads and totals), plus which retrieval tier is ru
 Call this to sanity-check that memory is actually being written to — an agent that has called `remember` all session but sees zero counts here has found a real bug, not an empty library — or to decide whether a semantic (non-lexical) recall would help before deciding one is worth building. `vector_tier` reports the vector tier's real state (off / initializing lazily / live / unavailable — see [`StatusResult::vector_tier`]) and `embedding_coverage` is a real fraction whenever the tier is at least configured; this call never pays for a model load itself, so it is always cheap to check.
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **reads**: "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"
 - **writes**: —
 - **reach**: —
@@ -118,6 +122,7 @@ Retrieve memories, ranked by relevance, confirmations, recency, author and confi
 When the vector tier is live, this page is RE-RANKED — never widened — by embedding `query` once and scoring every entry that has a stored vector by cosine similarity; entries with no vector keep their FTS/recency position. Off, or against a store with no memory-item vectors embedded yet, results are byte-identical to the FTS-only tier.
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **reads**: "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"
 - **writes**: —
 - **reach**: —
@@ -153,6 +158,7 @@ When the vector tier is live (`IMPRESS_MEMORY_VECTORS=1`) and the FTS gate above
 `claim_type` (meaningful only when `kind` is `"claim"`: `"fact"` | `"preference"` | `"method"` | `"decision"` | `"result"`, or any other label — the vocabulary is open) and `confidence` (0.0–1.0) may be left as an empty string / a negative number respectively to mean "unstated" — that is NOT the same as zero and is not scored as zero. A confidence above 1.0 is stored as 1.0, never as a ranking signal stronger than full confidence. `subject_refs` are the lowercase-UUID ids of items this memory is ABOUT; `evidence_refs` are the ids it was DERIVED FROM (a transcript, a paper, a run). Either may be empty. An id that does not resolve to a live item is kept in the record but silently skipped as a graph edge — it does not fail the write.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"
 - **writes**: "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"
 - **reach**: —
@@ -187,6 +193,7 @@ Retract a memory by REPLACING it: writes a new memory of the SAME KIND as `old_i
 Use this when a previously-remembered fact turns out to be wrong, or needs correcting or sharpening. `reason` is optional (empty string omits it) but is recorded on the replacement edge when given, and is worth the sentence — it is the only place "why was this retracted" survives. This is NOT how to retire a memory that was never wrong but is simply unwanted or private; use `forget` for that instead.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "memory/claim@1.0.0"
 - **writes**: "memory/claim@1.0.0"
 - **reach**: —

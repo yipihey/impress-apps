@@ -53,6 +53,8 @@ fn bench(name: &'static str, args: Value, store: &Arc<SqliteItemStore>) -> (f64,
                 verb: name.into(),
                 store_override: Some(store.clone()),
                 mutation_ids: Default::default(),
+                adverbs: Default::default(),
+                inverse: Default::default(),
             }),
             (verb.handler)(args.clone()),
         ));

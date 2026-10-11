@@ -1062,6 +1062,8 @@ static LAYOUT_APPLY: VerbDescriptor = VerbDescriptor {
     },
     deprecated: None,
     aliases: &[],
+    supports: &[],
+    adjective: None,
     examples: &[],
     strict: false,
     budget_ms: None,

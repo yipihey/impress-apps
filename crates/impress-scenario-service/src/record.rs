@@ -155,6 +155,7 @@ pub fn generate_scenario(
                             fields: Vec::new(),
                         }),
                         capture: BTreeMap::new(),
+                        adverbs: None,
                     })
                 });
             steps.push(step);

@@ -62,13 +62,19 @@ async fn the_catalogue_renders_and_the_generated_form_runs_a_verb_into_its_resul
     assert!(rendered_form.ok, "{rendered_form:?}");
 
     // 3. Seed the form's `freq`/`n` state (the generated defaults are empty
-    // scalars for a required numeric field), then click Run — through
+    // scalars for a required numeric field) and keep the generated adverb
+    // toggles the Run action templates (`state.adverbs.*`), then click Run — through
     // `surface_dispatch`, which itself reaches `surface-demo-service_series`
     // only through the pipeline (see the module docs).
     let seed = service
         .surface_state_set(
             form_id.clone(),
-            serde_json::json!({"freq": 2.0, "n": 16, "result": serde_json::Value::Null}),
+            serde_json::json!({
+                "freq": 2.0,
+                "n": 16,
+                "result": serde_json::Value::Null,
+                "adverbs": form_spec.state["adverbs"].clone(),
+            }),
             Some(HOST.into()),
         )
         .await;

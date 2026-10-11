@@ -67,6 +67,8 @@ async fn check() -> Result<(), Box<dyn std::error::Error>> {
         verb: "provider-service_set-trusted".into(),
         store_override: None,
         mutation_ids: context::MutationIds::default(),
+        adverbs: Default::default(),
+        inverse: Default::default(),
     });
     for (trusted, expected) in [
         (true, SafetyClass::ReadOnly),

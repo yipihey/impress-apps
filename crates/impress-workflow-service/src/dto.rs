@@ -192,6 +192,9 @@ pub struct WouldCallDto {
     pub safety: Option<String>,
     #[serde(default)]
     pub effects_writes: Vec<String>,
+    /// The adverbs the step declares (`docs/grammar.md` § Adverbs), when any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adverbs: Option<Value>,
 }
 
 impl WouldCallDto {
@@ -207,7 +210,14 @@ impl WouldCallDto {
                 .as_ref()
                 .map(|d| d.effects().writes.iter().map(|k| k.describe()).collect())
                 .unwrap_or_default(),
+            adverbs: None,
         }
+    }
+
+    /// This entry with the step's adverbs recorded.
+    pub fn with_adverbs(mut self, adverbs: Option<Value>) -> Self {
+        self.adverbs = adverbs;
+        self
     }
 }
 

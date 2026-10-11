@@ -17,6 +17,7 @@ Example (MCP): {"dataset_id": "inline", "plot_type": "scatter", "x": "time (s)",
 Example (CLI): impress create-figure --dataset-id inline --plot-type scatter --x 'time (s)' --y flux --name Decay --series '{"label":"run 1","x":[0,1,2,3],"y":[1.0,0.61,0.37,0.22]}'
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: "figure"
 - **reach**: app("implore")
@@ -55,6 +56,7 @@ Example (CLI): impress create-figure --dataset-id inline --plot-type scatter --x
 Delete a figure, its exported files and its stored image when no other figure or record references that image. Returns false on refusal.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: target(figure_id)
 - **writes**: "figure"
 - **reach**: app("implore")
@@ -81,6 +83,7 @@ Delete a figure, its exported files and its stored image when no other figure or
 Export a figure to a file and return its path. `format` is `png`, `pdf` or `svg`. The path is what an agent on the user's Mac can open, or embed into a manuscript.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -103,6 +106,7 @@ Export a figure to a file and return its path. `format` is `png`, `pdf` or `svg`
 Render a figure and return both its local artifact path and bytes. Width and height override the figure's logical size; non-finite or non-positive values use the current size. Scale is pixels per point for PNG output. A supplied view state is rendered directly.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -134,6 +138,7 @@ Render a figure and return both its local artifact path and bytes. Width and hei
 One dataset in detail, including per-column statistics where implore has computed them. Use it to pick sensible axes before creating a figure.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -155,6 +160,7 @@ One dataset in detail, including per-column statistics where implore has compute
 One figure's definition.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -176,6 +182,7 @@ One figure's definition.
 Recent lines from implore's in-memory log store.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -198,6 +205,7 @@ Recent lines from implore's in-memory log store.
 Datasets currently open in implore, with row and column counts. START HERE for any plotting request: figures are created against a dataset id.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -217,6 +225,7 @@ Takes no arguments.
 Figures in implore, optionally narrowed to one dataset.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -238,6 +247,7 @@ Figures in implore, optionally narrowed to one dataset.
 Plot a histogram of one quantity and return the rendered SVG.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -260,6 +270,7 @@ Plot a histogram of one quantity and return the rendered SVG.
 Plot one or more named series and return the rendered SVG.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -282,6 +293,7 @@ Plot one or more named series and return the rendered SVG.
 Run a batch of viewer operations in one call, which is much cheaper than a round trip each when sweeping slices or angles.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -303,6 +315,7 @@ Run a batch of viewer operations in one call, which is much cheaper than a round
 Render a cascade plot over the loaded volume and return the SVG.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -322,6 +335,7 @@ Takes no arguments.
 Colormaps the viewer offers, for use with `rg_control`.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -341,6 +355,7 @@ Takes no arguments.
 Drive the viewer: pass a JSON object of controls (camera, slice axis and index, colormap, scaling). Read `rg_state` first to see what is settable.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -362,6 +377,7 @@ Drive the viewer: pass a JSON object of controls (camera, slice axis and index, 
 Load a volume dataset into the ray-grid viewer from a path on disk. Everything else in the `rg_*` family operates on whatever is loaded.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -383,6 +399,7 @@ Load a volume dataset into the ray-grid viewer from a path on disk. Everything e
 Render the current slice as a PNG and return it (base64 or a path, depending on how the viewer answers).
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -404,6 +421,7 @@ Render the current slice as a PNG and return it (base64 or a path, depending on 
 The current slice as raw numeric data rather than an image — for analysis rather than display. Can be large.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -425,6 +443,7 @@ The current slice as raw numeric data rather than an image — for analysis rath
 Write the current slice to a file at `path`.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -446,6 +465,7 @@ Write the current slice to a file at `path`.
 The viewer's current state — camera, slice position, colormap, loaded dataset. Returned as JSON; the shape is the viewer's own.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -465,6 +485,7 @@ Takes no arguments.
 Summary statistics over the loaded volume, or a sub-region when the parameters name one.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -486,6 +507,7 @@ Summary statistics over the loaded volume, or a sub-region when the parameters n
 Whether implore is running, plus its version, port and how many datasets are open.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: app("implore")
@@ -510,6 +532,7 @@ Takes no arguments.
 Update an existing figure using the same partial fields as the former PATCH `/api/figures/{id}`. All fields are optional except the ID; dataset ID was not patchable in that HTTP contract. `view_state`, when supplied, replaces the stored snapshot before these fields are applied. A successful update is saved only if it can be rerendered; failed renders are rolled back. Success includes the updated figure and artifact; missing figures and render failures are structured refusals.
 
 - **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: target(figure_id)
 - **writes**: "figure"
 - **reach**: app("implore")

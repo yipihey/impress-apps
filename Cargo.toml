@@ -208,31 +208,31 @@ im-identifiers = { path = "crates/im-identifiers" }
 impress-collab = { path = "crates/impress-collab" }
 impress-flags = { path = "crates/impress-flags" }
 impress-tags = { path = "crates/impress-tags" }
-impress-keymap = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-keymap = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
 imprint-core = { path = "crates/imprint-core" }
 imprint-service = { path = "crates/imprint-service" }
 imprint-selftest = { path = "crates/imprint-selftest" }
 imbib-service = { path = "crates/imbib-service" }
 imbib-semantic-service = { path = "crates/imbib-semantic-service" }
 imbib-core = { path = "crates/imbib-core" }
-impress-item = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
-impress-schema-ref-codegen = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-item = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
+impress-schema-ref-codegen = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
 impress-core = { path = "crates/impress-core" }
-impress-layout = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-layout = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
 impress-layout-service = { path = "crates/impress-layout-service" }
-impress-pane-query = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
-impress-surface = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
-impress-workflow = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-pane-query = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
+impress-surface = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
+impress-workflow = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
 impress-workflow-service = { path = "crates/impress-workflow-service" }
-impress-verb-surface = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
-koine = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
-koine-style-file = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
-koine-tui = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
-impress-scenario = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-verb-surface = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
+koine = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
+koine-style-file = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
+koine-tui = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
+impress-scenario = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
 impress-scenario-service = { path = "crates/impress-scenario-service" }
 impress-capabilities = { path = "crates/impress-capabilities", default-features = false }
 impress-surface-service = { path = "crates/impress-surface-service" }
-surface-demo-service = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+surface-demo-service = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
 perf-service = { path = "crates/perf-service" }
 # default-features = false HERE, not at the call site: a member inheriting a
 # workspace dependency can only add features, never remove them, so a member
@@ -249,8 +249,8 @@ impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }
 impress-remarkable = { path = "crates/impress-remarkable" }
-impress-fs-lock = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
-impress-settings = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-fs-lock = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
+impress-settings = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
 impress-ai = { path = "crates/impress-ai" }
 impress-ai-service = { path = "crates/impress-ai-service" }
 impress-ai-tools = { path = "crates/impress-ai-tools" }
@@ -330,8 +330,8 @@ toml = "0.8"
 dirs = "6"
 
 # impress-service-* (Phase 0 codegen pipeline)
-impress-service-core = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
-impress-service-macros = { git = "https://github.com/yipihey/koine", rev = "94bfefdacb80eaa198ea048f227d7890a42f92d5" }
+impress-service-core = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
+impress-service-macros = { git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" }
 inventory = "0.3"
 schemars = { version = "0.8", features = ["uuid1"] }
 syn = { version = "2", features = ["full"] }

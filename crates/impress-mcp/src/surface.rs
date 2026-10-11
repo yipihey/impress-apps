@@ -217,7 +217,7 @@ fn definition_of(d: VerbHandle) -> Value {
     json!({
         "name": d.name(),
         "description": d.description(),
-        "inputSchema": d.input_schema(),
+        "inputSchema": impress_service_core::with_adverbs_property(d.input_schema().into_owned()),
         "annotations": d.mcp_annotations(),
     })
 }
@@ -403,7 +403,7 @@ pub fn dispatch(name: &str, args: &Value) -> Option<Result<Value, String>> {
             "tool": tool,
             "action": action,
             "description": descriptor.description(),
-            "inputSchema": descriptor.input_schema(),
+            "inputSchema": impress_service_core::with_adverbs_property(descriptor.input_schema().into_owned()),
         })));
     }
 

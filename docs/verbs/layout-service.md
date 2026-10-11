@@ -11,6 +11,7 @@ An ordinal numbers ONE union: this app's **presets** first, in the shipped table
 Window geometry is dropped on the way in: the logical tree is what ports between devices, and a 27" frame has no business landing on a laptop (ADR-0019 D2).
 
 - **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -44,6 +45,7 @@ Apply a preset: the live arrangement becomes its tree, and the live row records 
 Window geometry is dropped on the way in, exactly as `apply_layout` drops it: the logical tree is what ports between devices (ADR-0019 D2).
 
 - **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -74,6 +76,7 @@ Window geometry is dropped on the way in, exactly as `apply_layout` drops it: th
 Re-point one of a pane's declared parameters: follow a channel, pin it to one item, or fall back to the view kind's default.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -106,6 +109,7 @@ Re-point one of a pane's declared parameters: follow a channel, pin it to one it
 Close a pane or a whole subtree. Never the last pane of the layout.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -138,6 +142,7 @@ Materialize the current arrangement as a durable, attributed record — the comm
 `as_kind` is `layout` today, which saves the tree under `name`. Committing a set of bindings as a **figure** or a **collection** is the same verb with a different `as_kind` and arrives with the implore and preset work (L7); asking for one now is refused rather than approximated.
 
 - **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0", "impress/ui/surface@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **reach**: —
@@ -169,6 +174,7 @@ Materialize the current arrangement as a durable, attributed record — the comm
 Remove a saved layout by name or id. Refuses the live arrangement (it is not a saved layout) and any preset (`reset-preset` is how a preset goes back to shipped); deleting a name that does not exist is `ok: false` with a message, never an error.
 
 - **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -197,6 +203,7 @@ Remove a saved layout by name or id. Refuses the live arrangement (it is not a s
 Move a pane out into a new window whose root it becomes — the detached PDF. Refused when the pane is already the whole of its window.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -227,6 +234,7 @@ Move a pane out into a new window whose root it becomes — the detached PDF. Re
 Focus a pane. Focus is a value in the layout, so it is legible to agents and tests rather than living in a view.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -257,6 +265,7 @@ Focus a pane. Focus is a value in the layout, so it is legible to agents and tes
 Step focus: `left` | `right` | `up` | `down` | `next` | `prev`. This is the h / l grammar, as a tree walk rather than a geometric one.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -287,6 +296,7 @@ Step focus: `left` | `right` | `up` | `down` | `next` | `prev`. This is the h / 
 What a channel currently carries, per record kind, and which panes it drives. `channel` is `1`–`8` or `follow`.
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **reads**: "impress/ui/layout@1.0.0"
 - **writes**: —
 - **reach**: —
@@ -316,6 +326,7 @@ What a channel currently carries, per record kind, and which panes it drives. `c
 The whole live tree for this scope: windows, the tile arena, channel state. Creates the three-column preset on a cold start, so a caller never has to ask whether a layout exists.
 
 - **safety**: `mutating`, idempotent
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -351,6 +362,7 @@ One pane: its spec, its query COMPILED against the record-kind manifest with its
 The compiled `item_query` is literally what the store will be asked — which is how "why is this pane empty?" becomes a question with an answer instead of a debugging session.
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **reads**: "impress/ui/layout@1.0.0", any("compiles the pane's query over the kind it names")
 - **writes**: —
 - **reach**: —
@@ -381,6 +393,7 @@ The saved layouts of an app, in ⌃⌘1–9 order.
 Their ordinals are OFFSET by the app's presets, which come first in the union `apply_layout(ordinal:)` recalls — see `list_presets`.
 
 - **safety**: `mutating`, idempotent
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/preset@1.0.0"
 - **reach**: —
@@ -415,6 +428,7 @@ The presets of an app — what the app IS, as arrangements the user can recall (
 Seeds the shipped presets if this workspace has never seen them, so a caller never has to ask whether they exist. Ordinals are the ⌃⌘1–9 chords: presets first, then named layouts. The answer also carries the sections this app permits that are NOT expressible as queries, with the reason (ADR-0031 D2).
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: —
 - **reach**: —
@@ -447,6 +461,7 @@ Seeds the shipped presets if this workspace has never seen them, so a caller nev
 Show one pane alone in its window. Zoom is a view state, not a mutation of the tree: every share and every session survives it.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -479,6 +494,7 @@ Move a pane (or a whole subtree) next to another, or into its tabs.
 `placement` is `left` | `right` | `above` | `below` | `into-tabs`.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -511,6 +527,7 @@ Move a pane (or a whole subtree) next to another, or into its tabs.
 Redo on one ring. Same stacks as `undo`.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -544,6 +561,7 @@ Restore the shipped revision of a preset over a user-edited row.
 Refused for a name the suite does not ship: there would be nothing to restore it to, and the refusal names what IS shipped.
 
 - **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **reach**: —
@@ -574,6 +592,7 @@ Set a split container's relative shares — one per child, positive.
 They are weights, not fractions: `1 2 3` means the three-column chassis, and the renderer divides by their sum.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -605,6 +624,7 @@ They are weights, not fractions: `1 2 3` means the three-column chassis, and the
 What a pane reference resolves to right now — "which pane is `right`?" answered without doing anything to it.
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **reads**: "impress/ui/layout@1.0.0"
 - **writes**: —
 - **reach**: —
@@ -633,6 +653,7 @@ What a pane reference resolves to right now — "which pane is `right`?" answere
 Undo a maximize. A no-op when nothing is maximized.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -662,6 +683,7 @@ Undo a maximize. A no-op when nothing is maximized.
 Save the current arrangement under a name, durably. Re-saving an existing name overwrites it.
 
 - **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -694,6 +716,7 @@ Save the live arrangement AS a preset, durably — a preset of the user's own, o
 `from_live` must be true today: the live tree is the only source a preset can be built from here, and asking for another is refused rather than approximated. Editing a shipped preset leaves its `version` alone, so "the user edited Triage" stays distinguishable from "we shipped a newer Triage" and `reset_preset` can undo it.
 
 - **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/preset@1.0.0", "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -727,6 +750,7 @@ Publish a selection of `kind` on a pane's channel — what "clicking a row" is.
 A channel carries one current value PER RECORD KIND, so publishing a manuscript leaves a publication parameter on the same channel untouched. An empty `ids` is a real value: it records that nothing of that kind is selected, which is what a detail pane renders its empty state from.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -759,6 +783,7 @@ A channel carries one current value PER RECORD KIND, so publishing a manuscript 
 Change the channel a pane publishes its selection on: `1`–`8`, or `follow` for the window's default.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -790,6 +815,7 @@ Change the channel a pane publishes its selection on: `1`–`8`, or `follow` for
 Collapse a pane to no width in its split, or show it again at exactly the share it had — the ⌃⌘S gesture, as a verb (review RL-L13). `collapsed` omitted toggles. The pane stays in the tree with its session; only its share moves. Refused (`not-in-a-split`) for a pane whose parent is not a split.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -821,6 +847,7 @@ Collapse a pane to no width in its split, or show it again at exactly the share 
 Retype a container, keeping its children in order: `tabs` | `horizontal` | `vertical` | `grid`.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -852,6 +879,7 @@ Retype a container, keeping its children in order: `tabs` | `horizontal` | `vert
 Set what `follow` means in one window. `follow` itself is refused: a window default that follows itself is not a value.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -883,6 +911,7 @@ Set what `follow` means in one window. `follow` itself is refused: a window defa
 Replace a pane's whole spec: query, view kind, parameters, channel, role and view state at once.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -914,6 +943,7 @@ Replace a pane's whole spec: query, view kind, parameters, channel, role and vie
 Point a pane at a different query. The query algebra is closed (ADR-0031 D2): kinds, a scope, filters, a text term, one relation walk, sort and limit. Anything it cannot express is materialized in the store first and queried from there.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -945,6 +975,7 @@ Point a pane at a different query. The query algebra is closed (ADR-0031 D2): ki
 Give, move or clear a role — `navigator`, `list`, `detail`, `preview`, `console`, or one of your own. The universal chords act on whichever pane holds the role, so this is how ⌃⌘S is re-aimed.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -976,6 +1007,7 @@ Give, move or clear a role — `navigator`, `list`, `detail`, `preview`, `consol
 Re-render a pane with a different view kind: `outline`, `list`, `info`, `pdf`, `notes`, `bibtex`, `source`, `plot`, `console`, `surface`, `legacy`, `placeholder` — `impress_layout::ViewKindId::KNOWN`, the whole vocabulary. Anything else is refused (`unknown-view-kind`).
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -1007,6 +1039,7 @@ Re-render a pane with a different view kind: `outline`, `list`, `info`, `pdf`, `
 Replace (or clear, with null) a window's frame. Device-scoped: it persists locally and is filtered out before a layout is applied somewhere else.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -1040,6 +1073,7 @@ Split a pane, putting a new pane beside it. Focus follows the new pane.
 `direction` is `horizontal` (side by side) or `vertical` (stacked). `after` puts the new pane on the right / below; false puts it before. `new_pane` is a whole pane spec; omit it to duplicate the pane being split, which is what a bare "split this" gesture means.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -1073,6 +1107,7 @@ Split a pane, putting a new pane beside it. Focus follows the new pane.
 Exchange two tiles' positions, each keeping the share of the position it lands in.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
@@ -1106,6 +1141,7 @@ Undo on one ring: `arrangement` (the window's shape) or `exploration` (one pane'
 These are two of the three stacks of ADR-0031 D7. The third — the editor session's own undo manager — is never ours and is not reachable from here.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —

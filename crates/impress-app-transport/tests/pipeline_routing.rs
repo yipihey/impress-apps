@@ -33,6 +33,8 @@ static APP: VerbDescriptor = VerbDescriptor {
     since: "0.1.0",
     deprecated: None,
     aliases: &[],
+    supports: &[],
+    adjective: None,
     examples: &[],
     strict: true,
     budget_ms: None,
