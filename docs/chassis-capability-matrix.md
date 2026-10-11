@@ -3228,7 +3228,7 @@ static route the server has:
 
 | Route | Answers |
 |---|---|
-| `GET /ui/<file>` | a file of the bundle (`wasm/koine-web.js`, `wasm/koine-web_bg.wasm`, `assets/…`) with its content type; matched on the RAW path, since a bundle file name keeps its case |
+| `GET /ui/<file>` | a file of the bundle (a release build is `index.html` plus `assets/koine-web-<hash>.js` and `assets/koine-web_bg-<hash>.wasm`, 2.9 MB in all; a debug build uses `wasm/`) with its content type; matched on the RAW path, since a bundle file name keeps its case |
 | `GET /ui`, `/ui/`, `/ui/surface/<id>`, `/ui/layout`, `/ui/style` | `index.html`; the page's own router owns those paths |
 | any other method under `/ui` | 405 |
 | no bundle in the build | 503 naming `scripts/build-koine-web.sh` |
