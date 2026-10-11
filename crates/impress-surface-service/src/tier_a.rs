@@ -1001,6 +1001,8 @@ mod paper_triage_loop {
             verb: "surface-test".into(),
             store_override: Some(world.store.clone()),
             mutation_ids: Default::default(),
+            adverbs: Default::default(),
+            inverse: Default::default(),
         });
         impress_service_core::pipeline::context::scope(context, paper_triage_loop_body(world))
             .await;

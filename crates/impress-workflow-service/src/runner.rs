@@ -327,12 +327,29 @@ fn run_workflow(
     let mut calls = 0;
     let mut error = None;
     for effect in effects {
-        if let impress_workflow::Effect::Call { verb, args, .. } = effect {
+        if let impress_workflow::Effect::Call {
+            verb,
+            args,
+            adverbs,
+            ..
+        } = effect
+        {
             let Some(descriptor) = impress_service_core::call::find(&verb) else {
                 error = Some(format!("workflow '{name}': unknown verb '{verb}'"));
                 break;
             };
             let mut call = Call::new(caller.clone(), args);
+            if let Some(raw) = adverbs {
+                match serde_json::from_value::<impress_service_core::Adverbs>(raw) {
+                    Ok(parsed) => call.adverbs = parsed,
+                    Err(e) => {
+                        error = Some(format!(
+                            "workflow '{name}': step '{verb}' failed: adverbs: {e}"
+                        ));
+                        break;
+                    }
+                }
+            }
             call.store = Some(store.clone());
             let outcome =
                 impress_service_core::runtime::block_on(pipeline::invoke_handle(descriptor, call));

@@ -63,6 +63,22 @@ fn render_service(service: &str, verbs: &[VerbHandle]) -> String {
                 ""
             }
         ));
+        // docs/grammar.md § Adverbs rules 1 and 5: the universal three, the
+        // declared ones, and `within` on any read-only verb. Mirrors
+        // `impress_verb_surface::accepted_adverbs` (a dev-dependency here).
+        let adverbs: Vec<&str> = impress_service_core::Adverb::ALL
+            .into_iter()
+            .filter(|a| {
+                v.supports(*a)
+                    || (*a == impress_service_core::Adverb::Within
+                        && matches!(
+                            safety.class,
+                            impress_service_core::descriptor::SafetyClass::ReadOnly
+                        ))
+            })
+            .map(|a| a.as_str())
+            .collect();
+        out.push_str(&format!("- **adverbs**: {}\n", adverbs.join(", ")));
         if let Some(budget_ms) = v.budget_ms() {
             out.push_str(&format!(
                 "- **budget**: `{budget_ms}ms` — a Tier A example that exceeds it \

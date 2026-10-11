@@ -181,6 +181,8 @@ mod tests {
             verb: "provider-service_set-trusted".into(),
             store_override: None,
             mutation_ids: MutationIds::default(),
+            adverbs: Default::default(),
+            inverse: Default::default(),
         })
     }
 

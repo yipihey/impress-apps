@@ -31,7 +31,7 @@ pub fn inventory_tool_definitions() -> Vec<Value> {
             json!({
                 "name": d.name(),
                 "description": d.description(),
-                "inputSchema": d.input_schema(),
+                "inputSchema": impress_service_core::with_adverbs_property(d.input_schema().into_owned()),
                 "annotations": d.mcp_annotations(),
             })
         })

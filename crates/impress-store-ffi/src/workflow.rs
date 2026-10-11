@@ -64,6 +64,7 @@ fn imbib_retention_cleanup_workflow() -> WorkflowSpec {
             args: serde_json::json!({}),
             into: None,
             each: None,
+            adverbs: None,
         }],
         review: Review { required: false },
     }

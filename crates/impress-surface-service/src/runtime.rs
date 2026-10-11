@@ -1371,20 +1371,38 @@ impl SurfaceRuntime {
         actor: ActorKind,
     ) -> EffectOutcomeDto {
         match effect {
-            Effect::Call { verb, args, into } => match executor.call_verb(&verb, args).await {
-                Ok(value) => {
-                    if let Some(path) = &into {
-                        if let Err(e) = state_path::write(&mut self.state, path, value) {
-                            return EffectOutcomeDto::failed(
-                                "call",
-                                Refusal::new(e.code(), format!("{verb} ran, but `into`: {e}")),
-                            );
-                        }
+            Effect::Call {
+                verb,
+                mut args,
+                into,
+                adverbs,
+            } => {
+                // Adverbs ride beside the arguments under one reserved key; the
+                // pipeline strips it (`Adverbs::take_from`).
+                if let Some(adverbs) = adverbs {
+                    if !args.is_object() {
+                        args = Value::Object(Default::default());
                     }
-                    EffectOutcomeDto::done("call", format!("called {verb}"))
+                    if let Some(obj) = args.as_object_mut() {
+                        obj.insert(impress_service_core::Adverbs::KEY.to_string(), adverbs);
+                    }
                 }
-                Err(e) => EffectOutcomeDto::failed("call", e),
-            },
+                let called = executor.call_verb(&verb, args).await;
+                match called {
+                    Ok(value) => {
+                        if let Some(path) = &into {
+                            if let Err(e) = state_path::write(&mut self.state, path, value) {
+                                return EffectOutcomeDto::failed(
+                                    "call",
+                                    Refusal::new(e.code(), format!("{verb} ran, but `into`: {e}")),
+                                );
+                            }
+                        }
+                        EffectOutcomeDto::done("call", format!("called {verb}"))
+                    }
+                    Err(e) => EffectOutcomeDto::failed("call", e),
+                }
+            }
             Effect::Emit { name, payload } => {
                 match executor
                     .emit(self.surface_id, &self.host, &name, payload, actor)
@@ -2112,6 +2130,8 @@ mod call_verb_tests {
             effects: impress_service_core::Effects::NONE,
             deprecated: None,
             aliases: &[],
+            supports: &[],
+            adjective: None,
             examples: &[],
             strict: false,
             budget_ms: None,
@@ -2173,5 +2193,88 @@ mod call_verb_tests {
             provider_result(VerbHandle::Linked(&FAILING_VERB), linked_result.clone()).unwrap(),
             linked_result
         );
+    }
+
+    /// An executor that records the arguments `call_verb` was handed.
+    struct RecordingExecutor(std::sync::Mutex<Option<Value>>);
+
+    #[async_trait::async_trait]
+    impl Executor for RecordingExecutor {
+        async fn call_verb(&self, _name: &str, args: Value) -> super::Result<Value> {
+            *self.0.lock().unwrap() = Some(args);
+            Ok(json!({}))
+        }
+
+        async fn run_query(
+            &self,
+            _query: &PaneQuery,
+            _decls: &[ParamDecl],
+            _bindings: &Bindings,
+        ) -> super::Result<Value> {
+            unreachable!("fixture has no query")
+        }
+
+        async fn apply_layout(
+            &self,
+            _pane: &super::PaneHandle,
+            _verbs: Vec<Verb>,
+            _actor: ActorKind,
+        ) -> super::Result<()> {
+            unreachable!("fixture has no layout effect")
+        }
+
+        async fn emit(
+            &self,
+            _surface: impress_core::item::ItemId,
+            _host: &str,
+            _name: &str,
+            _payload: Value,
+            _actor: ActorKind,
+        ) -> super::Result<u64> {
+            unreachable!("fixture has no emit effect")
+        }
+    }
+
+    #[tokio::test]
+    async fn a_call_effect_forwards_its_adverbs_under_the_reserved_key() {
+        let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+        let surfaces = SurfaceStore::new(store);
+        let row = surfaces
+            .create(&provider_surface(), None, &[], ActorKind::Agent)
+            .unwrap();
+        let mut runtime = SurfaceRuntime::load(row.id, "fixture-host".into(), row, None);
+        let executor = RecordingExecutor(Default::default());
+
+        let with = runtime
+            .run_effect(
+                &executor,
+                impress_surface::reduce::Effect::Call {
+                    verb: "any-service_verb".into(),
+                    args: json!({"id": "x"}),
+                    into: None,
+                    adverbs: Some(json!({"tentatively": true})),
+                },
+                ActorKind::Agent,
+            )
+            .await;
+        assert!(with.ok);
+        let seen = executor.0.lock().unwrap().take().unwrap();
+        assert_eq!(seen["adverbs"], json!({"tentatively": true}));
+        assert_eq!(seen["id"], json!("x"));
+
+        runtime
+            .run_effect(
+                &executor,
+                impress_surface::reduce::Effect::Call {
+                    verb: "any-service_verb".into(),
+                    args: json!({"id": "x"}),
+                    into: None,
+                    adverbs: None,
+                },
+                ActorKind::Agent,
+            )
+            .await;
+        let seen = executor.0.lock().unwrap().take().unwrap();
+        assert!(seen.get("adverbs").is_none());
     }
 }

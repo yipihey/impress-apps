@@ -505,6 +505,8 @@ mod tests {
             verb: "test-service_parent".into(),
             store_override: None,
             mutation_ids: context::MutationIds::default(),
+            adverbs: Default::default(),
+            inverse: Default::default(),
         });
         let answer = context::scope(current, async {
             call(

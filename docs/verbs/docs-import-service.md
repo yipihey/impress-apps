@@ -15,6 +15,7 @@ Watching a directory for two different kinds is two folders, on purpose: they ha
 Nothing is scanned by this call. Discovery is `import_discovered`.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "watched-folder@1.0.0"
 - **writes**: "watched-folder@1.0.0"
 - **reach**: fs
@@ -53,6 +54,7 @@ A file whose path is gone is marked `missing` — **never deleted** (ADR-0023 D4
 Pass `dry_run` to see what would be marked without marking it.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "watched-folder@1.0.0", "watched-file@1.0.0"
 - **writes**: "watched-folder@1.0.0", "watched-file@1.0.0"
 - **reach**: —
@@ -91,6 +93,7 @@ Each file becomes a `manuscript` with `format: "markdown"`, its title from the f
 Pass `dry_run` first on anything you have not imported before: it writes nothing at all and reports exactly the counts the real run will.
 
 - **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "manuscript", "manuscript-file@1.0.0", "watched-file@1.0.0"
 - **writes**: "manuscript", "manuscript-file@1.0.0"
 - **reach**: fs
@@ -131,6 +134,7 @@ There is deliberately no `kind_scope` argument. The folder declares its scope wh
 Bounded per ADR-0023 D7: paths are sorted and written in batches of 500, and at most 5000 files may be sent in one call. A bigger tree is paged.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "watched-folder@1.0.0", "watched-file@1.0.0", "manuscript"
 - **writes**: "watched-file@1.0.0", "manuscript", "manuscript-file@1.0.0"
 - **reach**: fs
@@ -163,6 +167,7 @@ The provenance query, both directions.
 One of the two is required.
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **reads**: "watched-file@1.0.0", "manuscript-file@1.0.0"
 - **writes**: —
 - **reach**: —
@@ -193,6 +198,7 @@ One of the two is required.
 Every watched folder, optionally narrowed to one `kind_scope`, in path order — with its last-scan stats and its declared volume state.
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **reads**: "watched-folder@1.0.0"
 - **writes**: —
 - **reach**: —
@@ -231,6 +237,7 @@ A manuscript with real content is NEVER deleted: `max_body_chars` sets how many 
 `collection` scopes the scan to one manuscript collection by name; null scans every manuscript in the store.
 
 - **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "manuscript", "manuscript-collection"
 - **writes**: "manuscript"
 - **reach**: —
@@ -265,6 +272,7 @@ This is the seam between file-level bookkeeping (here) and each app's real impor
 `replace` is what makes deletions detectable. Re-importing an edited `.bib` that lost an entry returns that entry's id in `removed_ids`, so the caller can decide what "the source no longer contains this" should mean — a product decision, and therefore not one this crate makes. Pass `replace: false` to union instead, which is what an incremental append wants.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "watched-file@1.0.0", target(produced_ids)
 - **writes**: "watched-file@1.0.0"
 - **reach**: —
@@ -297,6 +305,7 @@ Stop watching a folder.
 `delete_file_rows` additionally removes the folder's `watched-file` index entries. Leave it false to keep the provenance readable.
 
 - **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "watched-folder@1.0.0", "watched-file@1.0.0"
 - **writes**: "watched-folder@1.0.0", "watched-file@1.0.0"
 - **reach**: —
@@ -326,6 +335,7 @@ Change a watched folder's mutable facets. Every field is optional and a null lea
 `volume_state` is the ADR-0023 D6 declaration — `"indexed"`, `"unindexed"`, `"scan-on-demand"` or `"unavailable"`. Setting it is how a folder on a Spotlight-less volume says so, instead of rendering as an honest-looking zero.
 
 - **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
 - **reads**: "watched-folder@1.0.0"
 - **writes**: "watched-folder@1.0.0"
 - **reach**: —

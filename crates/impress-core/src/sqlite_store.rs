@@ -6803,6 +6803,8 @@ mod tests {
             verb: "test-service_mutate".into(),
             store_override: None,
             mutation_ids: MutationIds::default(),
+            adverbs: Default::default(),
+            inverse: Default::default(),
         });
         let outside = store.insert(make_item("task@1.0.0", "outside")).unwrap();
         let inside = sync_scope(context.clone(), || {

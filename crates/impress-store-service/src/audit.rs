@@ -251,6 +251,8 @@ mod tests {
             verb: "t-service_x".into(),
             since: "0.1.0".into(),
             requested_name: None,
+            adverbs: serde_json::Value::Null,
+            undo: None,
             caller: impress_service_core::pipeline::CallerIdentity::Person,
             trace_id: "t".into(),
             parent_call: None,

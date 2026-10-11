@@ -152,6 +152,8 @@ mod tests {
                 verb: "layout-service_split".into(),
                 store_override: None,
                 mutation_ids: Default::default(),
+                adverbs: Default::default(),
+                inverse: Default::default(),
             })
         };
         sync_scope(context(CallerIdentity::agent("mcp")), || {

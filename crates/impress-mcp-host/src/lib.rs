@@ -314,7 +314,7 @@ pub fn tool_definitions(config: &HostConfig) -> Vec<Value> {
             let mut definition = json!({
                 "name": descriptor.name(),
                 "description": descriptor.description(),
-                "inputSchema": descriptor.input_schema(),
+                "inputSchema": impress_service_core::with_adverbs_property(descriptor.input_schema().into_owned()),
                 "annotations": descriptor.mcp_annotations(),
             });
             if let Some(ui) = config
@@ -497,6 +497,8 @@ mod tests {
         effects: impress_service_core::Effects::NONE,
         deprecated: None,
         aliases: &[],
+        supports: &[],
+        adjective: None,
         examples: &[],
         strict: false,
         budget_ms: None,

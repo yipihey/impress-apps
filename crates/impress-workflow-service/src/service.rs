@@ -335,8 +335,13 @@ impl ImpressWorkflowService for DefaultWorkflowService {
                 let mut other_effects = Vec::new();
                 for effect in effects {
                     match effect {
-                        impress_workflow::Effect::Call { verb, args, .. } => {
-                            would_call.push(WouldCallDto::new(verb, args));
+                        impress_workflow::Effect::Call {
+                            verb,
+                            args,
+                            adverbs,
+                            ..
+                        } => {
+                            would_call.push(WouldCallDto::new(verb, args).with_adverbs(adverbs));
                         }
                         other => {
                             other_effects.push(serde_json::to_value(&other).unwrap_or(Value::Null));

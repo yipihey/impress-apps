@@ -51,6 +51,7 @@ fn retention_workflow() -> WorkflowSpec {
             args: serde_json::json!({}),
             into: None,
             each: None,
+            adverbs: None,
         }],
         review: Review { required: false },
     }

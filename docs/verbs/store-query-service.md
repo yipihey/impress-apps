@@ -13,6 +13,7 @@ The payload arrives as a JSON **object string** — parse it to read fields. It 
 An unknown id is `ok: false` with "not found", never an empty success.
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **reads**: target(id)
 - **writes**: —
 - **reach**: —
@@ -45,6 +46,7 @@ Payloads are deliberately omitted; call `get_item` for the ones that look intere
 Nothing is withheld here — dismissed items included. Unlike a search, a browse that silently omits rows makes its own counts a lie.
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **budget**: `200ms` — a Tier A example that exceeds it (with CI slack) fails the run
 - **reads**: any("the schema_ref argument names the kind")
 - **writes**: —
@@ -71,6 +73,7 @@ Everything connected to one item, in BOTH directions, across ALL edge types — 
 `id` is a lowercase UUID string of any record kind. Each row names the OTHER item, its kind, the `edge_type`, and a `direction` of "outgoing" (the subject is the edge source) or "incoming" (the subject is the target). Rows are ordered by edge type then title. Edges whose other end no longer exists are skipped. Pass 0 for the default limit (50); values above 500 are clamped.
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **reads**: target(id), any("walks references across kinds")
 - **writes**: —
 - **reach**: —
@@ -104,6 +107,7 @@ The query is treated as words, never as FTS5 syntax: operators, parentheses and 
 Items with `status: "dismissed"` are deliberately withheld; everything else, archived included, stays findable.
 
 - **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
 - **reads**: any("searches every kind")
 - **writes**: —
 - **reach**: —
