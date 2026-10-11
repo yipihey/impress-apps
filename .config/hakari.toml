@@ -66,22 +66,22 @@ third-party = [
     { name = "flate2" },
     # The rev is the same pin as [workspace.dependencies]. Hakari matches a
     # git package by repository and requested revision together.
-    { name = "impress-fs-lock", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "impress-item", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "impress-keymap", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "impress-layout", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "impress-pane-query", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "impress-scenario", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "impress-schema-ref-codegen", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "impress-service-core", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "impress-service-macros", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "impress-settings", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "impress-surface", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "impress-verb-surface", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "impress-workflow", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
+    { name = "impress-fs-lock", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "impress-item", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "impress-keymap", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "impress-layout", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "impress-pane-query", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "impress-scenario", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "impress-schema-ref-codegen", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "impress-service-core", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "impress-service-macros", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "impress-settings", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "impress-surface", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "impress-verb-surface", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "impress-workflow", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
     # koine, koine-style-file and koine-tui are workspace dependencies with
     # no member using them yet, so they are not in this graph. Add them here
     # once a member depends on them.
-    { name = "koine-workspace-hack", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
-    { name = "surface-demo-service", git = "https://github.com/yipihey/koine", rev = "e684cf413369fc578b2f036b2035247a4ff9fc79" },
+    { name = "koine-workspace-hack", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
+    { name = "surface-demo-service", git = "https://github.com/yipihey/koine", rev = "b70fbba7e4ff5681567a378945ac88adb1f38067" },
 ]
