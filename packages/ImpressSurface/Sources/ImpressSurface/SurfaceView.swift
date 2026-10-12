@@ -311,10 +311,10 @@ private struct SurfaceNodeView: View {
             hooks.renderMarkdown(text)
                 .koineFont(sheet.value("text"))
 
-        case .table(let rows, let columns):
+        case .table(let rows, let columns, let idField):
             SurfaceTableView(
-                id: node.id, rows: rows, columns: columns, focusedWidgetID: focusedWidgetID,
-                onEvent: onEvent
+                id: node.id, rows: rows, columns: columns, idField: idField,
+                focusedWidgetID: focusedWidgetID, onEvent: onEvent
             )
             .padding(.vertical, sheet.spacing("table"))
 
@@ -475,6 +475,8 @@ private struct SurfaceTableView: View {
     let id: String
     let rows: SurfaceJSONValue
     let columns: [String]
+    /// The row field a selection carries (`Table.id_field`); `nil` means `id`.
+    let idField: String?
     let focusedWidgetID: FocusState<String?>.Binding
     let onEvent: (SurfaceEvent) -> Void
 
@@ -517,7 +519,16 @@ private struct SurfaceTableView: View {
             let object = item.objectValue ?? [:]
             var cells: [String: String] = [:]
             for column in columns { cells[column] = object[column]?.displayText ?? "" }
-            let rowID = object["id"]?.stringValue ?? String(index)
+            // A string id is itself; a numeric id becomes its text (a verb's
+            // `rows(id = "number")`); anything else falls back to the index.
+            let rowID: String
+            if let idValue = object[idField ?? "id"],
+                idValue.stringValue != nil || idValue.doubleValue != nil
+            {
+                rowID = idValue.displayText
+            } else {
+                rowID = String(index)
+            }
             // Catalogue metadata is additive; ordinary domain tables retain their
             // existing appearance. Unavailable verbs stay selectable for details.
             let unavailableProvider = object["source"]?.stringValue == "provider"

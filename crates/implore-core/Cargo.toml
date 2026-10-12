@@ -34,6 +34,10 @@ lilaq = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib"]
 impress-collab = { workspace = true }
 impress-core = { workspace = true }
 
+# The plot spec, its SVG renderer and its ticks: plot::types, plot::svg_render
+# and axis re-export it (koine docs/plan-koine-followups.md F-D3)
+koine-plot = { workspace = true }
+
 # Data I/O
 implore-io = { workspace = true, features = ["npz"] }
 

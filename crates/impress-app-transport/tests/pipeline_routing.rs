@@ -40,6 +40,8 @@ static APP: VerbDescriptor = VerbDescriptor {
     budget_ms: None,
     replay_full: false,
     returns_kind: None,
+    rows: None,
+    secrets: &[],
     source: Source::Linked,
     handler: local,
 };

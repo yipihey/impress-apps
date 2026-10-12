@@ -93,11 +93,12 @@ struct RenderTreeGoldenTests {
         #expect(spec.objectValue?["kind"]?.stringValue == "plot-spec@1.0.0")
 
         // n0.3 — table
-        guard case .table(let rows, let columns) = items[3].node else {
+        guard case .table(let rows, let columns, let idField) = items[3].node else {
             Issue.record("n0.3 should decode as .table"); return
         }
         #expect(columns == ["title", "year"])
         #expect(rows.arrayValue?.count == 2)
+        #expect(idField == nil)  // absent on the wire when `None`
 
         // n0.4 — button
         guard case .button(let label) = items[4].node else {

@@ -255,7 +255,9 @@ public enum RenderKind: Codable, Hashable, Sendable {
     indirect case section(title: String, collapsed: Bool, body: RenderNode)
     case tabs(tabs: [RenderTab])
     case text(text: String)
-    case table(rows: SurfaceJSONValue, columns: [String])
+    /// `idField` names the row field a `select` carries (`Table.id_field`,
+    /// koine plan-koine-followups F-D2); `nil` selects by `id`, then by index.
+    case table(rows: SurfaceJSONValue, columns: [String], idField: String?)
     case list(rows: SurfaceJSONValue)
     case plot(spec: SurfaceJSONValue)
     case image(blob: SurfaceJSONValue?, url: SurfaceJSONValue?)
@@ -283,6 +285,7 @@ public enum RenderKind: Codable, Hashable, Sendable {
         case tabs
         case text
         case rows
+        case idField = "id_field"
         case spec
         case blob
         case url
@@ -393,7 +396,8 @@ public enum RenderKind: Codable, Hashable, Sendable {
         case "table":
             return .table(
                 rows: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .rows) ?? .array([]),
-                columns: try container.decode([String].self, forKey: .columns))
+                columns: try container.decode([String].self, forKey: .columns),
+                idField: try container.decodeIfPresent(String.self, forKey: .idField))
         case "list":
             return .list(
                 rows: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .rows) ?? .array([]))
@@ -459,10 +463,11 @@ public enum RenderKind: Codable, Hashable, Sendable {
         case .text(let text):
             try container.encode("text", forKey: .kind)
             try container.encode(text, forKey: .text)
-        case .table(let rows, let columns):
+        case .table(let rows, let columns, let idField):
             try container.encode("table", forKey: .kind)
             try container.encode(rows, forKey: .rows)
             try container.encode(columns, forKey: .columns)
+            try container.encodeIfPresent(idField, forKey: .idField)
         case .list(let rows):
             try container.encode("list", forKey: .kind)
             try container.encode(rows, forKey: .rows)

@@ -1074,6 +1074,8 @@ static LAYOUT_APPLY: VerbDescriptor = VerbDescriptor {
     budget_ms: None,
     replay_full: false,
     returns_kind: None,
+    rows: None,
+    secrets: &[],
     source: impress_service_core::Source::Linked,
     handler: apply_not_callable,
 };
