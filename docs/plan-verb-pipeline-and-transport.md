@@ -9,6 +9,8 @@ alone; then P1 (descriptor) and P2 (pipeline), which ADR-0035's every package co
 before ADR-0035 G4 makes every verb name public; P4 (jobs), P5 (transport), P6 (Python), P7 (rules
 into construction) and P8 (runtime providers) are independent of ADR-0035 and of each other except
 where a row says so.
+> **Name note (2026-10-12):** `impress-mcp-host` moved to the koine repository as `koine-mcp-host` (koine `docs/plan-koine-host.md` H-D5; the kit manifest row names it). The file:line citations below are as measured when this plan was written and name the old crate.
+
 **Input:** a critique of the pattern (Tom, 2026-09-26: "sound but held together more by vigilance than
 by construction"), the three addenda, and the measurements below. Ids: `PL` (pipeline), `PO` (policy),
 `LC` (lifecycle), `LR` (long-running), `TR` (transport), `PY` (Python), `RC` (rules into construction),
