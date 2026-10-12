@@ -266,6 +266,9 @@ public enum RenderKind: Codable, Hashable, Sendable {
     case status(level: String, message: String)
     case log(lines: SurfaceJSONValue)
     case kv(pairs: SurfaceJSONValue)
+    /// `code{language, text}` (koine plan-koine-live L-D7): a block of source,
+    /// the language named so a renderer may highlight it.
+    case code(language: String?, text: String)
     case divider
     case spacer
     /// See the file header: an unrecognised `kind` tag ALSO lands here, with
@@ -297,6 +300,7 @@ public enum RenderKind: Codable, Hashable, Sendable {
         case message
         case lines
         case pairs
+        case language
         case unknownKind = "unknown_kind"
         case reason
     }
@@ -424,6 +428,10 @@ public enum RenderKind: Codable, Hashable, Sendable {
         case "kv":
             return .kv(
                 pairs: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .pairs) ?? .object([:]))
+        case "code":
+            return .code(
+                language: try container.decodeIfPresent(String.self, forKey: .language),
+                text: try container.decode(String.self, forKey: .text))
         case "divider":
             return .divider
         case "spacer":
@@ -496,6 +504,10 @@ public enum RenderKind: Codable, Hashable, Sendable {
         case .kv(let pairs):
             try container.encode("kv", forKey: .kind)
             try container.encode(pairs, forKey: .pairs)
+        case .code(let language, let text):
+            try container.encode("code", forKey: .kind)
+            try container.encodeIfPresent(language, forKey: .language)
+            try container.encode(text, forKey: .text)
         case .divider:
             try container.encode("divider", forKey: .kind)
         case .spacer:

@@ -379,7 +379,7 @@ Every problem with a spec, by JSON pointer and severity: structure (a missing fi
 
 ## `impress-surface-service_surface-wait`
 
-Long-poll for the next event past `after_seq`, up to `timeout_ms` (at most 55000). Returns as soon as one lands, or on timeout with `timed_out: true` and no events — the primitive the five-verb loop calls "wait" (ADR-0033 D5/D6).
+Long-poll for the next event past `after_seq`, up to `timeout_ms` (at most 55000). Returns as soon as one lands, or on timeout with `timed_out: true` and no events — the primitive the five-verb loop calls "wait" (ADR-0033 D5/D6). It also returns early, with no events, `next_seq` unchanged and `invalidated: true`, when the host's store feed marks the surface (a record kind its query sources read was written): render again. A host with no feed never sees that answer.
 
 - **safety**: `read_only`, idempotent
 - **adverbs**: tentatively, with_review, once, within
