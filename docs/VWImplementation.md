@@ -15,7 +15,7 @@ published as executable knowledge
 | Domain | vw-domain | Configuration applicability, evidence, procedures, sessions, pack validation, deterministic inference |
 | Persistence adapter | vw-impress-adapter | VW schemas, item/edge mapping, queryable child evidence, command receipts, pack activation |
 | Semantic contract | vw-service | Generated typed diagnostic operations |
-| Reusable focused MCP host | impress-mcp-host | Inventory-backed stdio MCP, resources, product allowlists |
+| Reusable focused MCP host | koine-mcp-host (koine) | Inventory-backed stdio MCP, resources, product allowlists |
 | Product binary | vw-mcp | VW-only service assembly and safety resources |
 | Connected mobile web | impress-ai-http + impel-taskd | Existing authenticated responsive chat, phone pairing, durable conversations, local oMLX execution, and a read-only VW tool policy |
 

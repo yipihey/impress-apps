@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use impress_mcp_host::{HostConfig, Resource, ToolFileParams, ToolUi};
+use koine_mcp_host::{HostConfig, Resource, ToolFileParams, ToolUi};
 
 #[allow(unused_imports)]
 use vw_impress_adapter as _force_link_vw_diagnostic_service;
@@ -166,8 +166,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(bind) = http_bind {
         let token = std::env::var("IMPRESS_MCP_ACCESS_TOKEN")
             .map_err(|_| "HTTP mode requires IMPRESS_MCP_ACCESS_TOKEN")?;
-        impress_mcp_host::run_http(config, &bind, token)
+        koine_mcp_host::run_http(config, &bind, token)
     } else {
-        impress_mcp_host::run_stdio(config)
+        koine_mcp_host::run_stdio(config)
     }
 }

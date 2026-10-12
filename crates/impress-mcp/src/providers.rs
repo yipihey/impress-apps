@@ -54,13 +54,13 @@ pub fn run_http(bind: &str, token_file: &Path) -> Result<(), Box<dyn std::error:
     impress_store_service::providers::install_for_selected_store(Arc::new(
         impress_app_transport::provider::JsonSchemaValidator,
     ))?;
-    let config = impress_mcp_host::HostConfig {
+    let config = koine_mcp_host::HostConfig {
         server_name: "impress".into(),
         server_version: env!("CARGO_PKG_VERSION").into(),
         instructions: "The Impress research suite: one inventory of linked and registered provider verbs. Provider calls use the same policy and audit pipeline.".into(),
         allowed_tool_prefixes: vec![], resources: vec![], tool_ui: vec![], tool_file_params: vec![],
     };
-    impress_mcp_host::run_http(config, bind, token)
+    koine_mcp_host::run_http(config, bind, token)
 }
 
 #[cfg(test)]

@@ -425,7 +425,9 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   go in. The five-verb loop (`surface_schema` → author → `surface_validate` →
   `surface_create` → `surface_show`, then `surface_wait`/react) and the
   `scripts/new-capability.sh` scaffold are in
-  [docs/agent-surfaces.md](docs/agent-surfaces.md).
+  [docs/agent-surfaces.md](docs/agent-surfaces.md). The capability guide and
+  the scaffold for a standalone app are koine's (`docs/capability.md`,
+  `scripts/new-app.sh`), and the headless host is `koine-host`.
 - **E-ink mirroring lives in Rust and in store records** (imbib ADR-025): the reMarkable
   is reached over its USB web interface, which can only list, upload and download — no
   folder creation, rename, move or delete, and an upload lands in whatever folder was

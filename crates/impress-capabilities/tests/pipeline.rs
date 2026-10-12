@@ -28,6 +28,20 @@ use impress_service_core::VerbDescriptor;
 use impress_capabilities as _force_link_inventory;
 use serde_json::{json, Value};
 
+// The pipeline, the CLI and the surface runtime moved to koine; their files
+// are read from the checkout `Cargo.lock` pins.
+#[path = "support/koine_checkout.rs"]
+mod koine_checkout;
+
+/// Where an entry-path file lives: a path starting `koine:` is in the koine
+/// checkout, any other is in this repository.
+fn locate(file: &str) -> PathBuf {
+    match file.strip_prefix("koine:") {
+        Some(rest) => koine_checkout::koine_root().join(rest),
+        None => repo_root().join(file),
+    }
+}
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -58,7 +72,7 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 /// handler step. The bench baseline is the one measurement that needs the
 /// raw handler beside the chain, and says so.
 const HANDLER_CALLERS_ALLOWED: &[&str] = &[
-    "crates/impress-service-core/src/pipeline/mod.rs",
+    "koine:crates/impress-service-core/src/pipeline/mod.rs",
     "crates/impress-capabilities/tests/pipeline_bench.rs",
 ];
 
@@ -72,17 +86,17 @@ const ENTRY_PATHS: &[(&str, &str, &str)] = &[
     ),
     (
         "(c) CLI",
-        "crates/impress-service-core/src/cli.rs",
+        "koine:crates/impress-service-core/src/cli.rs",
         "crate::pipeline::invoke_handle(",
     ),
     (
         "(d1) surface runtime, linked or provider verb",
-        "crates/impress-surface-service/src/runtime.rs",
+        "koine:crates/impress-surface-service/src/runtime.rs",
         "pipeline::invoke_handle(handle.clone(), call)",
     ),
     (
         "(d2) surface HTTP mirror (was a bypass)",
-        "crates/impress-surface-service/src/service.rs",
+        "koine:crates/impress-surface-service/src/service.rs",
         "pipeline::invoke_with(descriptor, call,",
     ),
     (
@@ -96,8 +110,8 @@ const ENTRY_PATHS: &[(&str, &str, &str)] = &[
         "impress_service_core::pipeline::invoke_handle(",
     ),
     (
-        "(h1) impress-mcp-host",
-        "crates/impress-mcp-host/src/lib.rs",
+        "(h1) koine-mcp-host",
+        "koine:crates/koine-mcp-host/src/lib.rs",
         "impress_service_core::pipeline::invoke_handle(",
     ),
     (
@@ -107,7 +121,7 @@ const ENTRY_PATHS: &[(&str, &str, &str)] = &[
     ),
     (
         "call.rs (the shared seat)",
-        "crates/impress-service-core/src/call.rs",
+        "koine:crates/impress-service-core/src/call.rs",
         "pipeline::invoke_handle(descriptor.clone(), call)",
     ),
 ];
@@ -118,6 +132,9 @@ fn every_handler_call_site_is_the_pipeline() {
     let mut files = Vec::new();
     rust_files(&root.join("crates"), &mut files);
     rust_files(&root.join("apps"), &mut files);
+    // The pipeline's own home and the hosts that moved there are scanned too.
+    let koine = koine_checkout::koine_root();
+    rust_files(&koine.join("crates"), &mut files);
     let mut offenders = BTreeSet::new();
     for file in &files {
         let Ok(text) = fs::read_to_string(file) else {
@@ -133,11 +150,14 @@ fn every_handler_call_site_is_the_pipeline() {
         if !reads_descriptors {
             continue;
         }
-        let rel = file
-            .strip_prefix(&root)
-            .unwrap_or(file)
-            .to_string_lossy()
-            .to_string();
+        let rel = match file.strip_prefix(&koine) {
+            Ok(rest) => format!("koine:{}", rest.to_string_lossy()),
+            Err(_) => file
+                .strip_prefix(&root)
+                .unwrap_or(file)
+                .to_string_lossy()
+                .to_string(),
+        };
         if HANDLER_CALLERS_ALLOWED.contains(&rel.as_str()) {
             continue;
         }
@@ -162,10 +182,9 @@ fn every_handler_call_site_is_the_pipeline() {
 
 #[test]
 fn every_entry_path_enters_the_chain() {
-    let root = repo_root();
     let mut missing = Vec::new();
     for (path_name, file, proof) in ENTRY_PATHS {
-        let text = fs::read_to_string(root.join(file))
+        let text = fs::read_to_string(locate(file))
             .unwrap_or_else(|e| panic!("{file} ({path_name}): {e}"));
         if !text.contains(proof) {
             missing.push(format!("{path_name}: {file} does not contain `{proof}`"));

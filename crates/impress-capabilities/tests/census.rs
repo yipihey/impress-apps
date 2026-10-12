@@ -34,6 +34,11 @@ use std::path::{Path, PathBuf};
 use impress_service_core::McpToolDescriptor;
 use serde_json::Value;
 
+// `impress_service_impl!` blocks of the crates that moved to koine are read
+// from the koine checkout `Cargo.lock` pins.
+#[path = "support/koine_checkout.rs"]
+mod koine_checkout;
+
 /// The plan's count of `should-be-verb` crates (table 5, appendix A5). Lower
 /// it when a crate gains its verbs or is reclassified with a reason; raising
 /// it is a plan decision, not a test edit.
@@ -315,8 +320,16 @@ fn source_facts() -> SourceFacts {
         service_crate: BTreeMap::new(),
         strict_services: BTreeSet::new(),
     };
-    let crates = repo_root().join("crates");
-    for entry in fs::read_dir(&crates).expect("crates/").flatten() {
+    // This repository's crates, then koine's (the layout and surface verbs
+    // moved there in K3b): a service's crate is wherever its block is.
+    let crates_dirs = [
+        repo_root().join("crates"),
+        koine_checkout::koine_root().join("crates"),
+    ];
+    for entry in crates_dirs
+        .iter()
+        .flat_map(|dir| fs::read_dir(dir).expect("crates/").flatten())
+    {
         let crate_dir = entry.path();
         let crate_name = crate_dir.file_name().unwrap().to_string_lossy().to_string();
         let mut files = Vec::new();

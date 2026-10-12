@@ -4637,7 +4637,7 @@ dependencies = [
 [[package]]
 name = "impress-fs-lock"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "koine-workspace-hack",
 ]
@@ -4675,7 +4675,7 @@ dependencies = [
 [[package]]
 name = "impress-item"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "chrono",
  "impress-pane-query",
@@ -4692,7 +4692,7 @@ dependencies = [
 [[package]]
 name = "impress-keymap"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "koine-workspace-hack",
  "serde",
@@ -4702,7 +4702,7 @@ dependencies = [
 [[package]]
 name = "impress-layout"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "impress-pane-query",
  "koine-workspace-hack",
@@ -4716,7 +4716,7 @@ dependencies = [
 [[package]]
 name = "impress-layout-service"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4747,12 +4747,12 @@ dependencies = [
  "dirs",
  "impress-app-transport",
  "impress-capabilities",
- "impress-mcp-host",
  "impress-memory-service",
  "impress-service-core",
  "impress-store-service",
  "impress-workspace-hack",
  "imprint-service",
+ "koine-mcp-host",
  "mockito",
  "serde",
  "serde_json",
@@ -4760,18 +4760,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "impress-mcp-host"
-version = "0.1.0"
-dependencies = [
- "axum",
- "impress-service-core",
- "impress-workspace-hack",
- "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]
@@ -4798,7 +4786,7 @@ dependencies = [
 [[package]]
 name = "impress-pane-query"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "koine-workspace-hack",
  "schemars 0.8.22",
@@ -4812,7 +4800,7 @@ dependencies = [
 [[package]]
 name = "impress-pane-query-compile"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "chrono",
  "impress-item",
@@ -4882,7 +4870,7 @@ dependencies = [
 [[package]]
 name = "impress-scenario"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "async-trait",
  "impress-service-core",
@@ -4921,7 +4909,7 @@ dependencies = [
 [[package]]
 name = "impress-schema-ref-codegen"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "koine-workspace-hack",
  "serde_json",
@@ -4930,7 +4918,7 @@ dependencies = [
 [[package]]
 name = "impress-service-core"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4952,7 +4940,7 @@ dependencies = [
 [[package]]
 name = "impress-service-macros"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "darling 0.20.11",
  "impress-schema-ref-codegen",
@@ -4966,7 +4954,7 @@ dependencies = [
 [[package]]
 name = "impress-settings"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "impress-fs-lock",
  "impress-schema-ref-codegen",
@@ -5090,7 +5078,7 @@ dependencies = [
 [[package]]
 name = "impress-surface"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "impress-pane-query",
  "koine-workspace-hack",
@@ -5103,7 +5091,7 @@ dependencies = [
 [[package]]
 name = "impress-surface-service"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5161,7 +5149,7 @@ dependencies = [
 [[package]]
 name = "impress-verb-surface"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "impress-service-core",
  "impress-surface",
@@ -5172,7 +5160,7 @@ dependencies = [
 [[package]]
 name = "impress-workflow"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "impress-schema-ref-codegen",
  "impress-surface",
@@ -5840,9 +5828,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine-mcp-host"
+version = "0.1.0"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
+dependencies = [
+ "axum",
+ "impress-service-core",
+ "koine-workspace-hack",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "koine-store"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "impress-item",
  "impress-pane-query-compile",
@@ -5855,7 +5856,7 @@ dependencies = [
 [[package]]
 name = "koine-store-conformance"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "chrono",
  "impress-item",
@@ -5867,7 +5868,7 @@ dependencies = [
 [[package]]
 name = "koine-store-dir"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "chrono",
  "impress-fs-lock",
@@ -5883,7 +5884,7 @@ dependencies = [
 [[package]]
 name = "koine-store-memory"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "chrono",
  "impress-item",
@@ -5895,7 +5896,7 @@ dependencies = [
 [[package]]
 name = "koine-workspace-hack"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 
 [[package]]
 name = "kqueue"
@@ -9615,7 +9616,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "surface-demo-service"
 version = "0.1.0"
-source = "git+https://github.com/yipihey/koine?rev=1d99c5dc269b1165eaed347cf2b74ead938026e4#1d99c5dc269b1165eaed347cf2b74ead938026e4"
+source = "git+https://github.com/yipihey/koine?rev=791570aafcc1345e2c5a193a0c0264955d425a6e#791570aafcc1345e2c5a193a0c0264955d425a6e"
 dependencies = [
  "async-trait",
  "impress-service-core",
@@ -11755,10 +11756,10 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "impress-core",
- "impress-mcp-host",
  "impress-service-core",
  "impress-store-service",
  "impress-workspace-hack",
+ "koine-mcp-host",
  "rusqlite",
  "serde",
  "serde_json",

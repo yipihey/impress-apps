@@ -42,7 +42,7 @@ pub fn run_server() -> Result<(), Box<dyn std::error::Error>> {
         // more of them than any name whitelist keeps up with (Claude Code
         // emits `notifications/roots/list_changed`). A notification is
         // exactly a message without an `id`, so skip on that — the same
-        // guard `impress-mcp-host` uses.
+        // guard `koine-mcp-host` uses.
         let Some(id) = request.get("id").cloned() else {
             continue;
         };
@@ -699,7 +699,7 @@ fn wrap_success_result(id: &Value, value: Value) -> Value {
     // Generated fallible methods report failure inside their payload as
     // `ok: false` rather than as a transport error; surface that as MCP's
     // `isError` so a client need not parse the payload to notice — the same
-    // rule `impress-mcp-host` applies.
+    // rule `koine-mcp-host` applies.
     let is_error = structured
         .get("ok")
         .and_then(Value::as_bool)
@@ -855,7 +855,7 @@ mod tests {
     }
 
     /// `ok: false` payloads surface as MCP's `isError`, matching
-    /// `impress-mcp-host`: generated fallible methods report failure inside
+    /// `koine-mcp-host`: generated fallible methods report failure inside
     /// their result rather than as a transport error, and a client should not
     /// have to parse the payload to notice.
     #[test]
