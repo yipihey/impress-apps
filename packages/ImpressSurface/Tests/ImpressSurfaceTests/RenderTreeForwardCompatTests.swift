@@ -7,7 +7,7 @@
 //  rest." Before wave 7 that held only at the TAG level: a known kind with a
 //  missing or mistyped field threw, the throw crossed `[RenderNode]`, and the
 //  whole pane became "Surface Unavailable" (review SK-K17). These pin the
-//  per-node rule, and decode every one of the 18 render kinds at least once
+//  per-node rule, and decode every one of the 21 render kinds at least once
 //  (SK-K20: the Rust golden carries only five of them).
 //
 
@@ -113,9 +113,125 @@ struct RenderTreeForwardCompatTests {
         #expect(value.isNull)
     }
 
+    /// The kinds koine 65c7321 added (`tree`, `graph`) and the fields it added
+    /// to `table`, `list` and `code` — every one optional on the wire.
+    @Test("tree and graph decode to their own cases; new table, list and code fields default")
+    func treeGraphAndNewOptionalFields() throws {
+        let tree = try decode(
+            """
+            {"focus_order": ["outline"], "root": {"id": "root", "node": {"kind": "column", "items": [
+              {"id": "outline", "node": {"kind": "tree", "nodes": [
+                {"id": "a", "label": "Library", "depth": 0, "has_children": true, "expanded": true,
+                 "count": 3, "row": {"id": "a", "name": "Library"}},
+                {"id": 2, "label": "Inbox", "depth": 1, "has_children": false, "expanded": false,
+                 "row": {"id": 2}}],
+                "bind": "state.open", "expanded": ["a"], "actions": ["Delete"], "movable": true}},
+              {"id": "bare", "node": {"kind": "tree"}},
+              {"id": "g", "node": {"kind": "graph", "spec": {"nodes": [{"id": "n"}], "edges": []},
+                "svg": "<svg/>"}},
+              {"id": "tb", "node": {"kind": "table", "rows": [], "columns": ["a"],
+                "actions": ["Open"], "count_field": "n"}},
+              {"id": "tb0", "node": {"kind": "table", "rows": [], "columns": ["a"]}},
+              {"id": "l", "node": {"kind": "list", "rows": [], "actions": ["Open"], "count_field": "n"}},
+              {"id": "c", "node": {"kind": "code", "language": "rust", "text": "fn a",
+                "spans": [[["keyword", "fn"], ["", " a"]]]}},
+              {"id": "c0", "node": {"kind": "code", "text": "plain"}}
+            ]}}}
+            """)
+        guard case .column(let items) = tree.root.node else {
+            Issue.record("root should be a column"); return
+        }
+        #expect(items.map { Self.caseName($0.node) }
+            == ["tree", "tree", "graph", "table", "table", "list", "code", "code"])
+
+        guard case .tree(let nodes, let bind, let expanded, let actions, let movable) = items[0].node
+        else { Issue.record("expected a tree"); return }
+        #expect(nodes.count == 2)
+        #expect(nodes[0].id == .string("a"))
+        #expect(nodes[0].label == "Library")
+        #expect(nodes[0].depth == 0)
+        #expect(nodes[0].hasChildren)
+        #expect(nodes[0].expanded)
+        #expect(nodes[0].count == SurfaceJSONValue.int(3))
+        #expect(nodes[0].row["name"]?.stringValue == "Library")
+        // A numeric id stays a number; an absent count stays nil.
+        #expect(nodes[1].id == .int(2))
+        #expect(nodes[1].depth == 1)
+        #expect(nodes[1].count == nil)
+        #expect(bind == "state.open")
+        #expect(expanded == [.string("a")])
+        #expect(actions == ["Delete"])
+        #expect(movable)
+
+        guard case .tree(let bareNodes, let bareBind, let bareExpanded, let bareActions, let bareMovable)
+            = items[1].node
+        else { Issue.record("a bare tree should still be a tree"); return }
+        #expect(bareNodes.isEmpty && bareBind == nil && bareExpanded.isEmpty)
+        #expect(bareActions.isEmpty && !bareMovable)
+
+        guard case .graph(let spec, let svg) = items[2].node else {
+            Issue.record("expected a graph"); return
+        }
+        #expect(spec["nodes"]?.arrayValue?.count == 1)
+        #expect(svg == "<svg/>")
+
+        guard case .table(_, _, _, let tableActions, let tableCount) = items[3].node else {
+            Issue.record("expected a table"); return
+        }
+        #expect(tableActions == ["Open"] && tableCount == "n")
+        guard case .table(_, _, _, let noActions, let noCount) = items[4].node else {
+            Issue.record("expected a table"); return
+        }
+        #expect(noActions.isEmpty && noCount == nil)
+        guard case .list(_, let listActions, let listCount) = items[5].node else {
+            Issue.record("expected a list"); return
+        }
+        #expect(listActions == ["Open"] && listCount == "n")
+
+        guard case .code(let language, _, let spans) = items[6].node else {
+            Issue.record("expected code"); return
+        }
+        #expect(language == "rust")
+        #expect(spans == [[
+            SurfaceCodeSpan(styleClass: "keyword", text: "fn"),
+            SurfaceCodeSpan(styleClass: "", text: " a"),
+        ]])
+        guard case .code(_, _, let plainSpans) = items[7].node else {
+            Issue.record("expected code"); return
+        }
+        #expect(plainSpans.isEmpty)
+
+        // The kinds survive an encode and a decode.
+        let again = try RenderTree.decode(
+            String(decoding: try JSONEncoder().encode(tree), as: UTF8.self))
+        #expect(again == tree)
+    }
+
+    @Test("a tree whose node has no id becomes a placeholder, siblings intact")
+    func malformedTreeNodeIsContained() throws {
+        let tree = try decode(
+            """
+            {"focus_order": [], "root": {"id": "root", "node": {"kind": "column", "items": [
+              {"id": "outline", "node": {"kind": "tree", "nodes": [{"label": "no id"}]}},
+              {"id": "ok", "node": {"kind": "divider"}}
+            ]}}}
+            """)
+        guard case .column(let items) = tree.root.node else {
+            Issue.record("root should be a column"); return
+        }
+        guard case .placeholder(let kind, let reason) = items[0].node else {
+            Issue.record("a tree with an id-less node should be a placeholder"); return
+        }
+        #expect(kind == "tree")
+        #expect(reason?.contains("missing 'id'") == true)
+        guard case .divider = items[1].node else {
+            Issue.record("the sibling should survive"); return
+        }
+    }
+
     /// Every `RenderKind` Rust can produce, once — `resolve.rs`'s enum,
     /// spelled the way serde writes it (`tag = "kind"`, snake_case).
-    @Test("all 18 render kinds decode to their own case")
+    @Test("all 21 render kinds decode to their own case")
     func everyRenderKindDecodes() throws {
         let tree = try decode(
             """
@@ -130,6 +246,10 @@ struct RenderTreeForwardCompatTests {
                 {"id": "txt", "node": {"kind": "text", "text": "hello"}},
                 {"id": "tb", "node": {"kind": "table", "rows": [{"id": "r1", "a": 1}], "columns": ["a"]}},
                 {"id": "l", "node": {"kind": "list", "rows": [{"id": "r1", "title": "x"}]}},
+                {"id": "tr", "node": {"kind": "tree", "nodes": [
+                  {"id": "a", "label": "A", "depth": 0, "has_children": false, "expanded": false,
+                   "row": {"id": "a"}}]}},
+                {"id": "gr", "node": {"kind": "graph", "spec": {"nodes": [], "edges": []}, "svg": "<svg/>"}},
                 {"id": "p", "node": {"kind": "plot", "spec": {"kind": "plot-spec@1.0.0"}}},
                 {"id": "img", "node": {"kind": "image", "url": "https://example.org/x.png"}},
                 {"id": "f", "node": {"kind": "field", "field": {"date": {}}, "bind": "state.d",
@@ -138,6 +258,7 @@ struct RenderTreeForwardCompatTests {
                 {"id": "st", "node": {"kind": "status", "level": "warning", "message": "careful"}},
                 {"id": "lg", "node": {"kind": "log", "lines": ["a", "b"]}},
                 {"id": "kv", "node": {"kind": "kv", "pairs": {"k": "v"}}},
+                {"id": "cd", "node": {"kind": "code", "language": "rust", "text": "fn a() {}"}},
                 {"id": "dv", "node": {"kind": "divider"}},
                 {"id": "sp", "node": {"kind": "spacer"}},
                 {"id": "ph", "node": {"kind": "placeholder", "unknown_kind": "future", "reason": "newer kit"}}
@@ -146,17 +267,18 @@ struct RenderTreeForwardCompatTests {
         guard case .column(let items) = tree.root.node else {
             Issue.record("root should be a column"); return
         }
-        // 17 children plus the column itself = 18 kinds.
-        #expect(items.count == 17)
+        // 20 children plus the column itself = 21 kinds.
+        #expect(items.count == 20)
         let names = items.map { Self.caseName($0.node) }
         #expect(
             names == [
-                "row", "grid", "section", "tabs", "text", "table", "list", "plot", "image",
-                "field", "button", "status", "log", "kv", "divider", "spacer", "placeholder",
+                "row", "grid", "section", "tabs", "text", "table", "list", "tree", "graph", "plot",
+                "image", "field", "button", "status", "log", "kv", "code", "divider", "spacer",
+                "placeholder",
             ])
         #expect(Self.caseName(tree.root.node) == "column")
-        #expect(items[9].label == "When")
-        guard case .placeholder(let unknownKind, _) = items[16].node else { return }
+        #expect(items[11].label == "When")
+        guard case .placeholder(let unknownKind, _) = items[19].node else { return }
         // A real Rust placeholder keeps ITS unknown kind; it is not re-wrapped.
         #expect(unknownKind == "future")
     }
@@ -171,6 +293,8 @@ struct RenderTreeForwardCompatTests {
         case .text: return "text"
         case .table: return "table"
         case .list: return "list"
+        case .tree: return "tree"
+        case .graph: return "graph"
         case .plot: return "plot"
         case .image: return "image"
         case .field: return "field"

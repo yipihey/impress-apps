@@ -47,7 +47,7 @@ Tier A runs without an app or external service. Tier B requires an explicit isol
 - [smart-search-service](smart-search-service.md) (10 verbs)
 - [source-service](source-service.md) (9 verbs)
 - [store-query-service](store-query-service.md) (4 verbs)
-- [surface-demo-service](surface-demo-service.md) (2 verbs)
+- [surface-demo-service](surface-demo-service.md) (3 verbs)
 - [surface-selftest-service](surface-selftest-service.md) (1 verbs)
 - [triage-service](triage-service.md) (5 verbs)
 - [vw-diagnostic-service](vw-diagnostic-service.md) (15 verbs)

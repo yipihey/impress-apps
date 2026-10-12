@@ -32,6 +32,13 @@
 //  vocabulary than this build still renders everything else.
 //  `RenderTreeForwardCompatTests` pins it.
 //
+//  `tree` and `graph` (koine plan-koine-tree-stream T-D1/T-D3) and the row
+//  menu / count of `table` and `list` (plan-koine-outline O-D5/O-D6) arrived
+//  with koine 65c7321. Every field they added is optional on the wire
+//  (Rust skips an empty one), so each is `decodeIfPresent` with a default:
+//  a tree from an older Rust still decodes, and so does one from a newer
+//  Rust that grows another key.
+//
 
 import Foundation
 
@@ -257,8 +264,27 @@ public enum RenderKind: Codable, Hashable, Sendable {
     case text(text: String)
     /// `idField` names the row field a `select` carries (`Table.id_field`,
     /// koine plan-koine-followups F-D2); `nil` selects by `id`, then by index.
-    case table(rows: SurfaceJSONValue, columns: [String], idField: String?)
-    case list(rows: SurfaceJSONValue)
+    ///
+    /// `actions` are the row-menu labels (`Table.actions`; a `menu` event
+    /// names one) and `countField` the row field drawn as a count. Both are
+    /// decoded and kept; this package's `Table` does not draw them yet — the
+    /// sidebar is the `tree`.
+    case table(
+        rows: SurfaceJSONValue, columns: [String], idField: String?,
+        actions: [String], countField: String?)
+    /// `actions` / `countField` as for `table`.
+    case list(rows: SurfaceJSONValue, actions: [String], countField: String?)
+    /// `tree{…}`: the VISIBLE outline in drawing order (Rust nested and
+    /// filtered it), `bind` the state path of the expanded list, `expanded`
+    /// the whole list read from it (a toggle sends THIS list ± one id, not
+    /// the visible flags), `actions` the row-menu labels, `movable` whether
+    /// the tree declares `on_move` (so a renderer offers drag and drop).
+    case tree(
+        nodes: [SurfaceTreeNode], bind: String?, expanded: [SurfaceJSONValue],
+        actions: [String], movable: Bool)
+    /// `graph{…}`: `spec` is the `koine_plot::graph::GraphSpec` the rows
+    /// became, `svg` its drawing (a `data-id` on every node group).
+    case graph(spec: SurfaceJSONValue, svg: String)
     case plot(spec: SurfaceJSONValue)
     case image(blob: SurfaceJSONValue?, url: SurfaceJSONValue?)
     case field(field: SurfaceJSONValue, bind: String?, value: SurfaceJSONValue)
@@ -268,7 +294,9 @@ public enum RenderKind: Codable, Hashable, Sendable {
     case kv(pairs: SurfaceJSONValue)
     /// `code{language, text}` (koine plan-koine-live L-D7): a block of source,
     /// the language named so a renderer may highlight it.
-    case code(language: String?, text: String)
+    /// `spans` (plan-koine-tree-stream T-D5) is the same text highlighted,
+    /// one list per line; empty when Rust did not highlight it.
+    case code(language: String?, text: String, spans: [[SurfaceCodeSpan]])
     case divider
     case spacer
     /// See the file header: an unrecognised `kind` tag ALSO lands here, with
@@ -301,6 +329,13 @@ public enum RenderKind: Codable, Hashable, Sendable {
         case lines
         case pairs
         case language
+        case nodes
+        case expanded
+        case actions
+        case movable
+        case countField = "count_field"
+        case svg
+        case spans
         case unknownKind = "unknown_kind"
         case reason
     }
@@ -401,10 +436,25 @@ public enum RenderKind: Codable, Hashable, Sendable {
             return .table(
                 rows: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .rows) ?? .array([]),
                 columns: try container.decode([String].self, forKey: .columns),
-                idField: try container.decodeIfPresent(String.self, forKey: .idField))
+                idField: try container.decodeIfPresent(String.self, forKey: .idField),
+                actions: try container.decodeIfPresent([String].self, forKey: .actions) ?? [],
+                countField: try container.decodeIfPresent(String.self, forKey: .countField))
         case "list":
             return .list(
-                rows: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .rows) ?? .array([]))
+                rows: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .rows) ?? .array([]),
+                actions: try container.decodeIfPresent([String].self, forKey: .actions) ?? [],
+                countField: try container.decodeIfPresent(String.self, forKey: .countField))
+        case "tree":
+            return .tree(
+                nodes: try container.decodeIfPresent([SurfaceTreeNode].self, forKey: .nodes) ?? [],
+                bind: try container.decodeIfPresent(String.self, forKey: .bind),
+                expanded: try container.decodeIfPresent([SurfaceJSONValue].self, forKey: .expanded) ?? [],
+                actions: try container.decodeIfPresent([String].self, forKey: .actions) ?? [],
+                movable: try container.decodeIfPresent(Bool.self, forKey: .movable) ?? false)
+        case "graph":
+            return .graph(
+                spec: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .spec) ?? .null,
+                svg: try container.decodeIfPresent(String.self, forKey: .svg) ?? "")
         case "plot":
             return .plot(spec: try container.decode(SurfaceJSONValue.self, forKey: .spec))
         case "image":
@@ -431,7 +481,8 @@ public enum RenderKind: Codable, Hashable, Sendable {
         case "code":
             return .code(
                 language: try container.decodeIfPresent(String.self, forKey: .language),
-                text: try container.decode(String.self, forKey: .text))
+                text: try container.decode(String.self, forKey: .text),
+                spans: try container.decodeIfPresent([[SurfaceCodeSpan]].self, forKey: .spans) ?? [])
         case "divider":
             return .divider
         case "spacer":
@@ -471,14 +522,29 @@ public enum RenderKind: Codable, Hashable, Sendable {
         case .text(let text):
             try container.encode("text", forKey: .kind)
             try container.encode(text, forKey: .text)
-        case .table(let rows, let columns, let idField):
+        case .table(let rows, let columns, let idField, let actions, let countField):
             try container.encode("table", forKey: .kind)
             try container.encode(rows, forKey: .rows)
             try container.encode(columns, forKey: .columns)
             try container.encodeIfPresent(idField, forKey: .idField)
-        case .list(let rows):
+            if !actions.isEmpty { try container.encode(actions, forKey: .actions) }
+            try container.encodeIfPresent(countField, forKey: .countField)
+        case .list(let rows, let actions, let countField):
             try container.encode("list", forKey: .kind)
             try container.encode(rows, forKey: .rows)
+            if !actions.isEmpty { try container.encode(actions, forKey: .actions) }
+            try container.encodeIfPresent(countField, forKey: .countField)
+        case .tree(let nodes, let bind, let expanded, let actions, let movable):
+            try container.encode("tree", forKey: .kind)
+            try container.encode(nodes, forKey: .nodes)
+            try container.encodeIfPresent(bind, forKey: .bind)
+            if !expanded.isEmpty { try container.encode(expanded, forKey: .expanded) }
+            if !actions.isEmpty { try container.encode(actions, forKey: .actions) }
+            if movable { try container.encode(movable, forKey: .movable) }
+        case .graph(let spec, let svg):
+            try container.encode("graph", forKey: .kind)
+            try container.encode(spec, forKey: .spec)
+            try container.encode(svg, forKey: .svg)
         case .plot(let spec):
             try container.encode("plot", forKey: .kind)
             try container.encode(spec, forKey: .spec)
@@ -504,10 +570,11 @@ public enum RenderKind: Codable, Hashable, Sendable {
         case .kv(let pairs):
             try container.encode("kv", forKey: .kind)
             try container.encode(pairs, forKey: .pairs)
-        case .code(let language, let text):
+        case .code(let language, let text, let spans):
             try container.encode("code", forKey: .kind)
             try container.encodeIfPresent(language, forKey: .language)
             try container.encode(text, forKey: .text)
+            if !spans.isEmpty { try container.encode(spans, forKey: .spans) }
         case .divider:
             try container.encode("divider", forKey: .kind)
         case .spacer:
@@ -517,6 +584,91 @@ public enum RenderKind: Codable, Hashable, Sendable {
             try container.encodeIfPresent(unknownKind, forKey: .unknownKind)
             try container.encodeIfPresent(reason, forKey: .reason)
         }
+    }
+}
+
+// MARK: - Tree nodes and code spans
+
+/// `impress_surface::tree::TreeNode` — one line of a `tree`'s visible outline.
+public struct SurfaceTreeNode: Codable, Hashable, Sendable {
+    /// The row's id as the row spelt it: a JSON string or a JSON number. An
+    /// event about this row carries it back unchanged.
+    public let id: SurfaceJSONValue
+    public let label: String
+    /// 0 for a root.
+    public let depth: Int
+    /// The row has at least one child, whether or not it is expanded.
+    public let hasChildren: Bool
+    /// The node is a branch and its id is in the expanded list.
+    public let expanded: Bool
+    /// The row's `count_field` value; nil when none (zero is a count).
+    public let count: SurfaceJSONValue?
+    /// The row itself, for a renderer that wants a second column.
+    public let row: SurfaceJSONValue
+
+    private enum CodingKeys: String, CodingKey {
+        case id, label, depth
+        case hasChildren = "has_children"
+        case expanded, count, row
+    }
+
+    public init(
+        id: SurfaceJSONValue, label: String, depth: Int = 0, hasChildren: Bool = false,
+        expanded: Bool = false, count: SurfaceJSONValue? = nil, row: SurfaceJSONValue = .null
+    ) {
+        self.id = id
+        self.label = label
+        self.depth = depth
+        self.hasChildren = hasChildren
+        self.expanded = expanded
+        self.count = count
+        self.row = row
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(SurfaceJSONValue.self, forKey: .id)
+        label = try container.decodeIfPresent(String.self, forKey: .label) ?? ""
+        depth = try container.decodeIfPresent(Int.self, forKey: .depth) ?? 0
+        hasChildren = try container.decodeIfPresent(Bool.self, forKey: .hasChildren) ?? false
+        expanded = try container.decodeIfPresent(Bool.self, forKey: .expanded) ?? false
+        count = try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .count)
+        row = try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .row) ?? .null
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(label, forKey: .label)
+        try container.encode(depth, forKey: .depth)
+        try container.encode(hasChildren, forKey: .hasChildren)
+        try container.encode(expanded, forKey: .expanded)
+        try container.encodeIfPresent(count, forKey: .count)
+        try container.encode(row, forKey: .row)
+    }
+}
+
+/// One highlighted run of a `code` line: Rust writes it as the pair
+/// `[class, text]` (`Vec<(String, String)>`); `class` is empty for plain text.
+public struct SurfaceCodeSpan: Codable, Hashable, Sendable {
+    public let styleClass: String
+    public let text: String
+
+    public init(styleClass: String, text: String) {
+        self.styleClass = styleClass
+        self.text = text
+    }
+
+    public init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        styleClass = try container.decode(String.self)
+        text = try container.decode(String.self)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.unkeyedContainer()
+        try container.encode(styleClass)
+        try container.encode(text)
     }
 }
 
@@ -543,6 +695,16 @@ public struct SurfaceEvent: Codable, Hashable, Sendable {
         case click
         case select
         case submit
+        /// A `tree` row renamed: `{"id", "label"}`.
+        case rename
+        /// A `tree` row deleted: `[id]`.
+        case delete
+        /// A `tree` row opened (a double-click): `[id]`.
+        case activate
+        /// A `tree` row dragged elsewhere: `{"ids", "to", "index"}`.
+        case move
+        /// A row-menu entry chosen: `{"id", "action"}`.
+        case menu
     }
 
     /// Serialize for `SharedSurface.dispatch(eventJson:)`.

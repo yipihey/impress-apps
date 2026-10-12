@@ -337,8 +337,9 @@ loops.
 | `kv` | pairs | Key/value display. | — |
 | `divider` / `spacer` | `{}` | — | — |
 
-A renderer event is `{"widget": id, "kind": "change"|"click"|"select"|"submit",
-"value": json}` — exactly those keys:
+A renderer event is `{"widget": id, "kind": "change"|"click"|"select"|"submit"|
+"rename"|"delete"|"activate"|"move"|"menu", "value": json}` — exactly those keys
+(the last five are a `tree`'s; their values are koine's `docs/outline.md` § 3):
 
 <!-- wire: event -->
 ```json

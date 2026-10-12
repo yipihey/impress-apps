@@ -70,7 +70,7 @@ Reduce one renderer event (`{"widget", "kind", "value"}`), persist the resulting
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `event` | — | yes | {"widget": id, "kind": "change"\|"click"\|"select"\|"submit", "value": json}. |
+| `event` | — | yes | {"widget": id, "kind": "change"\|"click"\|"select"\|"submit"\|"rename"\|"delete"\|"activate"\|"move"\|"menu", "value": json}. |
 | `host` | — | no | State instance identifier; defaults to this device. |
 | `id` | string | yes | UUID of the stored surface returned by surface-create or surface-list. |
 | `params` | — | no | Surface parameter bindings by name; defaults to those of the showing pane. |
