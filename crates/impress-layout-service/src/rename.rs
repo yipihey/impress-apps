@@ -40,9 +40,9 @@
 
 use std::sync::Arc;
 
-use impress_core::item::{ActorKind, Item};
-use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
-use impress_core::query::ItemQuery;
+use impress_item::item::{ActorKind, Item};
+use impress_item::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
+use impress_item::query::ItemQuery;
 use impress_item::schema::refs::{
     IMPRESS_UI_LAYOUT as LAYOUT_SCHEMA_REF, IMPRESS_UI_PRESET as PRESET_SCHEMA_REF,
 };
@@ -152,7 +152,7 @@ impl RenamePass {
     /// own turn.
     fn rewrite_kind(
         &self,
-        schema_ref: impress_core::SchemaRef,
+        schema_ref: impress_item::SchemaRef,
         table: &RenameTable,
     ) -> crate::store::Result<(usize, usize)> {
         let items = self
@@ -238,8 +238,7 @@ fn rewrite_view_kinds(layout: &mut Layout, table: &RenameTable, item: &Item) -> 
 mod tests {
     use std::sync::Arc;
 
-    use impress_core::item::ActorKind;
-    use impress_core::sqlite_store::SqliteItemStore;
+    use impress_item::item::ActorKind;
     use impress_layout::preset;
     use impress_service_core::lifecycle::RenameTable;
 
@@ -256,7 +255,7 @@ mod tests {
     };
 
     fn scratch_store() -> Arc<dyn AttributedStore> {
-        Arc::new(SqliteItemStore::open_in_memory().expect("scratch store"))
+        Arc::new(koine_store_memory::MemoryStore::new())
     }
 
     fn layout_with_kind(kind: &str) -> Layout {

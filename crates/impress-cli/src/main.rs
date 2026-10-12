@@ -77,6 +77,10 @@ fn assert_store_reachable(path: &std::path::Path) {
 /// argument list and point the services at it. Returns the remaining args for
 /// clap, which never sees the flag.
 fn take_store_path(args: Vec<String>) -> Vec<String> {
+    // The layout and surface verbs ask koine's process registry for the store
+    // and the kind manifest; this is the host that fills them in (the open is
+    // still lazy), whether or not `--store-path` is given.
+    impress_store_service::register_process_ports();
     let mut out = Vec::with_capacity(args.len());
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {

@@ -33,7 +33,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use impress_core::item::{ActorKind, ItemId};
+use impress_item::item::{ActorKind, ItemId};
 use impress_layout::{
     stack_for, ChannelId, Layout, LayoutError, PaneRef, Patch, StackKind, TileId, UndoStacks, Verb,
     WindowId,

@@ -8,8 +8,9 @@
 //! crate is on the kit's pure tier, which may not reach `impress-core`
 //! (docs/kit-manifest.md).
 
-use impress_core::item::ActorKind;
-use impress_core::operation::{OperationIntent, RetentionTier};
+use impress_item::item::ActorKind;
+use impress_item::operation::{OperationIntent, RetentionTier};
+use impress_service_core::pipeline::CallerIdentity;
 
 /// Which side of the ADR-0031 D7 line a write is on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +77,7 @@ pub fn actor_from(raw: Option<&str>) -> ActorKind {
     let claimed = claimed_actor(raw);
     match impress_service_core::pipeline::context::current() {
         Some(context) => {
-            let derived = impress_core::call_context::actor_kind_of(&context.caller);
+            let derived = actor_kind_of(&context.caller);
             if raw.is_some_and(|r| !r.trim().is_empty()) && claimed != derived {
                 tracing::warn!(
                     target: "layout",
@@ -89,6 +90,24 @@ pub fn actor_from(raw: Option<&str>) -> ActorKind {
             derived
         }
         None => claimed,
+    }
+}
+
+/// The `ActorKind` a caller identity records as: the person is human, the
+/// system is the system, and every agent, app route and provider is an
+/// agent — an app's HTTP route is not the person at the keyboard.
+///
+/// The same mapping `impress_core::call_context::actor_kind_of` makes for the
+/// store's own audit rows; a copy here because both of its types are the
+/// kit's (`CallerIdentity` is the pipeline's, `ActorKind` the store port's)
+/// and this crate must not reach `impress-core` for a `match`.
+fn actor_kind_of(caller: &CallerIdentity) -> ActorKind {
+    match caller {
+        CallerIdentity::Person => ActorKind::Human,
+        CallerIdentity::System(_) => ActorKind::System,
+        CallerIdentity::Agent(_) | CallerIdentity::App(_) | CallerIdentity::Provider(_) => {
+            ActorKind::Agent
+        }
     }
 }
 

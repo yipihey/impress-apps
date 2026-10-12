@@ -41,7 +41,7 @@
 
 use std::sync::Arc;
 
-use impress_core::item::ActorKind;
+use impress_item::item::ActorKind;
 use impress_item::store::AttributedStore;
 use impress_service_core::lifecycle::{
     DeprecatedProviderNames, DeprecatedReference, RenameTable, RenameVisitor,
@@ -252,7 +252,7 @@ fn escape_pointer(segment: &str) -> String {
 fn rewrite_json(
     value: &mut serde_json::Value,
     table: &RenameTable,
-    surface: impress_core::item::ItemId,
+    surface: impress_item::item::ItemId,
     changed: &mut bool,
 ) {
     match value {
@@ -310,8 +310,8 @@ fn rewrite_json(
 mod tests {
     use std::sync::Arc;
 
-    use impress_core::item::ActorKind;
     use impress_core::sqlite_store::SqliteItemStore;
+    use impress_item::item::ActorKind;
     use impress_service_core::lifecycle::RenameTable;
     use impress_surface::spec::SurfaceSpec;
 

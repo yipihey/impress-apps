@@ -20,11 +20,11 @@ use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use impress_core::item::{ActorKind, Item, ItemId, Priority, Value as ItemValue, Visibility};
-use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
 use impress_core::pane_query::Bindings;
 use impress_core::sqlite_store::SqliteItemStore;
-use impress_core::store::ItemStore;
+use impress_item::item::{ActorKind, Item, ItemId, Priority, Value as ItemValue, Visibility};
+use impress_item::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
+use impress_item::store::ItemStore;
 use impress_layout_service::{DefaultLayoutService, LayoutService};
 use impress_surface::{Event, EventKind, PaneQuery, SurfaceSpec};
 use impress_surface_service::dto::{ShowTargetDto, SplitTargetDto};
@@ -121,7 +121,7 @@ async fn an_update_through_another_process_is_what_the_next_render_shows() {
     let mcp_store = Arc::new(SqliteItemStore::open(&path).unwrap());
 
     let app_surfaces = SurfaceStore::new(app_store.clone());
-    let app_registry = SessionRegistry::new();
+    let app_registry = SessionRegistry::with_manifest(impress_core::pane_query::builtin_manifest());
     let app_executor = DefaultExecutor::with_store(
         app_store.clone(),
         impress_core::pane_query::builtin_manifest(),
@@ -183,7 +183,7 @@ async fn two_registries_on_one_store_render_one_spec() {
     let surfaces = SurfaceStore::new(store.clone());
     let executor =
         DefaultExecutor::with_store(store.clone(), impress_core::pane_query::builtin_manifest());
-    let pane = SessionRegistry::new();
+    let pane = SessionRegistry::with_manifest(impress_core::pane_query::builtin_manifest());
     let http = DefaultImpressSurfaceService::with_store(
         store.clone(),
         impress_core::pane_query::builtin_manifest(),
@@ -222,7 +222,9 @@ async fn concurrent_dispatches_on_one_instance_do_not_overwrite_each_other() {
     let surfaces = SurfaceStore::new(store.clone());
     let executor =
         DefaultExecutor::with_store(store.clone(), impress_core::pane_query::builtin_manifest());
-    let registry = Arc::new(SessionRegistry::new());
+    let registry = Arc::new(SessionRegistry::with_manifest(
+        impress_core::pane_query::builtin_manifest(),
+    ));
     let row = surfaces
         .create(&text_spec("x"), None, &[], ActorKind::Agent)
         .unwrap();
@@ -318,7 +320,7 @@ fn papers_spec() -> SurfaceSpec {
 async fn provider_inventory_changes_refresh_catalogue_without_repeating_other_sources() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
     let surfaces = SurfaceStore::new(store.clone());
-    let registry = SessionRegistry::new();
+    let registry = SessionRegistry::with_manifest(impress_core::pane_query::builtin_manifest());
     let executor = Arc::new(Counting {
         inner: DefaultExecutor::with_store(store, impress_core::pane_query::builtin_manifest()),
         queries: AtomicUsize::new(0),
@@ -358,7 +360,7 @@ fn insert_paper(store: &SqliteItemStore, title: &str) -> ItemId {
     store
         .insert(Item {
             id: uuid::Uuid::new_v4(),
-            schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+            schema: impress_item::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
             payload,
             created: now,
             modified: now,
@@ -405,7 +407,7 @@ async fn render_with(
 async fn a_store_write_to_a_queried_kind_reruns_that_source_and_nothing_else() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
     let surfaces = SurfaceStore::new(store.clone());
-    let registry = SessionRegistry::new();
+    let registry = SessionRegistry::with_manifest(impress_core::pane_query::builtin_manifest());
     let executor = Arc::new(Counting {
         inner: DefaultExecutor::with_store(
             store.clone(),
@@ -518,7 +520,7 @@ async fn a_verb_source_reruns_on_a_write_to_its_declared_read() {
     let path = dir.path().join("e3-verb-source.sqlite");
     let store = Arc::new(SqliteItemStore::open(&path).unwrap());
     let surfaces = SurfaceStore::new(store.clone());
-    let registry = SessionRegistry::new();
+    let registry = SessionRegistry::with_manifest(impress_core::pane_query::builtin_manifest());
     let executor = Arc::new(DefaultExecutor::with_store(
         store.clone(),
         impress_core::pane_query::builtin_manifest(),
@@ -580,7 +582,7 @@ async fn a_verb_source_reruns_on_a_write_to_its_declared_read() {
 async fn a_failing_source_is_not_asked_again_on_every_render() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
     let surfaces = SurfaceStore::new(store.clone());
-    let registry = SessionRegistry::new();
+    let registry = SessionRegistry::with_manifest(impress_core::pane_query::builtin_manifest());
     let executor = Arc::new(Counting {
         inner: DefaultExecutor::with_store(
             store.clone(),
@@ -850,7 +852,7 @@ async fn a_dispatch_that_changes_no_state_writes_none() {
     let surfaces = SurfaceStore::new(store.clone());
     let executor =
         DefaultExecutor::with_store(store.clone(), impress_core::pane_query::builtin_manifest());
-    let registry = SessionRegistry::new();
+    let registry = SessionRegistry::with_manifest(impress_core::pane_query::builtin_manifest());
     let id = surfaces
         .create(&text_spec("quiet"), None, &[], ActorKind::Agent)
         .unwrap()

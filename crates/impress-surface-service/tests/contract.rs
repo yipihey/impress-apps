@@ -6,9 +6,9 @@
 
 use std::sync::Arc;
 
-use impress_core::item::{ActorKind, Item, ItemId, Priority, Value as ItemValue, Visibility};
 use impress_core::sqlite_store::SqliteItemStore;
-use impress_core::store::ItemStore;
+use impress_item::item::{ActorKind, Item, ItemId, Priority, Value as ItemValue, Visibility};
+use impress_item::store::ItemStore;
 use impress_layout_service::dto::PaneRefDto;
 use impress_layout_service::{DefaultLayoutService, LayoutService};
 use impress_service_core::McpToolDescriptor;
@@ -33,6 +33,9 @@ fn world() -> (Arc<SqliteItemStore>, DefaultImpressSurfaceService) {
 
 /// Call a verb the way MCP and the CLI do: through its inventory handler.
 fn call(tool: &str, args: Value) -> Value {
+    // The inventory's constructors ask koine's process registry for the store
+    // and the manifest; this is the host that fills them in.
+    impress_store_service::register_process_ports();
     let descriptor = McpToolDescriptor::iter()
         .find(|d| d.name == tool)
         .unwrap_or_else(|| panic!("{tool} is not in the inventory"));
@@ -306,7 +309,7 @@ fn insert_paper(store: &SqliteItemStore, title: &str) -> ItemId {
     store
         .insert(Item {
             id,
-            schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+            schema: impress_item::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
             payload,
             created: now,
             modified: now,
@@ -466,9 +469,9 @@ async fn params_come_from_the_pane_and_effects_land_in_the_panes_app() {
     );
     // impress's layout was never touched: it has no row at all.
     let impress_rows = store
-        .query(&impress_core::query::ItemQuery {
+        .query(&impress_item::query::ItemQuery {
             schema: Some(impress_core::schemas::LAYOUT_SCHEMA_REF),
-            predicates: vec![impress_core::query::Predicate::Eq(
+            predicates: vec![impress_item::query::Predicate::Eq(
                 "app_id".into(),
                 ItemValue::String("impress".into()),
             )],

@@ -9,7 +9,7 @@
 //! catalogue entries as stored `impress/scenario@1.0.0` documents. But the
 //! *caller* that drives those documents over `/api/layout/*` and
 //! `/api/surface/*` needs the per-launch loopback token
-//! (`impress_core::loopback_token`), and `impress-core` is off-limits to a
+//! (`impress_service_core::loopback_token`), and `impress-core` is off-limits to a
 //! `pure`-tier kit crate (`docs/kit-manifest.md`'s tier rule) — so it cannot
 //! live in `impress-scenario` itself. `impress-scenario-service` is not in
 //! the kit at all (S1's session log: "not the layout+surface kit"), so a kit
@@ -65,7 +65,7 @@ impl LoopbackClient {
         let mut builder = reqwest::Client::builder()
             .no_proxy()
             .timeout(Duration::from_secs(10));
-        if let Some(token) = impress_core::loopback_token::client_token_for_url(base) {
+        if let Some(token) = impress_service_core::loopback_token::client_token_for_url(base) {
             let mut headers = reqwest::header::HeaderMap::new();
             if let Ok(mut value) =
                 reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
@@ -829,8 +829,8 @@ mod tests {
 
     #[tokio::test]
     async fn outline_collection_gesture_uses_current_rust_decisions_with_or_without_detail() {
-        use impress_core::pane_query::PaneQuery;
         use impress_layout::{PaneSpec, Role, ViewKindId};
+        use impress_pane_query::PaneQuery;
 
         for include_detail in [false, true] {
             let list = PaneSpec::new(PaneQuery::default(), ViewKindId::LIST).with_role(Role::LIST);

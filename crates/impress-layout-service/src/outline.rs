@@ -36,9 +36,9 @@
 
 use std::collections::BTreeMap;
 
-use impress_core::pane_query::{Filter, ItemRef, PaneQuery, Scope, SortKey};
 use impress_layout::preset::{detail_query, DETAIL_PARAM};
 use impress_layout::{PaneRef, PaneSpec, Role, Verb, ViewKindId};
+use impress_pane_query::{Filter, ItemRef, PaneQuery, Scope, SortKey};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

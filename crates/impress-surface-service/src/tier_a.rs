@@ -20,11 +20,12 @@
 
 use std::sync::Arc;
 
-use impress_core::pane_query::builtin_manifest;
-use impress_core::sqlite_store::SqliteItemStore;
+use impress_item::store::AttributedStore;
 use impress_layout_service::dto::PaneRefDto;
 use impress_layout_service::{DefaultLayoutService, LayoutService};
+use impress_pane_query::process_manifest;
 use impress_surface::{Event, EventKind, Source, SurfaceSpec};
+use koine_store_memory::MemoryStore;
 use serde_json::{json, Value};
 
 use crate::dto::{ShowTargetDto, SplitTargetDto};
@@ -37,18 +38,51 @@ const APP: &str = "surface-selftest";
 /// Fixed, so the catalogue never depends on the host's name.
 const DEVICE: &str = "surface-selftest-device";
 
+/// How a capability opens its private store. `None`: a fresh
+/// [`MemoryStore`] — the catalogue needs only the port.
+static STORE_FACTORY: std::sync::RwLock<Option<StoreFactory>> = std::sync::RwLock::new(None);
+
+/// Opens a fresh, empty store.
+type StoreFactory = fn() -> Arc<dyn AttributedStore>;
+
+/// Run the catalogue over another backend of the store port: `open` is called
+/// once per capability and must return a fresh, empty store. The effects
+/// proof in `impress-capabilities` uses this to run it over `SqliteItemStore`,
+/// the one backend that reports which kinds each call read and wrote.
+pub fn set_store_factory(open: StoreFactory) {
+    *STORE_FACTORY.write().unwrap_or_else(|e| e.into_inner()) = Some(open);
+}
+
+fn open_store() -> Arc<dyn AttributedStore> {
+    match *STORE_FACTORY.read().unwrap_or_else(|e| e.into_inner()) {
+        Some(open) => open(),
+        None => Arc::new(MemoryStore::new()),
+    }
+}
+
 struct World {
     #[allow(dead_code)]
-    store: Arc<SqliteItemStore>,
+    store: Arc<dyn AttributedStore>,
     service: DefaultImpressSurfaceService,
 }
 
 impl World {
+    /// A private store ([`open_store`]: in memory by default).
     fn open() -> Self {
-        let store =
-            Arc::new(SqliteItemStore::open_in_memory().expect("open in-memory store for test"));
+        Self::over(open_store())
+    }
+
+    fn over(store: Arc<dyn AttributedStore>) -> Self {
+        // `surface_show` composes the layout verbs through the inventory,
+        // which read the process's kind manifest; a host installs it. In
+        // this crate's own tests the host is the test.
+        #[cfg(test)]
+        crate::install_test_manifest();
         Self {
-            service: DefaultImpressSurfaceService::with_store(store.clone(), builtin_manifest()),
+            service: DefaultImpressSurfaceService::with_store(
+                store.clone(),
+                process_manifest::current(),
+            ),
             store,
         }
     }
@@ -340,7 +374,8 @@ async fn cap_show_composes_layout() -> CapabilityResult {
             // Confirm through an independent LayoutService handle (a fresh
             // session, reloaded from the SAME store) that the pane really
             // is a `surface` pane — not just that `surface_show` claimed so.
-            let layout = DefaultLayoutService::with_store(world.store.clone(), builtin_manifest());
+            let layout =
+                DefaultLayoutService::with_store(world.store.clone(), process_manifest::current());
             let pane = layout
                 .get_pane(
                     APP.to_string(),
@@ -898,10 +933,10 @@ mod paper_triage_loop {
 
     use std::collections::BTreeMap;
 
-    use impress_core::item::{
+    use impress_item::item::{
         ActorKind as ItemActorKind, Item, Priority, Value as ItemValue, Visibility,
     };
-    use impress_core::store::ItemStore;
+    use impress_item::store::ItemStore;
 
     #[allow(unused_imports)]
     use impress_store_service::triage_service as _force_link_triage_service;
@@ -922,7 +957,7 @@ mod paper_triage_loop {
     /// (CLAUDE.md "Definition of done — schema refs": copy the spelling from
     /// the manifest/schema, never guess).
     fn seed_publication(
-        store: &SqliteItemStore,
+        store: &dyn ItemStore,
         title: &str,
         year: i64,
         author_text: &str,
@@ -937,7 +972,7 @@ mod paper_triage_loop {
         );
         let item = Item {
             id: uuid::Uuid::new_v4(),
-            schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+            schema: impress_item::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
             payload,
             created: now,
             modified: now,
@@ -989,7 +1024,14 @@ mod paper_triage_loop {
 
     #[tokio::test]
     async fn the_paper_triage_loop_stars_the_selected_row_via_the_real_triage_verb() {
-        let world = World::open();
+        // SQLite, not the memory store: the real triage verb resolves its
+        // store through `impress_store_service::store_instance`, which takes
+        // a call-scoped override only when it is a `SqliteItemStore`.
+        let sqlite = Arc::new(
+            impress_core::sqlite_store::SqliteItemStore::open_in_memory()
+                .expect("open in-memory store for test"),
+        );
+        let world = World::over(sqlite.clone());
         // Nested inventory calls inherit the store override from this task
         // context. Keep this test's real triage verb on its scratch store
         // without installing a process-wide store: other Tier A tests may
@@ -1000,7 +1042,7 @@ mod paper_triage_loop {
             parent_call: None,
             caller: impress_service_core::pipeline::CallerIdentity::agent("surface-test"),
             verb: "surface-test".into(),
-            store_override: Some(world.store.clone()),
+            store_override: Some(sqlite),
             mutation_ids: Default::default(),
             adverbs: Default::default(),
             inverse: Default::default(),
@@ -1010,11 +1052,15 @@ mod paper_triage_loop {
     }
 
     async fn paper_triage_loop_body(world: World) {
-        let paper_a = seed_publication(&world.store, "A dark matter survey", 2024, "Zwicky, F.");
-        let paper_b =
-            seed_publication(&world.store, "Signal processing notes", 2023, "Shannon, C.");
+        let paper_a = seed_publication(&*world.store, "A dark matter survey", 2024, "Zwicky, F.");
+        let paper_b = seed_publication(
+            &*world.store,
+            "Signal processing notes",
+            2023,
+            "Shannon, C.",
+        );
         let paper_c = seed_publication(
-            &world.store,
+            &*world.store,
             "An information theory primer",
             1948,
             "Wiener, N.",

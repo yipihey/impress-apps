@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use impress_core::item::ActorKind;
 use impress_core::sqlite_store::SqliteItemStore;
+use impress_item::item::ActorKind;
 use impress_surface::{Event, EventKind, SurfaceSpec};
 use impress_surface_service::runtime::{DefaultExecutor, SessionRegistry};
 use impress_surface_service::{DefaultImpressSurfaceService, ImpressSurfaceService, SurfaceStore};
@@ -157,7 +157,7 @@ async fn an_event_records_who_caused_it() {
     let surface_id = id.parse().unwrap();
 
     // As the pane does it: the runtime, dispatched as the human.
-    let registry = SessionRegistry::new();
+    let registry = SessionRegistry::with_manifest(impress_core::pane_query::builtin_manifest());
     let surfaces = SurfaceStore::new(store.clone());
     let executor =
         DefaultExecutor::with_store(store.clone(), impress_core::pane_query::builtin_manifest());

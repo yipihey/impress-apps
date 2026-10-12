@@ -191,3 +191,16 @@ mod inventory_tests {
         }
     }
 }
+
+/// Install the suite's built-in kind manifest as the process's, once: the
+/// stand-in for the host that does it in production
+/// (`impress_store_service::register_process_ports`).
+#[cfg(test)]
+pub(crate) fn install_test_manifest() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        impress_pane_query::process_manifest::install(std::sync::Arc::new(
+            impress_core::pane_query::builtin_manifest(),
+        ));
+    });
+}

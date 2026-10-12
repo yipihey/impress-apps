@@ -25,14 +25,16 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-use impress_core::item::{ActorKind, ItemId};
-use impress_core::pane_query::{Bindings, ItemRef, KindManifest, PaneQueryError, Scope};
-use impress_core::store::AttributedStore;
+use impress_item::item::{ActorKind, ItemId};
+use impress_item::store::AttributedStore;
 use impress_layout::{
     ChannelId, LinearDir, PaneRef, PaneSpec, ParamBinding, ParamSource, TileId, Verb, ViewKindId,
 };
 use impress_layout_service::dto::PaneRefDto as LayoutPaneRefDto;
-use impress_layout_service::{process_manifest, DefaultLayoutService, LayoutService};
+use impress_layout_service::{DefaultLayoutService, LayoutService};
+use impress_pane_query::{
+    process_manifest, Bindings, ItemRef, KindManifest, PaneQueryError, Scope,
+};
 use impress_service_core::call;
 use impress_service_core::descriptor_handle::VerbHandle;
 use impress_service_core::pipeline::{self, Call, PipelineError};
@@ -381,8 +383,8 @@ impl DefaultExecutor {
     /// Every app with a live layout row on `device`, this executor's own app
     /// first. Read from the store — no layout row is created by asking.
     fn apps_with_live_layout(&self, device: &str) -> Vec<String> {
-        use impress_core::item::Value as ItemValue;
-        use impress_core::query::{ItemQuery, Predicate};
+        use impress_item::item::Value as ItemValue;
+        use impress_item::query::{ItemQuery, Predicate};
         let query = ItemQuery {
             schema: Some(impress_item::schema::refs::IMPRESS_UI_LAYOUT),
             predicates: vec![
@@ -473,7 +475,7 @@ impl Executor for DefaultExecutor {
         decls: &[ParamDecl],
         bindings: &Bindings,
     ) -> Result<Value> {
-        let compiled = impress_core::pane_query::compile(query, decls, bindings, &self.manifest)
+        let compiled = impress_pane_query_compile::compile(query, decls, bindings, &self.manifest)
             .map_err(|e: PaneQueryError| Refusal::new("query-refused", e.to_string()))?;
         let items = self
             .store
@@ -1772,11 +1774,11 @@ impl Default for SessionRegistry {
 }
 
 impl SessionRegistry {
-    /// A registry over the [`process_manifest`] — what a process that never
+    /// A registry over the [`process_manifest::current`] — what a process that never
     /// chose a manifest runs (the process-wide [`Self::shared`] one, and the
     /// tests). A host with its own record kinds uses [`Self::with_manifest`].
     pub fn new() -> Self {
-        Self::with_manifest(process_manifest())
+        Self::with_manifest(process_manifest::current())
     }
 
     /// A registry whose runtimes read `manifest`'s record kinds.
@@ -2025,9 +2027,9 @@ mod publish_kind_tests {
 #[cfg(test)]
 mod call_verb_tests {
     use super::{call_verb, provider_result, Executor, SurfaceRuntime};
-    use impress_core::item::ActorKind;
     use impress_core::pane_query::Bindings;
     use impress_core::sqlite_store::SqliteItemStore;
+    use impress_item::item::ActorKind;
     use impress_layout::Verb;
     use impress_service_core::descriptor::{Safety, SafetyClass};
     use impress_service_core::descriptor_handle::VerbHandle;
@@ -2104,7 +2106,7 @@ mod call_verb_tests {
 
         async fn emit(
             &self,
-            _surface: impress_core::item::ItemId,
+            _surface: impress_item::item::ItemId,
             _host: &str,
             _name: &str,
             _payload: Value,
@@ -2186,6 +2188,7 @@ mod call_verb_tests {
             strict: false,
             budget_ms: None,
             replay_full: false,
+            returns_kind: None,
             source: impress_service_core::Source::Linked,
             handler: always_fails,
         };
@@ -2275,7 +2278,7 @@ mod call_verb_tests {
 
         async fn emit(
             &self,
-            _surface: impress_core::item::ItemId,
+            _surface: impress_item::item::ItemId,
             _host: &str,
             _name: &str,
             _payload: Value,

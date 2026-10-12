@@ -9,7 +9,7 @@ autotests = false
 
 [features]
 default = []
-sqlite = ["rusqlite", "impress-item/sqlite"]
+sqlite = ["rusqlite", "impress-item/sqlite", "dep:koine-store"]
 # Derive `schemars::JsonSchema` on the kernel DTOs that cross an
 # `#[impress_service]` boundary. Enabled by `impress-store-service`.
 schema = ["schemars", "impress-pane-query/schema", "impress-item/schema"]
@@ -37,6 +37,10 @@ impress-pane-query-compile = { workspace = true }
 # store stamps `batch_id = call_id` on every operation written under a verb
 # call. A pure kit crate with no reach back here, like impress-pane-query.
 impress-service-core = { workspace = true }
+# `SqliteItemStore` tells koine's process registry it may be a call-scoped
+# store (`pipeline::invoke_on(store, …)`), so the layout and surface verbs
+# reach a scratch SQLite store the way the store-generic ones do.
+koine-store = { workspace = true, optional = true }
 # `v5`: the watched-folder kernel derives every folder and file id
 # deterministically from its path, so a re-add finds the same row.
 uuid = { workspace = true, features = ["v4", "v5", "serde"] }

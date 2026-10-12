@@ -4,7 +4,6 @@
 
 use std::sync::Arc;
 
-use impress_core::sqlite_store::SqliteItemStore;
 use impress_layout_service::{DefaultLayoutService, LayoutService, PaneRefDto};
 
 const APP: &str = "honest-test";
@@ -15,7 +14,7 @@ fn device() -> Option<String> {
 
 fn service() -> DefaultLayoutService {
     DefaultLayoutService::with_store(
-        Arc::new(SqliteItemStore::open_in_memory().unwrap()),
+        Arc::new(koine_store_memory::MemoryStore::new()),
         impress_core::pane_query::builtin_manifest(),
     )
 }

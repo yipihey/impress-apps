@@ -15,13 +15,67 @@
 //!
 //! Service structs also accept a store directly (`with_store`), which is how
 //! the unit tests avoid the singleton entirely.
+//!
+//! # The port registry
+//!
+//! The layout and surface runtimes do not call [`store_instance`]; they ask
+//! `koine_store::process`, the same registry over the store port. This
+//! module keeps the two answering one store: every path that sets or opens
+//! the SQLite handle here also installs it there (a stand-in as a fallback,
+//! naming the path it stands in for), and [`register_process_ports`] —
+//! which every entry point in this module runs first — registers the lazy
+//! opener, the collection-subtree
+//! resolver and the suite's kind manifest (`impress_pane_query::process_manifest`).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::time::Duration;
 
+use impress_core::pane_query::builtin_manifest;
 use impress_core::sqlite_store::SqliteItemStore;
+use impress_core::store::AttributedStore;
+
+static PORTS: Once = Once::new();
+
+/// Register this process's answers in the koine registries, once: the lazy
+/// opener (so the layout and surface runtimes, which ask
+/// `koine_store::process::acquire`, open the store on first use exactly as
+/// [`store_instance`] does), the collection-subtree resolver over the process
+/// store, and the suite's built-in kind manifest. (`SqliteItemStore` registers
+/// itself as a call-scoped override when one is opened.)
+///
+/// Idempotent, and run by every entry point of this module
+/// ([`set_store_path`], [`install_store`], [`install_store_at`],
+/// [`store_instance`]); a host that touches none of those before it
+/// dispatches a layout or surface verb calls it itself. A test that wants a
+/// different manifest installs it after.
+pub fn register_process_ports() {
+    PORTS.call_once(|| {
+        koine_store::process::set_opener(open_process_store);
+        koine_store::process::set_subtree_resolver(Arc::new(
+            crate::subtrees::CollectionSubtrees::process(),
+        ));
+        impress_pane_query::process_manifest::install(Arc::new(builtin_manifest()));
+    });
+}
+
+/// The opener the registry calls when it holds no real store: the lazy,
+/// deadline-bounded open [`store_instance`] already performs, which installs
+/// what it got (or its stand-in) into the registry itself.
+fn open_process_store() {
+    let _ = store_instance();
+}
+
+/// Mirror the SQLite handle into the port registry.
+fn publish(store: &Arc<SqliteItemStore>, fallback: bool) {
+    let port: Arc<dyn AttributedStore> = store.clone();
+    if fallback {
+        koine_store::process::install_as_fallback_for(port, store_path().display().to_string());
+    } else {
+        koine_store::process::install(port);
+    }
+}
 
 static STORE_PATH: OnceLock<PathBuf> = OnceLock::new();
 
@@ -40,6 +94,7 @@ pub fn default_store_path() -> PathBuf {
 /// Point the services at `path`, lazily. Call before the first service
 /// dispatch; returns `Err` if a path or store was already fixed.
 pub fn set_store_path(path: impl AsRef<Path>) -> Result<(), String> {
+    register_process_ports();
     let cached = GLOBAL.lock();
     if let Some(store) = cached.as_ref() {
         let canonical = path
@@ -61,7 +116,10 @@ pub fn store_path() -> PathBuf {
 /// Install an already-open store. Returns `Err` if one is already installed
 /// (injected here, or opened lazily by an earlier [`store_instance`] call).
 pub fn install_store(store: Arc<SqliteItemStore>) -> Result<(), String> {
-    GLOBAL.install(store)
+    register_process_ports();
+    GLOBAL.install(store.clone())?;
+    publish(&store, false);
+    Ok(())
 }
 
 /// Bind a native domain to the GUI's exact open database, or fail before
@@ -71,6 +129,7 @@ pub fn install_store_at(
     store: Arc<SqliteItemStore>,
     path: impl AsRef<Path>,
 ) -> Result<Arc<SqliteItemStore>, String> {
+    register_process_ports();
     let path = path
         .as_ref()
         .canonicalize()
@@ -90,7 +149,9 @@ pub fn install_store_at(
             .set(path)
             .map_err(|_| "impress store path changed during initialization".to_string())?;
     }
-    Ok(cached.get_or_insert(store).clone())
+    let installed = cached.get_or_insert(store).clone();
+    publish(&installed, false);
+    Ok(installed)
 }
 
 fn checked_store_path(store: &SqliteItemStore, expected: &Path) -> Result<(), String> {
@@ -278,13 +339,16 @@ pub fn store_instance() -> Arc<SqliteItemStore> {
     // A verb running under `Pipeline::invoke_on(store, …)` (H-P2-3, D-R9) —
     // a Tier A scenario on its own store — gets that store; the process-wide
     // one stays the default for every other call.
+    register_process_ports();
     if let Some(store) =
         impress_service_core::pipeline::context::store_override::<SqliteItemStore>()
     {
         GLOBAL.handed_fallback.store(false, Ordering::Relaxed);
         return store;
     }
-    GLOBAL.acquire(&store_path(), OPEN_DEADLINE)
+    let store = GLOBAL.acquire(&store_path(), OPEN_DEADLINE);
+    publish(&store, GLOBAL.handed_fallback.load(Ordering::Relaxed));
+    store
 }
 
 #[cfg(test)]

@@ -240,11 +240,11 @@ impl Http {
         // The app bearer (P0, SEC-2): every `POST`/`DELETE` here mutates the
         // running app's tree, which now needs the per-launch loopback token —
         // `IMPRESS_APP_TOKEN`, else the file the app at `base`'s port wrote
-        // (`impress_core::loopback_token`, the contract both halves follow).
+        // (`impress_service_core::loopback_token`, the contract both halves follow).
         let mut builder = reqwest::Client::builder()
             .no_proxy()
             .timeout(Duration::from_secs(10));
-        if let Some(token) = impress_core::loopback_token::client_token_for_url(base) {
+        if let Some(token) = impress_service_core::loopback_token::client_token_for_url(base) {
             let mut headers = reqwest::header::HeaderMap::new();
             if let Ok(mut value) =
                 reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
@@ -494,7 +494,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
 /// The publication is a REAL row of the list: the capability applies the
 /// app's Default (ordinal 1), points the list at READ publications, and takes
 /// the first of its rows — the list pane's own query, compiled with
-/// `impress_core::pane_query::compile` and run on the shared store (the handle
+/// `impress_pane_query_compile::compile` and run on the shared store (the handle
 /// every store-generic service uses) — that already HAS its PDF. Both
 /// conditions keep the check from writing to the person's library: an unread
 /// paper is marked read by the detail dwell, and a paper without a PDF is
@@ -702,8 +702,8 @@ fn pane_of_tree(tree: &Value, tile: u64) -> Result<Value, String> {
 /// is the pane's own JSON, compiled with no bindings; an unbound parameter is
 /// reported rather than guessed.
 fn first_row_of(list_pane: &Value) -> Result<String, String> {
-    use impress_core::pane_query::{builtin_manifest, compile, Bindings, PaneQuery};
-    use impress_core::store::ItemStore;
+    use impress_pane_query::{process_manifest, Bindings, PaneQuery};
+    use impress_pane_query_compile::compile;
 
     let query: PaneQuery = serde_json::from_value(
         list_pane
@@ -712,10 +712,11 @@ fn first_row_of(list_pane: &Value) -> Result<String, String> {
             .ok_or_else(|| "the list pane has no query".to_string())?,
     )
     .map_err(|e| format!("the list pane's query does not decode: {e}"))?;
-    let mut compiled = compile(&query, &[], &Bindings::new(), &builtin_manifest())
+    let mut compiled = compile(&query, &[], &Bindings::new(), &process_manifest::current())
         .map_err(|e| format!("the list pane's query does not compile unbound: {e}"))?;
     compiled.item_query.limit = Some(500);
-    let store = impress_store_service::store_instance();
+    let store = koine_store::process::current()
+        .ok_or_else(|| "no process store is installed to read the list's rows from".to_string())?;
     let rows = store
         .query(&compiled.item_query)
         .map_err(|e| format!("the store refused the list query: {e}"))?;
@@ -723,7 +724,7 @@ fn first_row_of(list_pane: &Value) -> Result<String, String> {
         .find(|item| {
             item.is_read
                 && item.payload.get("has_pdf_downloaded")
-                    == Some(&impress_core::item::Value::Bool(true))
+                    == Some(&impress_item::item::Value::Bool(true))
         })
         .map(|item| item.id.to_string())
         .ok_or_else(|| {

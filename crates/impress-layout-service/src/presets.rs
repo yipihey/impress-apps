@@ -51,20 +51,18 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
-use impress_core::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
-use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
-use impress_core::pane_query::{
-    Direction, Filter, ItemRef, PaneQuery, RelationWalk, Scope, SortKey,
-};
-use impress_core::query::ItemQuery;
-use impress_core::reference::{EdgeType, TypedReference};
-use impress_core::store::{AttributedStore, GuardedWrite};
+use impress_item::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
+use impress_item::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
+use impress_item::query::ItemQuery;
+use impress_item::reference::{EdgeType, TypedReference};
 use impress_item::schema::refs::IMPRESS_UI_PRESET as PRESET_SCHEMA_REF;
+use impress_item::store::{AttributedStore, GuardedWrite};
 use impress_layout::preset::{detail_query, navigator_query, DETAIL_PARAM};
 use impress_layout::{
     ChannelId, Container, Layout, LinearDir, PaneSpec, ParamBinding, ParamSource, Role, TileId,
     ViewKindId,
 };
+use impress_pane_query::{Direction, Filter, ItemRef, PaneQuery, RelationWalk, Scope, SortKey};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -886,7 +884,7 @@ pub mod q {
         PaneQuery {
             kinds: kinds(&["publication"]),
             relation: Some(RelationWalk {
-                edge: impress_core::reference::EdgeType::Cites.into(),
+                edge: impress_item::reference::EdgeType::Cites.into(),
                 from: ItemRef::Param {
                     name: MANUSCRIPT_PARAM.into(),
                 },
@@ -1586,7 +1584,7 @@ pub fn record_derived_from(
             author_kind: actor,
             retention: RetentionTier::Durable,
         };
-        let fail = |e: impress_core::store::StoreError| {
+        let fail = |e: impress_item::store::StoreError| {
             Refusal::store(format!("record the preset this layout came from: {e}"))
         };
         match revision {
@@ -2304,7 +2302,7 @@ mod tests {
     // ── The store side ──────────────────────────────────────────────────
 
     fn store() -> Arc<dyn AttributedStore> {
-        Arc::new(impress_core::sqlite_store::SqliteItemStore::open_in_memory().expect("open store"))
+        Arc::new(koine_store_memory::MemoryStore::new())
     }
 
     #[test]
@@ -2427,7 +2425,7 @@ mod tests {
     /// A library row, so a paper's `parent_id` has something to reference.
     fn library(id: ItemId) -> Item {
         Item {
-            schema: impress_core::schema::refs::IMBIB_LIBRARY,
+            schema: impress_item::schema::refs::IMBIB_LIBRARY,
             parent: None,
             ..paper(id, id, false)
         }
@@ -2440,7 +2438,7 @@ mod tests {
         payload.insert("title".to_string(), Value::String(format!("paper {id}")));
         Item {
             id,
-            schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+            schema: impress_item::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
             payload,
             created: now,
             modified: now,

@@ -11,7 +11,6 @@
 
 use std::sync::{Arc, Mutex, OnceLock};
 
-use impress_core::sqlite_store::SqliteItemStore;
 use impress_layout_service::{DefaultLayoutService, LayoutService};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Subscriber};
@@ -78,7 +77,7 @@ fn device() -> Option<String> {
 async fn save_apply_delete_and_the_preset_refusals_are_logged_with_their_actor() {
     capture();
     let svc = DefaultLayoutService::with_store(
-        Arc::new(SqliteItemStore::open_in_memory().unwrap()),
+        Arc::new(koine_store_memory::MemoryStore::new()),
         impress_core::pane_query::builtin_manifest(),
     );
     let human = || Some("human".to_string());

@@ -13,13 +13,14 @@
 
 use std::sync::Arc;
 
-use impress_core::pane_query::{builtin_manifest, compile, Bindings, PaneQuery, ParamDecl, Scope};
-use impress_core::sqlite_store::SqliteItemStore;
-use impress_core::store::AttributedStore;
+use impress_item::store::AttributedStore;
 use impress_layout::preset::DETAIL_PARAM;
 use impress_layout::{
     ChannelId, Container, Geometry, Layout, PaneSpec, ParamSource, Role, Tile, TileId, ViewKindId,
 };
+use impress_pane_query::{process_manifest, Bindings, PaneQuery, ParamDecl, Scope};
+use impress_pane_query_compile::compile;
+use koine_store_memory::MemoryStore;
 
 use crate::dto::PaneRefDto;
 use crate::presets;
@@ -27,6 +28,28 @@ use crate::report::{CapabilityResult, Tier};
 use crate::service::{DefaultLayoutService, LayoutService};
 use crate::store::{LayoutRow, LayoutStore};
 use crate::{check, Result};
+
+/// How a capability opens its private store. `None`: a fresh
+/// [`MemoryStore`] — the catalogue needs only the port.
+static STORE_FACTORY: std::sync::RwLock<Option<StoreFactory>> = std::sync::RwLock::new(None);
+
+/// Opens a fresh, empty store.
+type StoreFactory = fn() -> Arc<dyn AttributedStore>;
+
+/// Run the catalogue over another backend of the store port: `open` is called
+/// once per capability and must return a fresh, empty store. The effects
+/// proof in `impress-capabilities` uses this to run it over `SqliteItemStore`,
+/// the one backend that reports which kinds each call read and wrote.
+pub fn set_store_factory(open: StoreFactory) {
+    *STORE_FACTORY.write().unwrap_or_else(|e| e.into_inner()) = Some(open);
+}
+
+fn open_store() -> Arc<dyn AttributedStore> {
+    match *STORE_FACTORY.read().unwrap_or_else(|e| e.into_inner()) {
+        Some(open) => open(),
+        None => Arc::new(MemoryStore::new()),
+    }
+}
 
 const APP: &str = "imbib";
 /// Fixed, so the catalogue never depends on the host's name.
@@ -91,10 +114,9 @@ struct World {
 
 impl World {
     fn open() -> Result<Self> {
-        let store =
-            Arc::new(SqliteItemStore::open_in_memory().map_err(|e| format!("open store: {e}"))?);
+        let store = open_store();
         Ok(Self {
-            service: DefaultLayoutService::with_store(store.clone(), builtin_manifest()),
+            service: DefaultLayoutService::with_store(store.clone(), process_manifest::current()),
             store,
         })
     }
@@ -1907,7 +1929,7 @@ async fn cap_apply_preset() -> CapabilityResult {
                 .map(|item| {
                     item.references
                         .iter()
-                        .filter(|r| r.edge_type == impress_core::reference::EdgeType::DerivedFrom)
+                        .filter(|r| r.edge_type == impress_item::reference::EdgeType::DerivedFrom)
                         .count()
                 })
                 .unwrap_or(0);
@@ -2091,7 +2113,7 @@ async fn cap_every_shipped_preset_compiles() -> CapabilityResult {
         "every pane of every shipped preset compiles against the record-kind manifest",
         Tier::A,
         || async {
-            let manifest = builtin_manifest();
+            let manifest = process_manifest::current();
             let mut checked = 0usize;
             for preset in presets::shipped_presets() {
                 for (name, query) in &preset.queries {
@@ -2278,7 +2300,8 @@ async fn cap_source_pane_sessions() -> CapabilityResult {
             }
 
             // A second process (its own session registry) reads the same ids.
-            let other = DefaultLayoutService::with_store(w.store.clone(), builtin_manifest());
+            let other =
+                DefaultLayoutService::with_store(w.store.clone(), process_manifest::current());
             let seen = other.get_layout(IMPRINT.into(), w.device()).await;
             let seen = seen.layout.ok_or("the second process reads the tree")?;
             let detail = seen
@@ -2298,10 +2321,11 @@ async fn cap_source_pane_sessions() -> CapabilityResult {
                 IMPRINT,
                 "older-device",
                 &bare,
-                impress_core::item::ActorKind::Human,
+                impress_item::item::ActorKind::Human,
                 "a tree stored before sessions",
             )?;
-            let fresh = DefaultLayoutService::with_store(w.store.clone(), builtin_manifest());
+            let fresh =
+                DefaultLayoutService::with_store(w.store.clone(), process_manifest::current());
             let loaded = fresh
                 .get_layout(IMPRINT.into(), Some("older-device".into()))
                 .await

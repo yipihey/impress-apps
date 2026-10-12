@@ -8,21 +8,24 @@ repository.workspace = true
 autotests = false
 
 [dependencies]
-# `sqlite`: this crate owns the store side of the layout tree (the
-# `impress/ui/layout@1.0.0` rows). `schema`: `PaneQuery`, `ParamDecl` and
-# `Bindings` cross the `#[impress_method]` boundary, so they need
-# `schemars::JsonSchema`.
-impress-item = { workspace = true }
-impress-core = { workspace = true, features = ["sqlite", "schema"] }
+# The item protocol and its store port (`Arc<dyn AttributedStore>`): the
+# `impress/ui/layout@1.0.0` rows are written through it. `schema`: the
+# DTOs that cross the `#[impress_method]` boundary (`PaneQuery`, `ParamDecl`,
+# `Bindings`) need `schemars::JsonSchema`.
+impress-item = { workspace = true, features = ["schema"] }
+impress-pane-query = { workspace = true, features = ["schema"] }
+impress-pane-query-compile = { workspace = true }
 # The pure tree. `schema` so `Layout`, `PaneSpec`, `Verb` and friends publish
 # their JSON schemas as verb arguments and results — which is exactly the
 # reason that feature exists (see impress-layout's `schema_tests`).
 impress-layout = { workspace = true, features = ["schema"] }
-# For `store_instance()` ONLY — the ONE shared `impress.sqlite` handle of the
-# process. Opening our own would ignore `--store-path`, which `impress-cli`
-# and `impress-mcp` both park there before the first dispatch, and the layout
-# verbs would then read a different store from every other verb in the binary.
-impress-store-service = { workspace = true }
+# The process-wide store, kind manifest and subtree resolver, over the port
+# (`koine_store::process`): the host installs them once and the
+# `#[impress_service]` constructor, which has no arguments to carry them,
+# asks. This crate names no backend.
+koine-store = { workspace = true }
+# Tier A's private in-memory store (`src/tier_a.rs`).
+koine-store-memory = { workspace = true }
 impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
 # S2b: `impress-scenario` joined the kit (Tom's decision, 2026-09-27,
@@ -54,6 +57,12 @@ tokio = { workspace = true, features = ["time"] }
 impress-workspace-hack.workspace = true
 
 [dev-dependencies]
+# The SQLite backend and the suite's kind manifest: the tests that need the
+# SQLite-specific seam (two connections on one file, `data_version`) and the
+# `store_instance` fallback, and the integration tests that run the services
+# over `builtin_manifest()`. Nothing in `src` outside `#[cfg(test)]` names it.
+impress-core = { workspace = true, features = ["sqlite", "schema"] }
+impress-store-service = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # `tests/logging.rs` captures the `layout` target's lines with a small
 # `tracing_subscriber::Layer`.

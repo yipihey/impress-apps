@@ -122,9 +122,9 @@ use impress_layout::{
 };
 use impress_layout_service::device::resolve_device;
 use impress_layout_service::{
-    CollectionSubtrees, DefaultLayoutService, LayoutService, LayoutStore, LayoutVerbResult,
-    PaneRefDto,
+    DefaultLayoutService, LayoutService, LayoutStore, LayoutVerbResult, PaneRefDto,
 };
+use impress_store_service::CollectionSubtrees;
 
 use crate::{item_to_row, SharedItemRow, SharedStore};
 use impress_service_core::pipeline::{self, Call, CallerIdentity};
@@ -407,6 +407,10 @@ impl SharedLayout {
                 store.layout_sessions(),
                 builtin_manifest(),
             )
+            // `compiled_pane` compiles a pane's `CollectionSubtree` scope
+            // against the collection tree, read afresh each time: the tree
+            // changes between calls, and this service outlives them.
+            .with_subtree_resolver(Arc::new(CollectionSubtrees::live(core.clone())))
             .with_tree_in_results(),
             store: core,
             device_tag: resolve_device(device.as_deref()),
@@ -1069,6 +1073,7 @@ static LAYOUT_APPLY: VerbDescriptor = VerbDescriptor {
     strict: false,
     budget_ms: None,
     replay_full: false,
+    returns_kind: None,
     source: impress_service_core::Source::Linked,
     handler: apply_not_callable,
 };

@@ -15,8 +15,7 @@
 
 use std::sync::Arc;
 
-use impress_core::item::ActorKind;
-use impress_core::sqlite_store::SqliteItemStore;
+use impress_item::item::ActorKind;
 use impress_layout::{PaneRef, Verb, ViewKindId};
 use impress_layout_service::{DefaultLayoutService, LayoutService, PaneRefDto};
 use impress_service_core::wire::WIRE_VERSION;
@@ -30,7 +29,7 @@ fn device() -> Option<String> {
 
 fn service() -> DefaultLayoutService {
     DefaultLayoutService::with_store(
-        Arc::new(SqliteItemStore::open_in_memory().unwrap()),
+        Arc::new(koine_store_memory::MemoryStore::new()),
         impress_core::pane_query::builtin_manifest(),
     )
 }
@@ -470,7 +469,7 @@ async fn several_verbs_apply_as_one_gesture_and_one_undo_step() {
 /// for it pays nothing.
 #[tokio::test]
 async fn a_verb_answers_with_its_tree_only_for_the_host_that_asked() {
-    let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let store = Arc::new(koine_store_memory::MemoryStore::new());
     let host = DefaultLayoutService::with_store(
         store.clone(),
         impress_core::pane_query::builtin_manifest(),

@@ -12,11 +12,13 @@ autotests = false
 # loopback HTTP — the client `impress-layout-service`'s Tier B already uses,
 # so no new crate enters the kit's tree.
 reqwest = { workspace = true }
-# `sqlite`: this crate owns the store side of a surface (the
-# `impress/ui/surface@1.0.0` / `-state` / `-event` rows). `schema`: the DTOs
-# that cross the `#[impress_method]` boundary need `schemars::JsonSchema`.
-impress-item = { workspace = true }
-impress-core = { workspace = true, features = ["sqlite", "schema"] }
+# The item protocol and its store port (`Arc<dyn AttributedStore>`): this
+# crate owns the store side of a surface (the `impress/ui/surface@1.0.0` /
+# `-state` / `-event` rows) and writes them through the port. `schema`: the
+# DTOs that cross the `#[impress_method]` boundary need `schemars::JsonSchema`.
+impress-item = { workspace = true, features = ["schema"] }
+impress-pane-query = { workspace = true, features = ["schema"] }
+impress-pane-query-compile = { workspace = true }
 # The pure vocabulary: `SurfaceSpec`, `validate`, `plan`, `resolve`, `reduce`.
 # `schema` so `SurfaceSpec` and friends publish their JSON schema, which
 # `surface_schema` hands back verbatim.
@@ -26,10 +28,17 @@ impress-surface = { workspace = true, features = ["schema"] }
 # layout tree itself.
 impress-layout = { workspace = true, features = ["schema"] }
 impress-layout-service = { workspace = true }
-# For `store_instance()` ONLY — the ONE shared `impress.sqlite` handle of the
-# process, exactly as `impress-layout-service` uses it. Opening our own would
-# ignore `--store-path` and read a different store from every other verb in
-# the binary.
+# The process-wide store and kind manifest, over the port
+# (`koine_store::process`), exactly as `impress-layout-service` uses them: the
+# host installs them once and the `#[impress_service]` constructor, which has
+# no arguments to carry them, asks.
+koine-store = { workspace = true }
+# Tier A's private in-memory store (`src/tier_a.rs`).
+koine-store-memory = { workspace = true }
+# For ONE Tier A capability only (`cap_settings_pane_round_trip`): the
+# settings verbs and their process-wide `SettingsStore` live in
+# impress-store-service, and the capability installs a scratch one. Every
+# other path in this crate runs on the port alone.
 impress-store-service = { workspace = true }
 # The settings registry's files, for the Tier A capability that drives the
 # generated settings pane on a scratch workspace (ADR-0036 D5).
@@ -58,6 +67,11 @@ tracing = { workspace = true }
 impress-workspace-hack.workspace = true
 
 [dev-dependencies]
+# The SQLite backend and the suite's kind manifest, for the tests that run the
+# real store-generic verbs (`store_instance` takes a call-scoped override only
+# when it is a `SqliteItemStore`) and the integration tests that run the
+# services over `builtin_manifest()`.
+impress-core = { workspace = true, features = ["sqlite", "schema"] }
 # The `cli` feature builds the clap tree from the same inventory
 # `impress-cli` iterates, mirroring `impress-layout-service`'s own test of
 # this — proof the subcommands this crate registers actually construct.

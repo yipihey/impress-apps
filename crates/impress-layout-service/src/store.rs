@@ -69,13 +69,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use impress_core::pane_query::PaneQuery;
 use impress_item::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
 use impress_item::operation::{OperationSpec, OperationType};
 use impress_item::query::ItemQuery;
 use impress_item::schema::refs::IMPRESS_UI_LAYOUT as LAYOUT_SCHEMA_REF;
 use impress_item::store::{AttributedStore, GuardedWrite};
 use impress_layout::{preset, Layout, ViewKindId};
+use impress_pane_query::PaneQuery;
 use impress_service_core::Refusal;
 
 pub use crate::authorship::actor_from;
@@ -714,8 +714,8 @@ pub(crate) fn layout_value(layout: &Layout) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use impress_core::item::ActorKind;
-    use impress_core::store::AttributedStore;
+    use impress_item::item::ActorKind;
+    use impress_item::store::AttributedStore;
 
     /// The layout rows are generic over [`AttributedStore`]. `SqliteItemStore`
     /// is one implementation; this is the call a second backend would make.
@@ -725,9 +725,7 @@ mod tests {
             LayoutStore::over(store)
         }
 
-        let store = Arc::new(
-            impress_core::sqlite_store::SqliteItemStore::open_in_memory().expect("memory store"),
-        );
+        let store = Arc::new(koine_store_memory::MemoryStore::new());
         let layouts = host(store);
         let loaded = layouts
             .load_live("koine", "test-device", ActorKind::System)

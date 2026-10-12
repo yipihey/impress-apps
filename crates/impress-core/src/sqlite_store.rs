@@ -763,6 +763,10 @@ impl SqliteItemStore {
     }
 
     fn init_with_connection(conn: Connection, config: StoreConfig) -> Result<Self, StoreError> {
+        // Every store that exists may be a call-scoped override for the
+        // verbs that ask the port registry (see `koine_store::process`).
+        static AS_OVERRIDE: std::sync::Once = std::sync::Once::new();
+        AS_OVERRIDE.call_once(koine_store::process::accept_override_of::<SqliteItemStore>);
         Self::init_schema(&conn)?;
         Self::migrate_schema(&conn)?;
         Self::init_tombstones(&conn)?;

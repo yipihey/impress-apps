@@ -10,11 +10,11 @@
 
 use std::sync::Arc;
 
-use impress_core::item::{ActorKind, Value};
-use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
 use impress_core::pane_query::PaneQuery;
 use impress_core::sqlite_store::SqliteItemStore;
-use impress_core::store::ItemStore;
+use impress_item::item::{ActorKind, Value};
+use impress_item::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
+use impress_item::store::{AttributedStore, ItemStore};
 use impress_layout::{Layout, PaneRef, Role, Verb};
 use impress_layout_service::session::STALE;
 use impress_layout_service::{
@@ -166,7 +166,7 @@ async fn two_services_on_two_connections_never_lose_each_others_change() {
 /// `data_version` never moves because both write through the same handle.
 #[tokio::test]
 async fn two_registries_on_one_connection_never_lose_each_others_change() {
-    let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let store = Arc::new(koine_store_memory::MemoryStore::new());
     let reader = DefaultLayoutService::with_store(
         store.clone(),
         impress_core::pane_query::builtin_manifest(),
@@ -310,7 +310,7 @@ fn a_save_that_loses_the_race_writes_nothing() {
 /// deleted — and a fresh preset takes its place, loudly.
 #[tokio::test]
 async fn an_undecodable_live_row_is_quarantined_and_a_fresh_preset_loaded() {
-    let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let store = Arc::new(koine_store_memory::MemoryStore::new());
     let first = DefaultLayoutService::with_store(
         store.clone(),
         impress_core::pane_query::builtin_manifest(),
@@ -386,7 +386,7 @@ async fn an_undecodable_live_row_is_quarantined_and_a_fresh_preset_loaded() {
 /// The notice reaches the first verb after the quarantine, not only a read.
 #[tokio::test]
 async fn the_first_verb_after_a_quarantine_reports_it() {
-    let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let store = Arc::new(koine_store_memory::MemoryStore::new());
     let service = DefaultLayoutService::with_store(
         store.clone(),
         impress_core::pane_query::builtin_manifest(),

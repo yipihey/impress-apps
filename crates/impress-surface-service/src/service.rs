@@ -27,10 +27,10 @@
 
 use std::sync::Arc;
 
-use impress_core::item::{ActorKind, ItemId};
-use impress_core::pane_query::KindManifest;
-use impress_core::store::AttributedStore;
-use impress_layout_service::{process_manifest, resolve_device, DefaultLayoutService};
+use impress_item::item::{ActorKind, ItemId};
+use impress_item::store::AttributedStore;
+use impress_layout_service::{resolve_device, DefaultLayoutService};
+use impress_pane_query::{process_manifest, KindManifest};
 use impress_service_core::async_trait;
 use impress_service_core::pipeline::{self, Call};
 use impress_service_core::refusal::codes;
@@ -313,7 +313,7 @@ pub struct DefaultImpressSurfaceService {
     sessions: Option<Arc<SessionRegistry>>,
     /// The record kinds this service's executors and layout service read in.
     /// Passed at construction; [`Self::new`] (the inventory's, which has no
-    /// arguments) takes the [`process_manifest`].
+    /// arguments) takes the [`process_manifest::current`].
     manifest: Arc<KindManifest>,
     /// See [`crate::runtime::VerbHost`]. Threaded into every [`DefaultExecutor`]
     /// this service builds ([`Self::executor`]) and consulted directly by
@@ -334,12 +334,12 @@ impl Default for DefaultImpressSurfaceService {
 
 impl DefaultImpressSurfaceService {
     /// The process-wide store and session registry, with the
-    /// [`process_manifest`].
+    /// [`process_manifest::current`].
     pub fn new() -> Self {
         Self {
             store: None,
             sessions: None,
-            manifest: process_manifest(),
+            manifest: process_manifest::current(),
             verb_host: None,
             executor: None,
         }
@@ -407,11 +407,7 @@ impl DefaultImpressSurfaceService {
     fn store_arc_checked(&self) -> (Arc<dyn AttributedStore>, bool) {
         let (store, fallback): (Arc<dyn AttributedStore>, bool) = match &self.store {
             Some(store) => (store.clone(), false),
-            None => {
-                let store = impress_store_service::store_instance();
-                let fallback = impress_store_service::is_fallback_store(&store);
-                (store, fallback)
-            }
+            None => koine_store::process::acquire_or_stand_in(),
         };
         ensure_renamed(&store);
         (store, fallback)
@@ -429,9 +425,12 @@ impl DefaultImpressSurfaceService {
         let (store, fallback) = self.store_arc_checked();
         if fallback {
             return Err(Refusal::store_unavailable(format!(
-                "the store at {} could not be opened, so this write would land in a temporary \
+                "the store{} could not be opened, so this write would land in a temporary \
                  in-memory stand-in and vanish; nothing was written",
-                impress_store_service::store_path().display()
+                match koine_store::process::intended_location() {
+                    Some(at) => format!(" at {at}"),
+                    None => String::new(),
+                }
             )));
         }
         Ok(SurfaceStore::new(store))

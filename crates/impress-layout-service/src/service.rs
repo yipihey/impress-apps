@@ -42,19 +42,15 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
-use impress_core::collection_ops::{
-    self, CollectionSchemaBinding, FIGURE_COLLECTION, GENERIC_COLLECTION, IMBIB_COLLECTION,
-    MANUSCRIPT_COLLECTION,
-};
-use impress_core::item::{ActorKind, ItemId};
-use impress_core::pane_query::{
-    compile_with, Bindings, CompiledQuery, KindManifest, PaneQuery, PaneQueryError, ParamDecl,
-    SubtreeResolver,
-};
+use impress_item::item::{ActorKind, ItemId};
 use impress_item::store::AttributedStore;
 use impress_layout::{
     ChannelId, Geometry, LayoutError, PaneSpec, ParamSource, Role, TileId, Verb, WindowId,
 };
+use impress_pane_query::{
+    process_manifest, Bindings, KindManifest, PaneQuery, PaneQueryError, ParamDecl,
+};
+use impress_pane_query_compile::{compile_with, CompiledQuery, RootOnly, SubtreeResolver};
 use impress_service_core::async_trait;
 use impress_service_core::wire::WIRE_VERSION;
 use impress_service_core::Refusal;
@@ -818,21 +814,6 @@ fn ensure_renamed(store: &Arc<dyn AttributedStore>) {
     });
 }
 
-/// The kind manifest of a process that did not hand its service one: the
-/// chassis's own ([`impress_core::pane_query::builtin_manifest`]), built once.
-///
-/// This is the manifest [`DefaultLayoutService::new`] pairs with the
-/// process-wide store (`impress_store_service::store_instance`) — the
-/// constructor the `#[impress_service]` inventory calls, which has no
-/// arguments to carry a manifest in. Every constructor that takes a store
-/// takes the manifest beside it, and a bespoke host passes its own.
-pub fn process_manifest() -> Arc<KindManifest> {
-    static PROCESS: OnceLock<Arc<KindManifest>> = OnceLock::new();
-    PROCESS
-        .get_or_init(|| Arc::new(impress_core::pane_query::builtin_manifest()))
-        .clone()
-}
-
 #[derive(Clone)]
 pub struct DefaultLayoutService {
     store: Option<Arc<dyn AttributedStore>>,
@@ -841,6 +822,11 @@ pub struct DefaultLayoutService {
     /// naming one outside it, and `compiled_pane` compiles against it. Passed
     /// at construction, never reached for.
     manifest: Arc<KindManifest>,
+    /// How `Scope::CollectionSubtree` finds a folder's descendants when a
+    /// pane is compiled: the host's resolver ([`Self::with_subtree_resolver`]),
+    /// or [`RootOnly`] — the folder's own members. [`Self::new`] takes the
+    /// process's (`koine_store::process::subtree_resolver`).
+    subtrees: Arc<dyn SubtreeResolver + Send + Sync>,
     /// Put the tree in every verb result that has one
     /// ([`LayoutVerbResult::tree_json`]). Off unless asked for.
     tree_in_results: bool,
@@ -853,14 +839,16 @@ impl Default for DefaultLayoutService {
 }
 
 impl DefaultLayoutService {
-    /// The process-wide store and session registry, with the
-    /// [`process_manifest`]. What the `#[impress_service]` inventory
-    /// instantiates.
+    /// The process-wide store and session registry, with the process's kind
+    /// manifest ([`process_manifest::current`]) and subtree resolver
+    /// ([`koine_store::process::subtree_resolver`]). What the
+    /// `#[impress_service]` inventory instantiates.
     pub fn new() -> Self {
         Self {
             store: None,
             sessions: None,
-            manifest: process_manifest(),
+            manifest: process_manifest::current(),
+            subtrees: koine_store::process::subtree_resolver(),
             tree_in_results: false,
         }
     }
@@ -882,6 +870,18 @@ impl DefaultLayoutService {
         self
     }
 
+    /// This instance, with `resolver` finding a folder's descendants when a
+    /// pane's `Scope::CollectionSubtree` compiles. An instance over an
+    /// explicit store resolves nothing but the folder itself until it is
+    /// given one: the resolver is the host's, and it reads the host's store.
+    pub fn with_subtree_resolver(
+        mut self,
+        resolver: Arc<dyn SubtreeResolver + Send + Sync>,
+    ) -> Self {
+        self.subtrees = resolver;
+        self
+    }
+
     /// The record kinds this instance checks and compiles against.
     pub fn manifest(&self) -> &Arc<KindManifest> {
         &self.manifest
@@ -900,6 +900,7 @@ impl DefaultLayoutService {
             store: Some(store),
             sessions: Some(sessions),
             manifest: manifest.into(),
+            subtrees: Arc::new(RootOnly),
             tree_in_results: false,
         }
     }
@@ -978,11 +979,7 @@ impl DefaultLayoutService {
     fn resolved_store_checked(&self) -> (Arc<dyn AttributedStore>, bool) {
         let (store, fallback): (Arc<dyn AttributedStore>, bool) = match &self.store {
             Some(store) => (store.clone(), false),
-            None => {
-                let store = impress_store_service::store_instance();
-                let fallback = impress_store_service::is_fallback_store(&store);
-                (store, fallback)
-            }
+            None => koine_store::process::acquire_or_stand_in(),
         };
         ensure_renamed(&store);
         (store, fallback)
@@ -1000,9 +997,12 @@ impl DefaultLayoutService {
         let (store, fallback) = self.resolved_store_checked();
         if fallback {
             return Err(Refusal::store_unavailable(format!(
-                "the store at {} could not be opened, so this write would land in a temporary \
+                "the store{} could not be opened, so this write would land in a temporary \
                  in-memory stand-in and vanish; nothing was written",
-                impress_store_service::store_path().display()
+                match koine_store::process::intended_location() {
+                    Some(at) => format!(" at {at}"),
+                    None => String::new(),
+                }
             )));
         }
         Ok(LayoutStore::new(store))
@@ -1020,9 +1020,12 @@ impl DefaultLayoutService {
     fn read_message(&self, marker: &Option<String>, message: String) -> String {
         match marker {
             Some(_) => format!(
-                "FALLBACK STORE: the store at {} could not be opened, so this answer comes from \
+                "FALLBACK STORE: the store{} could not be opened, so this answer comes from \
                  an in-memory stand-in, not the user's layout. {message}",
-                impress_store_service::store_path().display()
+                match koine_store::process::intended_location() {
+                    Some(at) => format!(" at {at}"),
+                    None => String::new(),
+                }
             ),
             None => message,
         }
@@ -1390,8 +1393,13 @@ impl DefaultLayoutService {
                 ))
             })?;
         let decls: Vec<ParamDecl> = spec.params.iter().map(|b| b.decl.clone()).collect();
-        let resolver = CollectionSubtrees::lazy(self.layout_store().store().clone());
-        let compiled = compile_with(&spec.query, &decls, &bindings, &self.manifest, &resolver);
+        let compiled = compile_with(
+            &spec.query,
+            &decls,
+            &bindings,
+            &self.manifest,
+            &*self.subtrees,
+        );
         Ok(CompiledPane {
             tile,
             spec,
@@ -2899,98 +2907,6 @@ fn binding_map(bindings: &Bindings) -> BTreeMap<String, String> {
         .iter()
         .map(|(name, id)| (name.clone(), id.to_string()))
         .collect()
-}
-
-/// The collection tree, flattened into a parent → children map, so
-/// `Scope::CollectionSubtree` compiles to "this folder and everything under
-/// it" instead of degrading to the folder's own members.
-///
-/// Every binding is read, because a pane's scope names a collection id and not
-/// which hierarchy it belongs to — and the ids are unique across all of them,
-/// so the union is unambiguous. A binding that fails to read contributes
-/// nothing rather than failing the compile: a pane scoped to a collection in
-/// *another* hierarchy must still resolve.
-///
-/// Public, and the one copy: the FFI's invalidation feed compiles the same
-/// queries and used to keep a verbatim duplicate (review RL-L14).
-pub struct CollectionSubtrees {
-    store: Option<Arc<dyn AttributedStore>>,
-    children: std::sync::OnceLock<BTreeMap<ItemId, Vec<ItemId>>>,
-}
-
-impl CollectionSubtrees {
-    /// Read the whole tree now — for compiling many panes at once.
-    pub fn read(store: &dyn AttributedStore) -> Self {
-        let children = std::sync::OnceLock::new();
-        let _ = children.set(Self::scan(store));
-        Self {
-            store: None,
-            children,
-        }
-    }
-
-    /// Read the tree only if a query actually asks for a subtree — most
-    /// panes never do, and then this costs nothing.
-    pub fn lazy(store: Arc<dyn AttributedStore>) -> Self {
-        Self {
-            store: Some(store),
-            children: std::sync::OnceLock::new(),
-        }
-    }
-
-    fn children(&self) -> &BTreeMap<ItemId, Vec<ItemId>> {
-        self.children.get_or_init(|| match &self.store {
-            Some(store) => Self::scan(&**store),
-            None => BTreeMap::new(),
-        })
-    }
-
-    fn scan(store: &dyn AttributedStore) -> BTreeMap<ItemId, Vec<ItemId>> {
-        const BINDINGS: [CollectionSchemaBinding; 4] = [
-            GENERIC_COLLECTION,
-            IMBIB_COLLECTION,
-            MANUSCRIPT_COLLECTION,
-            FIGURE_COLLECTION,
-        ];
-        let mut children: BTreeMap<ItemId, Vec<ItemId>> = BTreeMap::new();
-        for binding in BINDINGS {
-            let Ok(rows) = collection_ops::list_tree_on(store, &binding) else {
-                continue;
-            };
-            for row in rows {
-                let (Ok(id), Some(Ok(parent))) = (
-                    row.id.parse::<ItemId>(),
-                    row.parent_id.as_deref().map(str::parse::<ItemId>),
-                ) else {
-                    continue;
-                };
-                children.entry(parent).or_default().push(id);
-            }
-        }
-        children
-    }
-}
-
-impl SubtreeResolver for CollectionSubtrees {
-    fn subtree(&self, root: ItemId) -> Vec<ItemId> {
-        // The root is always included: a subtree contains its own root, and a
-        // resolver that returned only descendants would silently drop the
-        // folder's own members.
-        let mut out = vec![root];
-        let mut cursor = 0;
-        while cursor < out.len() {
-            let node = out[cursor];
-            cursor += 1;
-            if let Some(kids) = self.children().get(&node) {
-                for kid in kids {
-                    if !out.contains(kid) {
-                        out.push(*kid);
-                    }
-                }
-            }
-        }
-        out
-    }
 }
 
 impress_service_impl! {

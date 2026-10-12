@@ -78,9 +78,7 @@ pub use presets::{
 };
 pub use report::{CapabilityResult, SelfTestReport, Tier};
 pub use selftest::{DefaultLayoutSelftestService, LayoutSelftestService};
-pub use service::{
-    process_manifest, CollectionSubtrees, CompiledPane, DefaultLayoutService, LayoutService,
-};
+pub use service::{CompiledPane, DefaultLayoutService, LayoutService};
 pub use session::{AppliedVerb, LayoutSession, SessionRegistry, Stack, UndoTarget};
 pub use store::{
     actor_from, author_for, cold_start_layout, default_list_query, LayoutRow, LayoutStore,
@@ -154,6 +152,11 @@ mod tests {
     /// message names every capability that broke.
     #[tokio::test]
     async fn every_tier_a_capability_passes() {
+        // The catalogue reads the process's kind manifest (the host installs
+        // it); the suite's is `impress-core`'s.
+        impress_pane_query::process_manifest::install(std::sync::Arc::new(
+            impress_core::pane_query::builtin_manifest(),
+        ));
         let report = run_tier_a().await;
         assert!(
             report.ok(),

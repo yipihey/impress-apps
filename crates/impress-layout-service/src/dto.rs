@@ -3,7 +3,7 @@
 //! Where a crate type already derives `serde` **and** `schemars::JsonSchema`
 //! under `impress-layout`'s `schema` feature — [`impress_layout::Layout`],
 //! [`impress_layout::PaneSpec`], [`impress_layout::ParamSource`],
-//! [`impress_layout::Geometry`], [`impress_core::pane_query::PaneQuery`] — it
+//! [`impress_layout::Geometry`], [`impress_pane_query::PaneQuery`] — it
 //! is used **directly** on the trait. A mirror DTO of a type that already
 //! publishes its schema is a second definition of the same value, which is the
 //! failure mode this repo has a CI workflow about.
@@ -14,12 +14,13 @@
 
 use std::collections::BTreeMap;
 
-use impress_core::item::ItemId;
-use impress_core::pane_query::{CompiledQuery, PaneQueryError};
+use impress_item::item::ItemId;
 use impress_layout::{
     ChannelId, ContainerKind, Direction, Layout, LinearDir, PaneSpec, Patch, Placement, TileId,
     ViewKindId, WindowId,
 };
+use impress_pane_query::PaneQueryError;
+use impress_pane_query_compile::CompiledQuery;
 use impress_service_core::wire::{wire_version, WIRE_VERSION};
 use impress_service_core::Refusal;
 use serde::{Deserialize, Serialize};
@@ -392,7 +393,7 @@ impl LayoutResult {
 /// A compiled pane query: what the store will actually be asked (ADR-0031 D2).
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CompiledQueryDto {
-    /// The `impress_core::query::ItemQuery` the algebra compiled to.
+    /// The `impress_item::query::ItemQuery` the algebra compiled to.
     #[schemars(with = "serde_json::Value")]
     pub item_query: serde_json::Value,
     /// Every schema ref the query can touch — the incremental-invalidation key.

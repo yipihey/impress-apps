@@ -8,9 +8,9 @@
 
 use std::sync::Arc;
 
-use impress_core::event::MutationKind;
 use impress_core::schemas::LAYOUT_SCHEMA_REF;
 use impress_core::sqlite_store::SqliteItemStore;
+use impress_item::event::MutationKind;
 use impress_layout::{Layout, Role, TileId, ViewKindId};
 use impress_layout_service::dto::PaneRefDto;
 use impress_layout_service::{DefaultLayoutService, LayoutService, SessionRegistry};
