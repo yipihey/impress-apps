@@ -13,7 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 impress-app-transport.workspace = true
-impress-mcp-host = { path = "../impress-mcp-host" }
+koine-mcp-host.workspace = true
 tokio.workspace = true
 # G7b: installs the perf aggregator (no store-ffi log sink here — stdio
 # transport has no Console to forward to) so `perf-service_summary` has

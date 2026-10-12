@@ -14,7 +14,7 @@
 //!   store-browse ones yields JSON that honours `--store-path` rather than
 //!   the default app-group container;
 //! * notifications (id-less messages) get no reply and `ping` gets its
-//!   empty result — the transport behaviour shared with `impress-mcp-host`.
+//!   empty result — the transport behaviour shared with `koine-mcp-host`.
 //!
 //! This complements the unit tests in `src/inventory_bridge.rs` and
 //! `src/server.rs`: those exercise the bridge and the resource handlers

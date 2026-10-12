@@ -183,7 +183,6 @@ and the implore owner decides between verbs and deletion.
 | `impress-helix` | library | internal | `HelixState` / `FfiHelixEditor::handle_key` is a keystroke state machine, UI only |
 | `impress-identifiers` | ffi | internal | Swift-only `*_ffi` shims over `im-identifiers` (the gap is `im-identifiers`' row) |
 | `impress-mcp` | binary | should-be-verb | `tools::{tool_search_papers, tool_get_paper_chunks, tool_list_indexed_papers}` and `render_pdf_page` are hand-written MCP tools outside the inventory (ADR-0024 D7) |
-| `impress-mcp-host` | glue/inventory | internal | hosts the inventory for an in-process MCP client |
 | `impress-memory-service` | verb-crate | verb-crate | |
 | `impress-parsers-service` | verb-crate | verb-crate | |
 | `impress-plot` | library | should-be-verb | `render::{LinePlot::render, Hist2DFigure::render, ContourFigure::render}` are reached only through a project figure build; no spec-to-SVG/Typst verb |
@@ -236,7 +235,6 @@ as `docs/kit-manifest.md`'s open findings.
 | `impress-py` | `#[pyfunction]`/`#[pymodule]` | the P6 Python binding: `list_verbs()`/`call(verb, args)` project the linked inventory into a Python process; the binding is the glue itself, not a second capability |
 | `impress-ai-http` | `.route(` | the HTTP transport of `impress-ai-service`'s chat completion, mirrored not duplicated (D-A above) |
 | `impress-helix` | `#[uniffi::export]` | `HelixState`/`FfiHelixEditor::handle_key` crosses to Swift because it is a keystroke state machine bound to a live editor buffer — rule (b) excludes it regardless of the binding |
-| `impress-mcp-host` | `.route(` | hosts the linked inventory for an in-process MCP client; the route serves verbs already in the census, not a new capability |
 | `impress-toolbox` | `.route(` | `execute::{handle_execute, handle_execute_file}` run a local command over its own server — deliberately unsandboxed, deliberately outside the inventory |
 | `impress-service-core` | `.route(` | the pipeline's app transport router invokes the registered verb inventory; it defines no independent capability |
 <!-- verb-coverage-internal-bindings:end -->

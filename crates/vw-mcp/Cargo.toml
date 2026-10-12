@@ -13,7 +13,7 @@ path = "src/main.rs"
 [dependencies]
 chrono = { workspace = true }
 impress-core = { workspace = true, features = ["sqlite"] }
-impress-mcp-host = { path = "../impress-mcp-host" }
+koine-mcp-host.workspace = true
 impress-service-core = { workspace = true }
 impress-store-service = { workspace = true }
 rusqlite = { workspace = true }

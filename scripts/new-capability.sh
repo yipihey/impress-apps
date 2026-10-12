@@ -31,8 +31,9 @@
 #
 # <name> must match ^[a-z][a-z0-9-]*$ and crates/<name>-service must not
 # already exist. Fill in real verbs afterwards by following the pattern in
-# crates/impress-layout-service/src/service.rs (many verbs, a store-backed
-# impl) — this scaffold is deliberately the smallest thing that compiles and
+# koine's crates/impress-layout-service/src/service.rs (many verbs, a
+# store-backed impl; the koine repository, not this one) — this scaffold is
+# deliberately the smallest thing that compiles and
 # registers, per ADR-0033 D8: "the demo capability shipped with this ADR is
 # its output, so the scaffold is proven by use."
 
@@ -69,9 +70,9 @@ fi
 # Derive the trait/impl/tool names the macro pipeline will produce.
 #
 # The tool name a verb registers under is kebab(<trait name>)_<kebab(method
-# name)> (see crates/impress-service-macros/src/lib.rs, `kebab()` +
+# name)> (see koine's crates/impress-service-macros/src/lib.rs, `kebab()` +
 # `expand_method`; confirmed against `layout-service_*` in
-# crates/impress-layout-service/src/lib.rs). Because <name> is already
+# koine's crates/impress-layout-service/src/lib.rs). Because <name> is already
 # validated as lowercase-kebab, kebab(Pascal(<name>) + "Service") is exactly
 # "<name>-service" — so the tool name is just "<name>-service_echo", no
 # separate kebab pass needed here.
@@ -147,7 +148,8 @@ lib_rs = '''//! `__TRAIT__` — a scaffolded #[impress_service] capability.
 //! `#[impress_method]`), implement it on `__IMPL__`, and add a matching
 //! entry to the `impress_service_impl! { methods = [...] }` list below. For
 //! a fuller worked example — many verbs, a store-backed impl — see
-//! `crates/impress-layout-service/src/service.rs`. See also
+//! koine's `crates/impress-layout-service/src/service.rs` (the koine
+//! repository). See also
 //! `docs/agent-surfaces.md` for how a verb becomes callable from a surface.
 
 use impress_service_core::async_trait;
