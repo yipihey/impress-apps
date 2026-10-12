@@ -75,6 +75,7 @@ mime_guess = { version = "2" }
 minimal-lexical = { version = "0.2", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", features = ["simd"] }
 nom = { version = "7" }
+notify = { version = "8" }
 num = { version = "0.4", default-features = false, features = ["std"] }
 num-bigint = { version = "0.4", features = ["rand"] }
 num-complex = { version = "0.4", default-features = false, features = ["std"] }

@@ -9,6 +9,8 @@ script over the source; nothing is sampled unless a table says so.
 pipeline, the verb lifecycle and the one transport. This plan generates from that descriptor; it cannot
 start before ADR-0034's P1 (the descriptor) and P2 (the pipeline) have landed, and its safety and
 profiling packages read what P2 records. The order is stated in both plans.
+> **Name note (2026-10-12):** `impress-mcp-host` moved to the koine repository as `koine-mcp-host` (koine `docs/plan-koine-host.md` H-D5; the kit manifest row names it). The file:line citations below are as measured when this plan was written and name the old crate.
+
 **Builds on:** ADR-0033 (agent surfaces, D3/D4/D7), ADR-0024 (one inventory, two renderings — its D3 and
 D8 are asks this plan also needs), wave 7 T5/T6 (codes, strictness, `wire_version`), the `doc_wire.rs`
 pattern (`crates/impress-surface-service/tests/doc_wire.rs`) and the Tier A / Tier B self-test pattern
