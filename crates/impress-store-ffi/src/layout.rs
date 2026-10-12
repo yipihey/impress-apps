@@ -1807,6 +1807,85 @@ pub fn outline_cleared_verbs_json(
     .map_err(SharedLayoutError::json)
 }
 
+// ─── The sidebar as a surface (docs/plan-l8-sidebar-surface.md, SB-D5/D6) ─
+
+/// `bindings_json` as the map the spec builder takes: `{"<name>": "<uuid>"}`
+/// (`dismissed_library`, `exploration_library`, `exploration`), or the empty
+/// string for none.
+fn outline_bindings(bindings_json: &str) -> Result<BTreeMap<String, String>> {
+    if bindings_json.trim().is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    serde_json::from_str(bindings_json).map_err(SharedLayoutError::json)
+}
+
+/// The sidebar surface spec for `app_id`
+/// (`impress_layout_service::outline_surface_spec`), as `SurfaceSpec` JSON.
+/// `bindings_json` is `{"dismissed_library": "<uuid>", "exploration_library":
+/// "<uuid>", "exploration": "<uuid>"}` — the ids only the host knows — or
+/// the empty string.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn outline_surface_spec_json(app_id: String, bindings_json: String) -> Result<String> {
+    let bindings = outline_bindings(&bindings_json)?;
+    let spec = impress_layout_service::outline_surface_spec(&app_id, &bindings);
+    serde_json::to_string(&spec).map_err(SharedLayoutError::json)
+}
+
+/// Store (or refresh) the sidebar spec as an `impress/ui/surface@1.0.0` row
+/// tagged `outline:<app_id>` on `surface`'s store — one per app per store,
+/// updated when the spec differs, as `SharedSettings::install_section_surface`
+/// does — and answer the surface id.
+///
+/// The host's state row (which branches are open) is seeded from the spec's
+/// state ONLY when the surface is new: an existing row keeps the user's open
+/// branches across launches and across a bindings change.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn install_outline_surface(
+    surface: Arc<crate::surface::SharedSurface>,
+    app_id: String,
+    bindings_json: String,
+) -> Result<String> {
+    let bindings = outline_bindings(&bindings_json)?;
+    let spec = impress_layout_service::outline_surface_spec(&app_id, &bindings);
+    let tag = format!("outline:{app_id}");
+    let surfaces = surface.surface_store();
+    let storage = |e: Refusal| SharedLayoutError::Store { message: e.message };
+    let existing = surfaces
+        .list()
+        .map_err(storage)?
+        .into_iter()
+        .find(|row| row.tags.iter().any(|t| t == &tag));
+    let (row, created) = match existing {
+        Some(row) if row.spec == spec => (row, false),
+        Some(row) => (
+            surfaces
+                .update(row.id, &spec, None, None, ActorKind::Human)
+                .map_err(storage)?,
+            false,
+        ),
+        None => (
+            surfaces
+                .create(&spec, None, std::slice::from_ref(&tag), ActorKind::Human)
+                .map_err(storage)?,
+            true,
+        ),
+    };
+    if created {
+        surfaces
+            .set_state(row.id, &surface.host(), &spec.state, ActorKind::Human)
+            .map_err(storage)?;
+    }
+    tracing::info!(
+        target: "layout",
+        "installed outline surface {} for {app_id} (revision {}, {}, {} bindings)",
+        row.id,
+        row.revision,
+        if created { "new" } else { "existing" },
+        bindings.len()
+    );
+    Ok(row.id.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1868,6 +1947,88 @@ mod tests {
                 .apply(verb.to_string(), "human".into())
                 .expect("every cleared verb is a verb the layout takes");
         }
+    }
+
+    #[test]
+    fn the_outline_surface_spec_parses_and_names_the_app() {
+        let json = outline_surface_spec_json("imbib".into(), String::new()).expect("spec");
+        let spec: impress_surface::SurfaceSpec = serde_json::from_str(&json).expect("parses");
+        assert_eq!(spec.name, "imbib sidebar");
+        assert!(json.contains("layout-service_outline-rows"));
+        let dismissed = uuid::Uuid::new_v4();
+        let bound = outline_surface_spec_json(
+            "imbib".into(),
+            format!(r#"{{"dismissed_library":"{dismissed}"}}"#),
+        )
+        .expect("bound spec");
+        assert!(bound.contains(&dismissed.to_string()));
+        assert!(matches!(
+            outline_surface_spec_json("imbib".into(), "not json".into()),
+            Err(SharedLayoutError::Json { .. })
+        ));
+    }
+
+    #[test]
+    fn the_outline_surface_is_installed_once_and_keeps_the_open_branches() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let surface =
+            crate::surface::SharedSurface::open(store, "test-host".into(), "imbib".into());
+        let first =
+            install_outline_surface(surface.clone(), "imbib".into(), String::new()).expect("new");
+        let again =
+            install_outline_surface(surface.clone(), "imbib".into(), String::new()).expect("again");
+        assert_eq!(first, again, "one row per app per store");
+        assert_eq!(surface.surface_store().list().unwrap().len(), 1);
+        let id: uuid::Uuid = first.parse().expect("uuid");
+        let revision = surface.surface_store().get(id).unwrap().unwrap().revision;
+
+        // The user closes every branch.
+        surface
+            .surface_store()
+            .set_state(
+                id,
+                &surface.host(),
+                &serde_json::json!({"open": []}),
+                ActorKind::Human,
+            )
+            .unwrap();
+
+        let dismissed = uuid::Uuid::new_v4();
+        let rebound = install_outline_surface(
+            surface.clone(),
+            "imbib".into(),
+            format!(r#"{{"dismissed_library":"{dismissed}"}}"#),
+        )
+        .expect("rebound");
+        assert_eq!(
+            rebound, first,
+            "a changed binding updates the row, not a second one"
+        );
+        assert_eq!(surface.surface_store().list().unwrap().len(), 1);
+        let row = surface.surface_store().get(id).unwrap().unwrap();
+        assert!(
+            row.revision > revision,
+            "the spec change moved the revision"
+        );
+        assert!(serde_json::to_string(&row.spec)
+            .unwrap()
+            .contains(&dismissed.to_string()));
+        let state = surface
+            .surface_store()
+            .get_state(id, &surface.host())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            state["open"],
+            serde_json::json!([]),
+            "open branches survive"
+        );
+
+        // A second app is a second row.
+        let other = install_outline_surface(surface.clone(), "impress".into(), String::new())
+            .expect("other app");
+        assert_ne!(other, first);
+        assert_eq!(surface.surface_store().list().unwrap().len(), 2);
     }
 
     #[test]

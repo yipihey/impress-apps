@@ -522,6 +522,242 @@ Move a pane (or a whole subtree) next to another, or into its tabs.
   {"ok":true}
   ```
 
+## `layout-service_outline-create`
+
+Create a collection under the sidebar row the menu was opened on, through the collection kernel (`collection-service_create`). `parent_key` a `collection:<uuid>` row makes a child of it; none, or a library row, makes a root collection (the kernel's `create` takes a parent collection only, so for a library the kernel files the root by the app's binding and the message says so). A section or other row is refused. `name` defaults to "New Collection".
+
+- **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
+- **reads**: "imbib/collection", "collection", "manuscript-collection", "figure-collection"
+- **writes**: "imbib/collection", "collection", "manuscript-collection", "figure-collection"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `app_id` | string | yes | The app whose collection binding the new collection uses. |
+| `name` | — | no | The collection's name; defaults to "New Collection". |
+| `parent_key` | — | no | The row the menu was opened on, as a node key; omitted makes a root collection. |
+
+**Examples**
+
+- `under-a-section-is-refused` — Tier A:
+
+  ```json
+  {"app_id":"imbib","parent_key":"section:inbox"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"code":"invalid-argument"}
+  ```
+
+## `layout-service_outline-delete`
+
+Delete the collections that sidebar rows name, through the collection kernel (`collection-service_delete`). Members are never deleted. Every key is checked before the first call, so a key that cannot be deleted here (a library, a section) refuses the whole request; once calls start, the first failure stops the rest and the answer lists what was already forwarded.
+
+- **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
+- **reads**: "imbib/collection", "collection", "manuscript-collection", "figure-collection"
+- **writes**: "imbib/collection", "collection", "manuscript-collection", "figure-collection"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `app_id` | string | yes | The app whose collection binding the rows belong to. |
+| `keys` | array | yes | The collection rows' node keys; at least one. |
+
+**Examples**
+
+- `missing-collection` — Tier A:
+
+  ```json
+  {"app_id":"imbib","keys":["collection:00000000-0000-0000-0000-000000000000"]}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
+  ```
+
+- `no-keys` — Tier A:
+
+  ```json
+  {"app_id":"imbib","keys":[]}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"code":"invalid-argument"}
+  ```
+
+## `layout-service_outline-move`
+
+Move the collections that sidebar rows name onto another row, through the collection kernel (`collection-service_reparent`). `to` is the row they were dropped on, as a node key: a collection nests them under it, a library (or no `to`) makes them roots — a drop ON a library is a move to its root. Any other target is refused. `index` is accepted and ignored (the kernel orders siblings with `reorder`); a non-zero one is noted in the message.
+
+- **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
+- **reads**: "imbib/collection", "collection", "manuscript-collection", "figure-collection"
+- **writes**: "imbib/collection", "collection", "manuscript-collection", "figure-collection"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `app_id` | string | yes | The app whose collection binding the rows belong to. |
+| `index` | — | no | The position among the target's children; accepted and ignored. |
+| `keys` | array | yes | The collection rows' node keys; at least one. |
+| `to` | — | no | The row they were dropped on, as a node key; omitted means the root. |
+
+**Examples**
+
+- `missing-collection` — Tier A:
+
+  ```json
+  {"app_id":"imbib","keys":["collection:00000000-0000-0000-0000-000000000000"],"to":"library:00000000-0000-0000-0000-000000000001"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
+  ```
+
+- `not-onto-a-section` — Tier A:
+
+  ```json
+  {"app_id":"imbib","keys":["collection:00000000-0000-0000-0000-000000000000"],"to":"section:inbox"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"code":"invalid-argument"}
+  ```
+
+## `layout-service_outline-rename`
+
+Rename the collection a sidebar row names, through the collection kernel (`collection-service_rename`, with the app's binding). Only a `collection:<uuid>` row can be renamed here; a library, section, feed or form row is refused `invalid-argument` naming what it is and that the legacy sidebar still does it. The kernel's own refusal is passed through as this verb's.
+
+- **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
+- **reads**: "imbib/collection", "collection", "manuscript-collection", "figure-collection"
+- **writes**: "imbib/collection", "collection", "manuscript-collection", "figure-collection"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `app_id` | string | yes | The app whose collection binding the row belongs to. |
+| `key` | string | yes | The collection row's node key: `collection:<uuid>`. |
+| `name` | string | yes | The collection's new name; blank is refused. |
+
+**Examples**
+
+- `missing-collection` — Tier A:
+
+  ```json
+  {"app_id":"imbib","key":"collection:00000000-0000-0000-0000-000000000000","name":"renamed"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
+  ```
+
+- `a-library-is-not-renamed-here` — Tier A:
+
+  ```json
+  {"app_id":"imbib","key":"library:00000000-0000-0000-0000-000000000000","name":"renamed"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"code":"invalid-argument"}
+  ```
+
+## `layout-service_outline-rows`
+
+The sidebar's rows for an app, flat: `{id, parent, label, count, node, legacy, kind}` in display order, each naming its parent so a reader nests them. `id` is the row's node key (`section:inbox`, `collection:<uuid>`, …) — the string every `outline_*` verb takes.
+
+A row's `count` is the count of the query the row selects, read from the store through the kind manifest, so the badge is the list's row count by construction. `bindings` are the ids only the host knows (`dismissed_library`, `exploration_library`), uuid strings; a bad one is `invalid-argument`.
+
+- **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
+- **reads**: "imbib/library", "imbib/collection", "collection", "manuscript-collection", "figure-collection", "imbib/bibliography-entry", "imbib/smart-search", "impress/artifact/code", "impress/artifact/dataset", "impress/artifact/general", "impress/artifact/media", "impress/artifact/note", "impress/artifact/poster", "impress/artifact/presentation", "impress/artifact/webpage", any("a row's count is store.count of its own compiled query; the collection kind spans four refs, so its query is schemaless")
+- **writes**: —
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `app_id` | string | yes | The app whose sidebar rows to read (`imbib`, `imprint`, …). |
+| `bindings` | — | no | Ids only the host knows (`dismissed_library`, `exploration_library`), as uuid strings. |
+
+**Examples**
+
+- `imbib-sidebar` — Tier A:
+
+  ```json
+  {"app_id":"imbib"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"wire_version":1}
+  ```
+
+- `bad-binding` — Tier A:
+
+  ```json
+  {"app_id":"imbib","bindings":{"dismissed_library":"not-a-uuid"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"code":"invalid-argument"}
+  ```
+
+## `layout-service_outline-select`
+
+Select a sidebar row: the list pane (and, when its kind changes, the detail pane) is retargeted to what the row means, as ONE gesture — all or none, one undo entry.
+
+`key` is a row's node key (`section:inbox`, `collection:<uuid>`; an unparseable key is `not-found`). The answer is a layout verb result plus `target` (a `query`, a `legacy` route or `inert`) and `applied`, the number of layout verbs applied. A row the list already shows, or one that navigates nowhere, applies nothing and answers `ok` with `applied: 0`. `initial: true` marks the launch selection: it applies only while the list still shows the preset's own query, so a layout the user left elsewhere is never overwritten. `bindings` are as for `outline_rows`. No focus verb is sent: selecting a row does not move the keyboard.
+
+- **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
+- **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
+- **writes**: "impress/ui/layout@1.0.0"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `bindings` | — | no | Ids only the host knows (`dismissed_library`, `exploration_library`), as uuid strings. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
+| `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
+| `initial` | — | no | True for the launch selection: applies only while the list still shows the preset's own query. |
+| `key` | string | yes | The row's node key: `section:inbox`, `library:<uuid>`, `collection:<uuid>`, … |
+
+**Examples**
+
+- `select-inbox` — Tier A:
+
+  ```json
+  {"app_id":"imbib","device":"g3-outline-select","key":"section:inbox"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
+
+- `garbage-key` — Tier A:
+
+  ```json
+  {"app_id":"imbib","device":"g3-outline-select","key":"not a key"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"code":"not-found"}
+  ```
+
 ## `layout-service_redo`
 
 Redo on one ring. Same stacks as `undo`.

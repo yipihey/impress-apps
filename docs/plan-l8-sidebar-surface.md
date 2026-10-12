@@ -160,4 +160,37 @@ Recorded here so the gaps are chosen, not forgotten:
 
 ## Status
 
-Planned 2026-10-12.
+Built 2026-10-12; **not Mac-verified**. The default stays off.
+
+**Landed**
+
+- K1-K3 in koine main `9b052e0f` (`impress-layout-service`, `impress-settings`):
+  node keys, `outline-rows`, the five verbs, `outline_surface_spec`, and the
+  `impress.outline.surface` setting. Deviations the koine agents made from the
+  text above:
+  - `section_keys` omits `dismissed`.
+  - "All Artifacts" is `record:artifact:all`.
+  - Artifact-type keys carry the full schema ref.
+  - The Exploration section row needs `exploration` bound (the host passes it
+    with `exploration_library`).
+  - `on_select` has no refresh (selecting writes the layout, not the rows).
+  - `OutlineSelectResult` is the flat `LayoutVerbResult` plus `target` and
+    `applied`.
+- impress-apps A1-A4: A1 the FFI (`install_outline_surface`,
+  `outline_surface_spec_json`, the Swift binding regenerated) and A3 the Tier A
+  tests in `impress-capabilities/tests` (the Rust half; see the commit that
+  carries them); A2
+  `Chassis/Layout/LayoutOutlineSurfaceView.swift` and the
+  `LayoutOutlinePaneView` branch on `@ImpressSetting("impress.outline.surface")`
+  (Swift written without a toolchain on the authoring checkout, uncompiled);
+  A4 the matrix
+  subsection "The sidebar as a surface" in `chassis-capability-matrix.md` (its
+  cells say "built", none is ✅) and the log line in `plan-layout-tree.md`.
+
+**Pending: the Mac proof**, steps in the matrix subsection. Until each "built"
+cell has a live log line the default stays off and the legacy sidebar stays.
+
+**Open items** are SB-D7's list, unchanged: following the list, the launch
+selection, library rename / delete / New Library / Add Feed / Export / Import,
+drops from outside the tree, unread and starred badges, the four deferred
+sections' children, icons and the tag filter field.

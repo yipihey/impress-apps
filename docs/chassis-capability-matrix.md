@@ -3414,6 +3414,70 @@ Tom's papers left it there and logged `not applied`.
   **Live (impress):** a read Inbox paper in `info` (`pane 3 info: publication detail for 9DCF6737…`), then SciX Search clicked → `outline select: {"form":"ads-modern","node":"search-form"} → legacy, 2 verb(s)`, `set-pane → version 42`, `select → version 43`; the `info` pane showed "No Selection". **Still open:** the hosted route's own list|detail
   split is cramped in a list-width column.
 
+**The sidebar as a surface (L8 leaf 4b, 2026-10-12; built, not Mac-verified)**
+
+The navigator pane can draw the sidebar as a koine `tree` surface instead of
+hosting `ImbibSidebarColumn` (`docs/plan-l8-sidebar-surface.md`). It is behind
+the device-scope setting `impress.outline.surface` (default off): when on,
+`LayoutOutlinePaneView` hosts `Chassis/Layout/LayoutOutlineSurfaceView.swift`,
+which asks Rust to install the surface (`install_outline_surface`, UniFFI
+`installOutlineSurface`, stored under the tag `outline:<app>` — one row per
+app per store, refreshed when the spec changes) and hosts it as
+`LayoutSurfacePaneView` hosts any surface. Everything the sidebar does is a
+Rust verb in `impress-layout-service`: the rows and their counts
+(`layout-service_outline-rows`), selecting (`outline-select`, which applies
+`outline_target` + `outline_verbs` as ONE atomic step on the live layout —
+one undo entry, which the Swift router could not do), and
+`outline-rename` / `outline-delete` / `outline-move` / `outline-create`,
+which forward to `collection-service_{rename,delete,reparent,create}`. The
+host supplies only library ids (`dismissed_library`, `exploration_library`,
+`exploration`) as bindings. The legacy sidebar and its router stay the
+default and the fallback; a build that fails to install the surface shows
+"Sidebar Unavailable" naming the error.
+
+**No cell below is Mac-verified.** "built" means the mechanism exists in Rust
+(tested headless in koine and in `impress-capabilities/tests`) and Swift hosts
+it; the cell becomes ✅ only with a live line from the running app. The default
+stays off until every "built" cell is re-proven.
+
+| Node kind | Context menu | Rename | Delete | Drag | Drop target | Counts | Select → list → detail |
+|---|---|---|---|---|---|---|---|
+| `section` | ➖ none (as legacy) | ➖ | ➖ | ➖ | ➖ | built: the count of the section's own query (`outline-rows`); the four deferred sections (Tags, Shared With Me, SciX, review queue) are rows with no children and no count | built: `outline-select` `section:<name>` → the section's `outline_target` (Inbox, Dismissed, Flagged, Artifacts, Recent, Cited); a legacy section row sets the scoped legacy pane as W3 does |
+| `library` | built: the spec's `actions` (New Collection) | ➖ refused by `outline-rename` (no library verb in the kernel; legacy sidebar) | ➖ refused by `outline-delete` (same; legacy sidebar) | built: `on_move` (tree drag) | built: a drop ON a library row is a move to its root (`outline-move` → `collection-service_reparent`, `new_parent_id: null`, as `handleReparent`) | built: the count of the library's own query (its papers, not its stars; no unread badge) | built: `library:<uuid>` → `select` + `set-query` `parent = <id>` |
+| `collection` | built: the spec's `actions` (New Collection → `outline-create`, Delete) | built: `on_rename` → `outline-rename` → `collection-service_rename` | built: `on_delete` / Delete action → `outline-delete` → `collection-service_delete` | built: `on_move` → `outline-move` | built: `on_move` → `outline-move` → `collection-service_reparent`; a drop ON a library row moves to its root; ➖ a paper dragged in from the list pane (host-owned, not the tree's — SB-D7) | built: the count of the row's own query (`outline-rows`), so the badge is the list's row count by construction | built: `collection:<uuid>` → `select` collection + `set-query` `collection = <id>` |
+| `flag` | ➖ none (as legacy) | ➖ | ➖ | ➖ | ➖ | built: the count of the flag query | built: `outline-select` → `set-query` of the flagged kind + `flag(color)` |
+| `smart-search` (feed) | ➖ not in this wave: Add Feed, Edit Feed, Export, Import stay with the legacy sidebar (SB-D7) | ➖ not in this wave: no feed verb in the kernel; refused with a message | ➖ not in this wave: refused with a message | ➖ | ➖ | ➖ not in this wave: a feed is a legacy row with no count; unread / starred badges are not carried (SB-D7) | built: opens the scoped legacy pane for the feed (as W3) |
+| `search-form` | ➖ none (the legacy Hide is not carried) | ➖ | ➖ | ➖ | ➖ | ➖ | built: scoped legacy `search` pane (MATERIALIZE_FIRST), as W3 |
+| `artifact-type` | ➖ | ➖ | ➖ | ➖ | ➖ | built: counted by its schema ref (the one legacy row that has a count); "All Artifacts" is `record:artifact:all` | built: opens the scoped legacy pane for the type (a type is a schema ref, W3) |
+| `recent`, `dismissed`, `cited` | ➖ | ➖ | ➖ | ➖ | ➖ | built: `dismissed` and `cited`: the count of their own query; ➖ `recent` is a view history, no count | built: `dismissed` → the `dismissed` named query with `$dismissed_library` bound; `recent` and `cited` → scoped legacy panes (W3) |
+
+Not in this wave, chosen (SB-D7): following the list (an agent's `set-query`
+does not move the tree's selection — the rows are re-read, not reconciled),
+the launch selection (the preset's list query stands), library rename /
+delete / New Library / Add Feed / Export / Import, drops from outside the
+tree, unread and starred badges, the four deferred sections' children, icons
+and the tag filter field.
+
+**Mac proof steps** (impress, 23125; none done yet):
+
+1. Turn the setting on: `settings-service_set` with
+   `impress.outline.surface` = `true` (CLI or MCP), then open impress.
+2. `curl 'http://localhost:23125/api/logs?category=layout&limit=50'` shows the
+   three trace lines: `pane N outline: installing surface for impress (bindings: …)`,
+   `pane N outline: surface <id> installed`, and the `surface` category's render
+   of the tree.
+3. Click a collection row: the log shows the `outline-select` step and
+   `pane 2 display: N rows`, where N equals the row's badge; repeat for a
+   library, a flag, Inbox, Dismissed.
+4. Rename a collection (inline field), delete a throwaway collection, drag a
+   subcollection onto its library (root) and onto another collection; confirm
+   each in the log and that the badges move without a refresh.
+5. Try Rename on a library and a feed: the effect-failure line names the
+   legacy sidebar. Turn the setting off and confirm the legacy sidebar returns.
+
+Fill the cells above from what the log shows; flip the default only when every
+"built" cell has a live line.
+
 ### List-pane rows (plan wave 6 W4, Mac-verified 2026-09-24)
 
 A `list` pane row's context menu and drag are its kind's OWN list's, extracted
