@@ -48,3 +48,26 @@ A noisy sine wave: `n` samples `x` on `[0, 1)` and `values = sin(2π·freq·x) +
   {"n": 10, "freq": 1.0}
   ```
 
+## `surface-demo-service_tick`
+
+A stream in miniature: emit `{"i": k, "at": ms}` `n` times, `every_ms` apart, with `progress` k/n; answers `{ok, emitted}`.
+
+- **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within, in_background
+- **reads**: —
+- **writes**: —
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `every_ms` | integer | yes | Milliseconds to wait between values. |
+| `n` | integer | yes | How many values to emit. |
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {"n": 2, "every_ms": 1}
+  ```
+

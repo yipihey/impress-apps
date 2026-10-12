@@ -3047,6 +3047,34 @@ manuscript body is not written that way above. See ADR-0033 D1/D5 and
 [docs/agent-surfaces.md](agent-surfaces.md) for the full vocabulary and the
 five-verb loop that creates and drives these rows.
 
+### Surface tree node (koine `tree`, 2026-10-12)
+
+A surface `tree` node gives a sidebar cell each of the matrix columns above
+(context menu / rename / delete / drag / drop / counts / select→detail)
+through the fields koine's `docs/outline.md` names, and no more: `actions` is
+the context menu, `on_rename` rename, `on_delete` delete, `on_move` both drag
+and drop, `count_field` the count, `on_select: [{"publish": {}}]`
+select→detail, `on_activate` open. A cell whose field the tree does not
+declare is read-only, the same silent default as a node kind with no
+`capabilities(of:)` case, so a sidebar written as a tree is done when each
+cell is wired to its field or marked not applicable in its row.
+
+`packages/ImpressSurface` draws it (`SurfaceTreeView.swift`; the pure half,
+`SurfaceTreeLogic`, builds the event values `docs/outline.md` § 3 lists and is
+unit-tested): disclosure chevron, select, double-click open, context menu
+(`actions` plus an always-offered Rename), inline rename (Return commits,
+Escape cancels), Delete on macOS, and drag and drop only when the render tree
+says `movable`. **Not drawn:** gap drops (between rows, or to the root) — a
+drop is always ON a row, `index` 0 — and `spans` (highlighted `code`) and the
+`graph` SVG (a labelled placeholder: the hooks have no SVG slot). `table` and
+`list` decode `actions` and `count_field` but do not yet draw them.
+
+**The imbib sidebar leaf is still the legacy route** (the outline
+`ImbibSidebarViewModel` rows above). It moves onto this node in the L8
+migration, which calls `example_collection_sidebar` with imbib's own verbs;
+until then the table in § "The outline sidebar" is the live contract and this
+section is the destination.
+
 ## Layout tree (ADR-0031 L6)
 
 **Status: the tree is the only root of every chassis app (plan wave 6 W5).**

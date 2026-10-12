@@ -311,14 +311,14 @@ private struct SurfaceNodeView: View {
             hooks.renderMarkdown(text)
                 .koineFont(sheet.value("text"))
 
-        case .table(let rows, let columns, let idField):
+        case .table(let rows, let columns, let idField, _, _):
             SurfaceTableView(
                 id: node.id, rows: rows, columns: columns, idField: idField,
                 focusedWidgetID: focusedWidgetID, onEvent: onEvent
             )
             .padding(.vertical, sheet.spacing("table"))
 
-        case .list(let rows):
+        case .list(let rows, _, _):
             // Inside the column's ScrollView a `List` has no intrinsic height
             // and collapses to nothing — the heading drew and six rows did
             // not (Mac, 2026-09-23). The floor is for a host whose hook
@@ -332,6 +332,16 @@ private struct SurfaceNodeView: View {
             }
             .frame(minHeight: 240)
             .padding(.vertical, sheet.spacing("list"))
+
+        case .tree(let nodes, _, let expanded, let actions, let movable):
+            SurfaceTreeView(
+                id: node.id, nodes: nodes, expanded: expanded, actions: actions,
+                movable: movable, focusedWidgetID: focusedWidgetID, onEvent: onEvent
+            )
+            .padding(.vertical, sheet.spacing("list"))
+
+        case .graph(let spec, let svg):
+            SurfaceGraphView(spec: spec, svg: svg)
 
         case .plot(let spec):
             hooks.renderPlot((try? spec.jsonString()) ?? "{}")
@@ -356,7 +366,9 @@ private struct SurfaceNodeView: View {
         case .kv(let pairs):
             SurfaceKVView(pairs: pairs)
 
-        case .code(_, let text):
+        case .code(_, let text, _):
+            // `spans` (Rust's highlighting) is decoded but not drawn: the
+            // text is shown monospaced and plain.
             SurfaceCodeView(text: text)
 
         case .divider:

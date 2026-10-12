@@ -35,6 +35,25 @@ struct SurfaceEventTests {
         #expect(SurfaceEvent.Kind.click.rawValue == "click")
         #expect(SurfaceEvent.Kind.select.rawValue == "select")
         #expect(SurfaceEvent.Kind.submit.rawValue == "submit")
+        // koine 65c7321 (plan-koine-outline): the tree's events.
+        #expect(SurfaceEvent.Kind.rename.rawValue == "rename")
+        #expect(SurfaceEvent.Kind.delete.rawValue == "delete")
+        #expect(SurfaceEvent.Kind.activate.rawValue == "activate")
+        #expect(SurfaceEvent.Kind.move.rawValue == "move")
+        #expect(SurfaceEvent.Kind.menu.rawValue == "menu")
+    }
+
+    @Test("every new kind encodes to its wire name and decodes back")
+    func newKindsRoundTrip() throws {
+        for kind in [
+            SurfaceEvent.Kind.rename, .delete, .activate, .move, .menu,
+        ] {
+            let event = SurfaceEvent(widget: "outline", kind: kind, value: .array([.string("a")]))
+            let json = try event.jsonString()
+            #expect(json.contains("\"kind\":\"\(kind.rawValue)\""))
+            let decoded = try JSONDecoder().decode(SurfaceEvent.self, from: Data(json.utf8))
+            #expect(decoded == event)
+        }
     }
 
     @Test("value defaults to null, matching Event's #[serde(default)] on value")
