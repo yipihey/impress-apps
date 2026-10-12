@@ -178,6 +178,7 @@ struct RenderTreeForwardCompatTests {
         case .status: return "status"
         case .log: return "log"
         case .kv: return "kv"
+        case .code: return "code"
         case .divider: return "divider"
         case .spacer: return "spacer"
         case .placeholder: return "placeholder"

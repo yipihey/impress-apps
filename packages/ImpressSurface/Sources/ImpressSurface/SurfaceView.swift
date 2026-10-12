@@ -356,6 +356,9 @@ private struct SurfaceNodeView: View {
         case .kv(let pairs):
             SurfaceKVView(pairs: pairs)
 
+        case .code(_, let text):
+            SurfaceCodeView(text: text)
+
         case .divider:
             Divider()
 
@@ -869,6 +872,22 @@ private struct SurfaceLogView: View {
             .padding(6)
         }
         .frame(minHeight: 80, maxHeight: 200)
+        .background(Color.platformControlBackground)
+    }
+}
+
+private struct SurfaceCodeView: View {
+    let text: String
+
+    var body: some View {
+        ScrollView([.vertical, .horizontal]) {
+            Text(text)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(6)
+        }
+        .frame(minHeight: 80, maxHeight: 300)
         .background(Color.platformControlBackground)
     }
 }
