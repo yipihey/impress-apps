@@ -45,14 +45,14 @@ use chrono::{DateTime, Utc};
 // store's own `impress_item::item::Value` at the point of writing a payload
 // field — see `spec_json`/`parse_json` and the `ItemValue::String(...)`
 // constructions below.
-use impress_core::schemas::{
-    SURFACE_EVENT_SCHEMA_REF, SURFACE_SCHEMA_REF, SURFACE_STATE_SCHEMA_REF,
-};
-use impress_core::sqlite_store::SqliteItemStore;
 use impress_item::item::Value as ItemValue;
 use impress_item::item::{ActorKind, Item, ItemId, Priority, Visibility};
 use impress_item::operation::{OperationSpec, OperationType};
 use impress_item::query::{ItemQuery, Predicate, SortDescriptor};
+use impress_item::schema::refs::{
+    IMPRESS_UI_SURFACE as SURFACE_SCHEMA_REF, IMPRESS_UI_SURFACE_EVENT as SURFACE_EVENT_SCHEMA_REF,
+    IMPRESS_UI_SURFACE_STATE as SURFACE_STATE_SCHEMA_REF,
+};
 use impress_item::store::{AttributedStore, GuardedBatch, StoreError};
 pub use impress_layout_service::authorship::actor_from;
 use impress_layout_service::authorship::{author_for_service, Ephemerality};
@@ -136,11 +136,11 @@ pub struct EventRow {
 ///
 /// `S` defaults to [`SqliteItemStore`]. Writes go through [`AttributedStore`],
 /// the same port [`impress_layout_service::store::LayoutStore`] uses.
-pub struct SurfaceStore<S: AttributedStore = SqliteItemStore> {
+pub struct SurfaceStore<S: AttributedStore + ?Sized = dyn AttributedStore> {
     store: Arc<S>,
 }
 
-impl<S: AttributedStore> Clone for SurfaceStore<S> {
+impl<S: AttributedStore + ?Sized> Clone for SurfaceStore<S> {
     fn clone(&self) -> Self {
         Self {
             store: Arc::clone(&self.store),
@@ -148,8 +148,20 @@ impl<S: AttributedStore> Clone for SurfaceStore<S> {
     }
 }
 
-impl<S: AttributedStore> SurfaceStore<S> {
-    pub fn new(store: Arc<S>) -> Self {
+impl SurfaceStore<dyn AttributedStore> {
+    /// Rows over any backend of the port. This is the only `new`, so
+    /// `SurfaceStore::new(sqlite_arc)` is the default `SurfaceStore` and an
+    /// `Arc<SqliteItemStore>` coerces at the call, the way
+    /// `HashMap::new` fixes its hasher.
+    pub fn new(store: Arc<dyn AttributedStore>) -> Self {
+        Self { store }
+    }
+}
+
+impl<S: AttributedStore + ?Sized> SurfaceStore<S> {
+    /// Rows over a store of one named type — for a caller that wants the
+    /// concrete handle back from [`Self::store`] rather than the port.
+    pub fn over(store: Arc<S>) -> Self {
         Self { store }
     }
 

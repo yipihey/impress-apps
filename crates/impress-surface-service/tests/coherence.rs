@@ -122,7 +122,10 @@ async fn an_update_through_another_process_is_what_the_next_render_shows() {
 
     let app_surfaces = SurfaceStore::new(app_store.clone());
     let app_registry = SessionRegistry::new();
-    let app_executor = DefaultExecutor::with_store(app_store.clone());
+    let app_executor = DefaultExecutor::with_store(
+        app_store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
     let mcp_surfaces = SurfaceStore::new(mcp_store.clone());
 
     let row = app_surfaces
@@ -178,9 +181,13 @@ async fn an_update_through_another_process_is_what_the_next_render_shows() {
 async fn two_registries_on_one_store_render_one_spec() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
     let surfaces = SurfaceStore::new(store.clone());
-    let executor = DefaultExecutor::with_store(store.clone());
+    let executor =
+        DefaultExecutor::with_store(store.clone(), impress_core::pane_query::builtin_manifest());
     let pane = SessionRegistry::new();
-    let http = DefaultImpressSurfaceService::with_store(store.clone());
+    let http = DefaultImpressSurfaceService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
 
     let row = surfaces
         .create(&text_spec("one"), None, &[], ActorKind::Agent)
@@ -213,7 +220,8 @@ async fn two_registries_on_one_store_render_one_spec() {
 async fn concurrent_dispatches_on_one_instance_do_not_overwrite_each_other() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
     let surfaces = SurfaceStore::new(store.clone());
-    let executor = DefaultExecutor::with_store(store.clone());
+    let executor =
+        DefaultExecutor::with_store(store.clone(), impress_core::pane_query::builtin_manifest());
     let registry = Arc::new(SessionRegistry::new());
     let row = surfaces
         .create(&text_spec("x"), None, &[], ActorKind::Agent)
@@ -312,7 +320,7 @@ async fn provider_inventory_changes_refresh_catalogue_without_repeating_other_so
     let surfaces = SurfaceStore::new(store.clone());
     let registry = SessionRegistry::new();
     let executor = Arc::new(Counting {
-        inner: DefaultExecutor::with_store(store),
+        inner: DefaultExecutor::with_store(store, impress_core::pane_query::builtin_manifest()),
         queries: AtomicUsize::new(0),
         verbs: AtomicUsize::new(0),
         fail_verbs: false,
@@ -399,7 +407,10 @@ async fn a_store_write_to_a_queried_kind_reruns_that_source_and_nothing_else() {
     let surfaces = SurfaceStore::new(store.clone());
     let registry = SessionRegistry::new();
     let executor = Arc::new(Counting {
-        inner: DefaultExecutor::with_store(store.clone()),
+        inner: DefaultExecutor::with_store(
+            store.clone(),
+            impress_core::pane_query::builtin_manifest(),
+        ),
         queries: AtomicUsize::new(0),
         verbs: AtomicUsize::new(0),
         fail_verbs: false,
@@ -508,7 +519,10 @@ async fn a_verb_source_reruns_on_a_write_to_its_declared_read() {
     let store = Arc::new(SqliteItemStore::open(&path).unwrap());
     let surfaces = SurfaceStore::new(store.clone());
     let registry = SessionRegistry::new();
-    let executor = Arc::new(DefaultExecutor::with_store(store.clone()));
+    let executor = Arc::new(DefaultExecutor::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    ));
     imbib_service::store_singleton::init_imbib_store(path)
         .expect("init the imbib store singleton at this test's path (something else already did)");
     insert_paper(&store, "A dark matter survey");
@@ -568,7 +582,10 @@ async fn a_failing_source_is_not_asked_again_on_every_render() {
     let surfaces = SurfaceStore::new(store.clone());
     let registry = SessionRegistry::new();
     let executor = Arc::new(Counting {
-        inner: DefaultExecutor::with_store(store.clone()),
+        inner: DefaultExecutor::with_store(
+            store.clone(),
+            impress_core::pane_query::builtin_manifest(),
+        ),
         queries: AtomicUsize::new(0),
         verbs: AtomicUsize::new(0),
         fail_verbs: true,
@@ -786,7 +803,10 @@ fn concurrent_updates_on_two_connections_never_share_a_revision() {
 #[tokio::test]
 async fn the_cursor_is_the_last_event_returned() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
-    let service = DefaultImpressSurfaceService::with_store(store.clone());
+    let service = DefaultImpressSurfaceService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
     let surfaces = SurfaceStore::new(store.clone());
     let id = surfaces
         .create(&text_spec("cursor"), None, &[], ActorKind::Agent)
@@ -828,7 +848,8 @@ async fn the_cursor_is_the_last_event_returned() {
 async fn a_dispatch_that_changes_no_state_writes_none() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
     let surfaces = SurfaceStore::new(store.clone());
-    let executor = DefaultExecutor::with_store(store.clone());
+    let executor =
+        DefaultExecutor::with_store(store.clone(), impress_core::pane_query::builtin_manifest());
     let registry = SessionRegistry::new();
     let id = surfaces
         .create(&text_spec("quiet"), None, &[], ActorKind::Agent)
@@ -865,8 +886,14 @@ async fn a_dispatch_that_changes_no_state_writes_none() {
 #[tokio::test]
 async fn a_publish_does_not_land_on_a_pane_that_no_longer_shows_the_surface() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
-    let service = DefaultImpressSurfaceService::with_store(store.clone());
-    let layout = DefaultLayoutService::with_store(store.clone());
+    let service = DefaultImpressSurfaceService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
+    let layout = DefaultLayoutService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
     let app = "coherence-app";
     const PICKED: &str = "2b995442-c45a-4922-8c22-600d98900fc1";
     let table = spec(json!({

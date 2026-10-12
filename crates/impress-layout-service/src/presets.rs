@@ -58,9 +58,8 @@ use impress_core::pane_query::{
 };
 use impress_core::query::ItemQuery;
 use impress_core::reference::{EdgeType, TypedReference};
-use impress_core::schemas::PRESET_SCHEMA_REF;
-use impress_core::sqlite_store::{GuardedWrite, SqliteItemStore};
-use impress_core::store::ItemStore;
+use impress_core::store::{AttributedStore, GuardedWrite};
+use impress_item::schema::refs::IMPRESS_UI_PRESET as PRESET_SCHEMA_REF;
 use impress_layout::preset::{detail_query, navigator_query, DETAIL_PARAM};
 use impress_layout::{
     ChannelId, Container, Layout, LinearDir, PaneSpec, ParamBinding, ParamSource, Role, TileId,
@@ -1170,11 +1169,11 @@ pub struct StoredPreset {
 /// projection is where it is implemented.
 #[derive(Clone)]
 pub struct PresetStore {
-    store: Arc<SqliteItemStore>,
+    store: Arc<dyn AttributedStore>,
 }
 
 impl PresetStore {
-    pub fn new(store: Arc<SqliteItemStore>) -> Self {
+    pub fn new(store: Arc<dyn AttributedStore>) -> Self {
         Self { store }
     }
 
@@ -1544,7 +1543,7 @@ pub fn ordinal_targets(
 /// The store's insert is `INSERT OR IGNORE`, so re-applying the same preset
 /// re-states the edge rather than duplicating it.
 pub fn record_derived_from(
-    store: &Arc<SqliteItemStore>,
+    store: &Arc<dyn AttributedStore>,
     layout_row: ItemId,
     revision: Option<u64>,
     preset_row: ItemId,
@@ -1608,7 +1607,10 @@ pub fn record_derived_from(
 
 /// The preset a layout row derives from, if any — the graph walk the edge
 /// exists for.
-pub fn derived_from(store: &Arc<SqliteItemStore>, layout_row: ItemId) -> Result<Option<ItemId>> {
+pub fn derived_from(
+    store: &Arc<dyn AttributedStore>,
+    layout_row: ItemId,
+) -> Result<Option<ItemId>> {
     let item = store
         .get(layout_row)
         .map_err(|e| Refusal::store(format!("read layout {layout_row}: {e}")))?;
@@ -2301,8 +2303,8 @@ mod tests {
 
     // ── The store side ──────────────────────────────────────────────────
 
-    fn store() -> Arc<SqliteItemStore> {
-        Arc::new(SqliteItemStore::open_in_memory().expect("open store"))
+    fn store() -> Arc<dyn AttributedStore> {
+        Arc::new(impress_core::sqlite_store::SqliteItemStore::open_in_memory().expect("open store"))
     }
 
     #[test]

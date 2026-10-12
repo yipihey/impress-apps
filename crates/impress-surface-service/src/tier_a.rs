@@ -20,6 +20,7 @@
 
 use std::sync::Arc;
 
+use impress_core::pane_query::builtin_manifest;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_layout_service::dto::PaneRefDto;
 use impress_layout_service::{DefaultLayoutService, LayoutService};
@@ -47,7 +48,7 @@ impl World {
         let store =
             Arc::new(SqliteItemStore::open_in_memory().expect("open in-memory store for test"));
         Self {
-            service: DefaultImpressSurfaceService::with_store(store.clone()),
+            service: DefaultImpressSurfaceService::with_store(store.clone(), builtin_manifest()),
             store,
         }
     }
@@ -339,7 +340,7 @@ async fn cap_show_composes_layout() -> CapabilityResult {
             // Confirm through an independent LayoutService handle (a fresh
             // session, reloaded from the SAME store) that the pane really
             // is a `surface` pane — not just that `surface_show` claimed so.
-            let layout = DefaultLayoutService::with_store(world.store.clone());
+            let layout = DefaultLayoutService::with_store(world.store.clone(), builtin_manifest());
             let pane = layout
                 .get_pane(
                     APP.to_string(),

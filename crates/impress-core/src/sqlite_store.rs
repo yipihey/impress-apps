@@ -5261,6 +5261,27 @@ impl AttributedStore for SqliteItemStore {
     fn logical_clock_of(&self, id: ItemId) -> Result<Option<u64>, StoreError> {
         SqliteItemStore::logical_clock_of(self, id)
     }
+
+    /// The indexed `op_target_id` column, not the port's query default
+    /// (same order, oldest first; this one also breaks ties on `created`,
+    /// then `id`).
+    fn operations_for(
+        &self,
+        target: ItemId,
+        limit: Option<usize>,
+    ) -> Result<Vec<Item>, StoreError> {
+        SqliteItemStore::operations_for(self, target, limit)
+    }
+
+    /// The `store_metadata` table, so SQLite never writes a
+    /// `core/store-metadata` row (the port default's spelling).
+    fn metadata_get(&self, key: &str) -> Result<Option<String>, StoreError> {
+        self.get_store_metadata(key)
+    }
+
+    fn metadata_set(&self, key: &str, value: &str) -> Result<(), StoreError> {
+        self.set_store_metadata(key, value)
+    }
 }
 
 impl ItemStore for SqliteItemStore {
@@ -5633,6 +5654,32 @@ impl ItemStore for SqliteItemStore {
                 tx,
             });
         Ok(rx)
+    }
+
+    /// `data_version` (another connection committed) plus `total_changes`
+    /// (this connection did), both read on the writer connection.
+    ///
+    /// The port's contract is "something committed through any handle this
+    /// backend can see". `PRAGMA data_version` alone answers only the
+    /// first half: SQLite does not move it for the connection that is doing
+    /// the writing (see [`SqliteItemStore::data_version`]), so a host that
+    /// polled it would never see this process's own writes. `total_changes()`
+    /// is the writer connection's own row-change counter, which moves on
+    /// every insert, update and delete it performs (journal rows and FTS
+    /// triggers included) and on nothing it merely reads. Both are monotonic
+    /// within a handle, so the sum is; the number itself means nothing.
+    fn change_token(&self) -> Result<u64, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let version: i64 = conn
+            .query_row("PRAGMA data_version", [], |row| row.get(0))
+            .map_err(|e| StoreError::Storage(format!("change_token: {}", e)))?;
+        let changes: i64 = conn
+            .query_row("SELECT total_changes()", [], |row| row.get(0))
+            .map_err(|e| StoreError::Storage(format!("change_token: {}", e)))?;
+        Ok(version.max(0) as u64 + changes.max(0) as u64)
     }
 }
 

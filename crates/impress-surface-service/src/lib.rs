@@ -36,6 +36,8 @@ use std::future::Future;
 use std::time::Instant;
 
 pub mod dto;
+/// The `/api/surface/*` route table, shared by the Swift FFI and a headless host.
+pub mod http;
 /// The self-test report types: one copy, in `impress-service-core` (RS-S21).
 pub use impress_service_core::report;
 pub mod rename;

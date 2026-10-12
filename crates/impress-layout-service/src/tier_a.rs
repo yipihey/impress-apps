@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use impress_core::pane_query::{builtin_manifest, compile, Bindings, PaneQuery, ParamDecl, Scope};
 use impress_core::sqlite_store::SqliteItemStore;
-use impress_core::store::ItemStore;
+use impress_core::store::AttributedStore;
 use impress_layout::preset::DETAIL_PARAM;
 use impress_layout::{
     ChannelId, Container, Geometry, Layout, PaneSpec, ParamSource, Role, Tile, TileId, ViewKindId,
@@ -86,7 +86,7 @@ pub async fn run() -> Vec<CapabilityResult> {
 
 struct World {
     service: DefaultLayoutService,
-    store: Arc<SqliteItemStore>,
+    store: Arc<dyn AttributedStore>,
 }
 
 impl World {
@@ -94,7 +94,7 @@ impl World {
         let store =
             Arc::new(SqliteItemStore::open_in_memory().map_err(|e| format!("open store: {e}"))?);
         Ok(Self {
-            service: DefaultLayoutService::with_store(store.clone()),
+            service: DefaultLayoutService::with_store(store.clone(), builtin_manifest()),
             store,
         })
     }
@@ -2278,7 +2278,7 @@ async fn cap_source_pane_sessions() -> CapabilityResult {
             }
 
             // A second process (its own session registry) reads the same ids.
-            let other = DefaultLayoutService::with_store(w.store.clone());
+            let other = DefaultLayoutService::with_store(w.store.clone(), builtin_manifest());
             let seen = other.get_layout(IMPRINT.into(), w.device()).await;
             let seen = seen.layout.ok_or("the second process reads the tree")?;
             let detail = seen
@@ -2301,7 +2301,7 @@ async fn cap_source_pane_sessions() -> CapabilityResult {
                 impress_core::item::ActorKind::Human,
                 "a tree stored before sessions",
             )?;
-            let fresh = DefaultLayoutService::with_store(w.store.clone());
+            let fresh = DefaultLayoutService::with_store(w.store.clone(), builtin_manifest());
             let loaded = fresh
                 .get_layout(IMPRINT.into(), Some("older-device".into()))
                 .await

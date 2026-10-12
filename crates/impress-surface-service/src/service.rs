@@ -28,8 +28,9 @@
 use std::sync::Arc;
 
 use impress_core::item::{ActorKind, ItemId};
-use impress_core::sqlite_store::SqliteItemStore;
-use impress_layout_service::{resolve_device, DefaultLayoutService};
+use impress_core::pane_query::KindManifest;
+use impress_core::store::AttributedStore;
+use impress_layout_service::{process_manifest, resolve_device, DefaultLayoutService};
 use impress_service_core::async_trait;
 use impress_service_core::pipeline::{self, Call};
 use impress_service_core::refusal::codes;
@@ -291,7 +292,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
 /// ([`impress_service_core::lifecycle::SHIPPED_RENAMES`]) is empty, so this
 /// costs one branch and touches the store not at all until a real rename is
 /// appended.
-fn ensure_renamed(store: &Arc<SqliteItemStore>) {
+fn ensure_renamed(store: &Arc<dyn AttributedStore>) {
     use impress_service_core::lifecycle::SHIPPED_RENAMES;
     if SHIPPED_RENAMES.is_empty() {
         return;
@@ -306,10 +307,14 @@ fn ensure_renamed(store: &Arc<SqliteItemStore>) {
     });
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct DefaultImpressSurfaceService {
-    store: Option<Arc<SqliteItemStore>>,
+    store: Option<Arc<dyn AttributedStore>>,
     sessions: Option<Arc<SessionRegistry>>,
+    /// The record kinds this service's executors and layout service read in.
+    /// Passed at construction; [`Self::new`] (the inventory's, which has no
+    /// arguments) takes the [`process_manifest`].
+    manifest: Arc<KindManifest>,
     /// See [`crate::runtime::VerbHost`]. Threaded into every [`DefaultExecutor`]
     /// this service builds ([`Self::executor`]) and consulted directly by
     /// [`Self::surface_validate`], so a spec naming a host-only verb both
@@ -321,16 +326,37 @@ pub struct DefaultImpressSurfaceService {
     executor: Option<DefaultExecutor>,
 }
 
+impl Default for DefaultImpressSurfaceService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultImpressSurfaceService {
+    /// The process-wide store and session registry, with the
+    /// [`process_manifest`].
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            store: None,
+            sessions: None,
+            manifest: process_manifest(),
+            verb_host: None,
+            executor: None,
+        }
     }
 
-    pub fn with_store(store: Arc<SqliteItemStore>) -> Self {
+    /// An instance over an explicit store, with a private session registry
+    /// reading the record kinds in `manifest`.
+    pub fn with_store(
+        store: Arc<dyn AttributedStore>,
+        manifest: impl Into<Arc<KindManifest>>,
+    ) -> Self {
+        let manifest = manifest.into();
         Self {
             store: Some(store),
-            sessions: Some(Arc::new(SessionRegistry::new())),
-            ..Self::default()
+            sessions: Some(Arc::new(SessionRegistry::with_manifest(manifest.clone()))),
+            manifest,
+            ..Self::new()
         }
     }
 
@@ -338,14 +364,23 @@ impl DefaultImpressSurfaceService {
     /// registry every other caller on that store in this process uses
     /// (RS-S1). `impress-store-ffi` builds its service this way.
     pub fn with_store_and_sessions(
-        store: Arc<SqliteItemStore>,
+        store: Arc<dyn AttributedStore>,
         sessions: Arc<SessionRegistry>,
+        manifest: impl Into<Arc<KindManifest>>,
     ) -> Self {
         Self {
             store: Some(store),
             sessions: Some(sessions),
-            ..Self::default()
+            manifest: manifest.into(),
+            ..Self::new()
         }
+    }
+
+    /// This instance, with the record kinds in `manifest` — for [`Self::new`],
+    /// which owns the process store and has no manifest argument.
+    pub fn with_manifest(mut self, manifest: impl Into<Arc<KindManifest>>) -> Self {
+        self.manifest = manifest.into();
+        self
     }
 
     /// Install a [`VerbHost`] — builder style, matching
@@ -362,13 +397,24 @@ impl DefaultImpressSurfaceService {
         self
     }
 
-    fn store_arc(&self) -> Arc<SqliteItemStore> {
-        let store = self
-            .store
-            .clone()
-            .unwrap_or_else(impress_store_service::store_instance);
+    fn store_arc(&self) -> Arc<dyn AttributedStore> {
+        self.store_arc_checked().0
+    }
+
+    /// [`Self::store_arc`], and whether it is the in-memory stand-in the
+    /// store service substitutes for a store it could not open — asked of
+    /// the concrete handle before it is widened to the port.
+    fn store_arc_checked(&self) -> (Arc<dyn AttributedStore>, bool) {
+        let (store, fallback): (Arc<dyn AttributedStore>, bool) = match &self.store {
+            Some(store) => (store.clone(), false),
+            None => {
+                let store = impress_store_service::store_instance();
+                let fallback = impress_store_service::is_fallback_store(&store);
+                (store, fallback)
+            }
+        };
         ensure_renamed(&store);
-        store
+        (store, fallback)
     }
 
     fn surfaces(&self) -> SurfaceStore {
@@ -380,8 +426,8 @@ impl DefaultImpressSurfaceService {
     /// stand-in, because a write there answers `ok` and vanishes (review
     /// AC-F20).
     fn surfaces_for_write(&self) -> std::result::Result<SurfaceStore, Refusal> {
-        let store = self.store_arc();
-        if impress_store_service::is_fallback_store(&store) {
+        let (store, fallback) = self.store_arc_checked();
+        if fallback {
             return Err(Refusal::store_unavailable(format!(
                 "the store at {} could not be opened, so this write would land in a temporary \
                  in-memory stand-in and vanish; nothing was written",
@@ -402,8 +448,8 @@ impl DefaultImpressSurfaceService {
             return executor.clone();
         }
         let executor = match &self.store {
-            Some(s) => DefaultExecutor::with_store(s.clone()),
-            None => DefaultExecutor::new(self.store_arc()),
+            Some(s) => DefaultExecutor::with_store(s.clone(), self.manifest.clone()),
+            None => DefaultExecutor::new(self.store_arc(), self.manifest.clone()),
         };
         match &self.verb_host {
             Some(host) => executor.with_verb_host(host.clone()),
@@ -416,8 +462,8 @@ impl DefaultImpressSurfaceService {
             return executor.layout().clone();
         }
         match &self.store {
-            Some(s) => DefaultLayoutService::with_store(s.clone()),
-            None => DefaultLayoutService::new(),
+            Some(s) => DefaultLayoutService::with_store(s.clone(), self.manifest.clone()),
+            None => DefaultLayoutService::new().with_manifest(self.manifest.clone()),
         }
     }
 
@@ -899,7 +945,7 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
             query,
             "surface",
             &target,
-            Some(pane_params_for(&row.spec)),
+            Some(pane_params_for(&row.spec, &self.manifest)),
             Some("agent".to_string()),
         )
         .await

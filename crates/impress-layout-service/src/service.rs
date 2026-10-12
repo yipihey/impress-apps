@@ -48,10 +48,10 @@ use impress_core::collection_ops::{
 };
 use impress_core::item::{ActorKind, ItemId};
 use impress_core::pane_query::{
-    builtin_manifest, compile_with, Bindings, CompiledQuery, PaneQuery, PaneQueryError, ParamDecl,
+    compile_with, Bindings, CompiledQuery, KindManifest, PaneQuery, PaneQueryError, ParamDecl,
     SubtreeResolver,
 };
-use impress_core::sqlite_store::SqliteItemStore;
+use impress_item::store::AttributedStore;
 use impress_layout::{
     ChannelId, Geometry, LayoutError, PaneSpec, ParamSource, Role, TileId, Verb, WindowId,
 };
@@ -803,7 +803,7 @@ pub trait LayoutService: Send + Sync + 'static {
 /// costs one branch and touches the store not at all until a real rename is
 /// appended; the `store_metadata` marker the pass itself records is what
 /// then keeps a later launch from redoing work an earlier one already did.
-fn ensure_renamed(store: &Arc<SqliteItemStore>) {
+fn ensure_renamed(store: &Arc<dyn AttributedStore>) {
     use impress_service_core::lifecycle::SHIPPED_RENAMES;
     if SHIPPED_RENAMES.is_empty() {
         return;
@@ -818,23 +818,73 @@ fn ensure_renamed(store: &Arc<SqliteItemStore>) {
     });
 }
 
-#[derive(Clone, Default)]
+/// The kind manifest of a process that did not hand its service one: the
+/// chassis's own ([`impress_core::pane_query::builtin_manifest`]), built once.
+///
+/// This is the manifest [`DefaultLayoutService::new`] pairs with the
+/// process-wide store (`impress_store_service::store_instance`) — the
+/// constructor the `#[impress_service]` inventory calls, which has no
+/// arguments to carry a manifest in. Every constructor that takes a store
+/// takes the manifest beside it, and a bespoke host passes its own.
+pub fn process_manifest() -> Arc<KindManifest> {
+    static PROCESS: OnceLock<Arc<KindManifest>> = OnceLock::new();
+    PROCESS
+        .get_or_init(|| Arc::new(impress_core::pane_query::builtin_manifest()))
+        .clone()
+}
+
+#[derive(Clone)]
 pub struct DefaultLayoutService {
-    store: Option<Arc<SqliteItemStore>>,
+    store: Option<Arc<dyn AttributedStore>>,
     sessions: Option<Arc<SessionRegistry>>,
+    /// The record kinds this service knows: `check_verb` refuses a query
+    /// naming one outside it, and `compiled_pane` compiles against it. Passed
+    /// at construction, never reached for.
+    manifest: Arc<KindManifest>,
     /// Put the tree in every verb result that has one
     /// ([`LayoutVerbResult::tree_json`]). Off unless asked for.
     tree_in_results: bool,
 }
 
+impl Default for DefaultLayoutService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultLayoutService {
+    /// The process-wide store and session registry, with the
+    /// [`process_manifest`]. What the `#[impress_service]` inventory
+    /// instantiates.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            store: None,
+            sessions: None,
+            manifest: process_manifest(),
+            tree_in_results: false,
+        }
     }
 
-    /// An instance over an explicit store, with a private session registry.
-    pub fn with_store(store: Arc<SqliteItemStore>) -> Self {
-        Self::with_store_and_sessions(store, Arc::new(SessionRegistry::new()))
+    /// An instance over an explicit store, with a private session registry
+    /// and the record kinds in `manifest`.
+    pub fn with_store(
+        store: Arc<dyn AttributedStore>,
+        manifest: impl Into<Arc<KindManifest>>,
+    ) -> Self {
+        Self::with_store_and_sessions(store, Arc::new(SessionRegistry::new()), manifest)
+    }
+
+    /// This instance, with the record kinds in `manifest` instead of the
+    /// ones it was built with — for [`Self::new`], which owns the process
+    /// store and has no manifest argument.
+    pub fn with_manifest(mut self, manifest: impl Into<Arc<KindManifest>>) -> Self {
+        self.manifest = manifest.into();
+        self
+    }
+
+    /// The record kinds this instance checks and compiles against.
+    pub fn manifest(&self) -> &Arc<KindManifest> {
+        &self.manifest
     }
 
     /// An instance over an explicit store AND an explicit registry — for the
@@ -842,12 +892,14 @@ impl DefaultLayoutService {
     /// `SharedLayout` and the surface executor) to share their sessions, so
     /// a verb one of them applies is the tree the other one reads.
     pub fn with_store_and_sessions(
-        store: Arc<SqliteItemStore>,
+        store: Arc<dyn AttributedStore>,
         sessions: Arc<SessionRegistry>,
+        manifest: impl Into<Arc<KindManifest>>,
     ) -> Self {
         Self {
             store: Some(store),
             sessions: Some(sessions),
+            manifest: manifest.into(),
             tree_in_results: false,
         }
     }
@@ -915,13 +967,25 @@ impl DefaultLayoutService {
     /// ([`crate::rename::RenamePass`]) against it once per process — see
     /// [`ensure_renamed`] — so every path below that resolves a store this
     /// way has it already rewritten before it reads or writes a row.
-    fn resolved_store(&self) -> Arc<SqliteItemStore> {
-        let store = self
-            .store
-            .clone()
-            .unwrap_or_else(impress_store_service::store_instance);
+    fn resolved_store(&self) -> Arc<dyn AttributedStore> {
+        self.resolved_store_checked().0
+    }
+
+    /// [`Self::resolved_store`], and whether it is the in-memory stand-in the
+    /// store service substitutes for a store it could not open. The question
+    /// is asked of the concrete handle the service returned, before it is
+    /// widened to the port: a stand-in is identified by that handle.
+    fn resolved_store_checked(&self) -> (Arc<dyn AttributedStore>, bool) {
+        let (store, fallback): (Arc<dyn AttributedStore>, bool) = match &self.store {
+            Some(store) => (store.clone(), false),
+            None => {
+                let store = impress_store_service::store_instance();
+                let fallback = impress_store_service::is_fallback_store(&store);
+                (store, fallback)
+            }
+        };
         ensure_renamed(&store);
-        store
+        (store, fallback)
     }
 
     fn layout_store(&self) -> LayoutStore {
@@ -933,8 +997,8 @@ impl DefaultLayoutService {
     /// service substitutes for a store it could not open, because a write
     /// there answers `ok` and vanishes (review AC-F20).
     fn layout_store_for_write(&self) -> Result<LayoutStore, Refusal> {
-        let store = self.resolved_store();
-        if impress_store_service::is_fallback_store(&store) {
+        let (store, fallback) = self.resolved_store_checked();
+        if fallback {
             return Err(Refusal::store_unavailable(format!(
                 "the store at {} could not be opened, so this write would land in a temporary \
                  in-memory stand-in and vanish; nothing was written",
@@ -948,8 +1012,8 @@ impl DefaultLayoutService {
     /// stand-in for a store that could not be opened: a read answered from
     /// it is not the user's data and says so (review AC-F20).
     fn store_marker(&self) -> Option<String> {
-        let store = self.resolved_store();
-        impress_store_service::is_fallback_store(&store).then(|| "fallback".to_string())
+        let (_, fallback) = self.resolved_store_checked();
+        fallback.then(|| "fallback".to_string())
     }
 
     /// A read's message, with the fallback warning in front when it applies.
@@ -1034,7 +1098,8 @@ impl DefaultLayoutService {
                     (None, Some(build)) => {
                         let verb = supply_open_list_fallback(build(session)?);
                         built = Some(verb.clone());
-                        check_verb(&verb).map_err(|r| r.context(verb_label(&verb)))?;
+                        check_verb(&verb, &self.manifest)
+                            .map_err(|r| r.context(verb_label(&verb)))?;
                         verb
                     }
                     (None, None) => return Err(Refusal::internal("the verb could not be rebuilt")),
@@ -1115,7 +1180,7 @@ impl DefaultLayoutService {
         }
         let verbs: Vec<Verb> = verbs.into_iter().map(supply_open_list_fallback).collect();
         for verb in &verbs {
-            if let Err(refusal) = check_verb(verb) {
+            if let Err(refusal) = check_verb(verb, &self.manifest) {
                 return refused_verb(
                     app_id,
                     &device,
@@ -1326,13 +1391,7 @@ impl DefaultLayoutService {
             })?;
         let decls: Vec<ParamDecl> = spec.params.iter().map(|b| b.decl.clone()).collect();
         let resolver = CollectionSubtrees::lazy(self.layout_store().store().clone());
-        let compiled = compile_with(
-            &spec.query,
-            &decls,
-            &bindings,
-            &builtin_manifest(),
-            &resolver,
-        );
+        let compiled = compile_with(&spec.query, &decls, &bindings, &self.manifest, &resolver);
         Ok(CompiledPane {
             tile,
             spec,
@@ -1373,16 +1432,16 @@ fn check_expected(session: &LayoutSession, expected: Option<u64>) -> Result<(), 
 /// this build has never heard of (the generic `item`, a newer build's kind —
 /// `impress-surface-service`'s `publish_kind_and_ids`), and refusing it is a
 /// change to the surface contract, not this one's.
-pub fn check_verb(verb: &Verb) -> Result<(), Refusal> {
+pub fn check_verb(verb: &Verb, manifest: &KindManifest) -> Result<(), Refusal> {
     match verb {
-        Verb::SetQuery { query, .. } => check_query_kinds(query),
-        Verb::SetPane { spec, .. } => check_query_kinds(&spec.query),
+        Verb::SetQuery { query, .. } => check_query_kinds(query, manifest),
+        Verb::SetPane { spec, .. } => check_query_kinds(&spec.query, manifest),
         Verb::Split {
             new: Some(spec), ..
-        } => check_query_kinds(&spec.query),
+        } => check_query_kinds(&spec.query, manifest),
         Verb::OpenList { kinds: Some(kinds) } => {
             for kind in kinds {
-                check_record_kind(kind)?;
+                check_record_kind(kind, manifest)?;
             }
             Ok(())
         }
@@ -1404,8 +1463,7 @@ fn supply_open_list_fallback(verb: Verb) -> Verb {
 
 /// Refuse a record kind the manifest does not know (review RL-L12): a
 /// selection of `publications` used to be stored and bind nothing, forever.
-fn check_record_kind(kind: &str) -> Result<(), Refusal> {
-    let manifest = builtin_manifest();
+fn check_record_kind(kind: &str, manifest: &KindManifest) -> Result<(), Refusal> {
     if manifest.kinds.contains_key(kind) {
         return Ok(());
     }
@@ -1424,9 +1482,9 @@ fn check_record_kind(kind: &str) -> Result<(), Refusal> {
 /// time — not when a pane first fails to render it (review RL-L12). An
 /// unbound parameter is NOT refused here: a pane binds it from its channel
 /// later, and that is an empty state, not an error.
-fn check_query_kinds(query: &PaneQuery) -> Result<(), Refusal> {
+fn check_query_kinds(query: &PaneQuery, manifest: &KindManifest) -> Result<(), Refusal> {
     for kind in &query.kinds {
-        check_record_kind(kind)?;
+        check_record_kind(kind, manifest)?;
     }
     Ok(())
 }
@@ -2856,13 +2914,13 @@ fn binding_map(bindings: &Bindings) -> BTreeMap<String, String> {
 /// Public, and the one copy: the FFI's invalidation feed compiles the same
 /// queries and used to keep a verbatim duplicate (review RL-L14).
 pub struct CollectionSubtrees {
-    store: Option<Arc<SqliteItemStore>>,
+    store: Option<Arc<dyn AttributedStore>>,
     children: std::sync::OnceLock<BTreeMap<ItemId, Vec<ItemId>>>,
 }
 
 impl CollectionSubtrees {
     /// Read the whole tree now — for compiling many panes at once.
-    pub fn read(store: &SqliteItemStore) -> Self {
+    pub fn read(store: &dyn AttributedStore) -> Self {
         let children = std::sync::OnceLock::new();
         let _ = children.set(Self::scan(store));
         Self {
@@ -2873,7 +2931,7 @@ impl CollectionSubtrees {
 
     /// Read the tree only if a query actually asks for a subtree — most
     /// panes never do, and then this costs nothing.
-    pub fn lazy(store: Arc<SqliteItemStore>) -> Self {
+    pub fn lazy(store: Arc<dyn AttributedStore>) -> Self {
         Self {
             store: Some(store),
             children: std::sync::OnceLock::new(),
@@ -2882,12 +2940,12 @@ impl CollectionSubtrees {
 
     fn children(&self) -> &BTreeMap<ItemId, Vec<ItemId>> {
         self.children.get_or_init(|| match &self.store {
-            Some(store) => Self::scan(store),
+            Some(store) => Self::scan(&**store),
             None => BTreeMap::new(),
         })
     }
 
-    fn scan(store: &SqliteItemStore) -> BTreeMap<ItemId, Vec<ItemId>> {
+    fn scan(store: &dyn AttributedStore) -> BTreeMap<ItemId, Vec<ItemId>> {
         const BINDINGS: [CollectionSchemaBinding; 4] = [
             GENERIC_COLLECTION,
             IMBIB_COLLECTION,
@@ -2896,7 +2954,7 @@ impl CollectionSubtrees {
         ];
         let mut children: BTreeMap<ItemId, Vec<ItemId>> = BTreeMap::new();
         for binding in BINDINGS {
-            let Ok(rows) = collection_ops::list_tree(store, &binding) else {
+            let Ok(rows) = collection_ops::list_tree_on(store, &binding) else {
                 continue;
             };
             for row in rows {

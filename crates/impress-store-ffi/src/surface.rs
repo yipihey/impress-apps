@@ -68,6 +68,7 @@ use std::time::{Duration, Instant};
 
 use impress_core::event::StoreMutation;
 use impress_core::item::{ActorKind, ItemId, Value as ItemValue};
+use impress_core::pane_query::builtin_manifest;
 use impress_core::schemas::{SURFACE_SCHEMA_REF, SURFACE_STATE_SCHEMA_REF};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
@@ -559,10 +560,13 @@ impl SharedSurface {
             slot: store.verb_host_slot(),
         });
         let registry = store.surface_sessions();
-        let executor =
-            DefaultExecutor::with_store_and_sessions(core.clone(), store.layout_sessions())
-                .with_verb_host(verb_host.clone())
-                .with_app(app_id.clone());
+        let executor = DefaultExecutor::with_store_and_sessions(
+            core.clone(),
+            store.layout_sessions(),
+            builtin_manifest(),
+        )
+        .with_verb_host(verb_host.clone())
+        .with_app(app_id.clone());
         Arc::new(SharedSurface {
             core: SurfaceCore {
                 own: Arc::default(),
@@ -574,6 +578,7 @@ impl SharedSurface {
                 service: DefaultImpressSurfaceService::with_store_and_sessions(
                     core.clone(),
                     registry.clone(),
+                    builtin_manifest(),
                 )
                 .with_verb_host(verb_host)
                 .with_executor(executor.clone()),
@@ -1001,7 +1006,8 @@ impl SurfaceCore {
             }
         };
         let rest = &segments[2..];
-        let Some((verb, id, body_args)) = route_of(&method, rest, body) else {
+        let Some((verb, id, body_args)) = impress_surface_service::http::route(&method, rest, body)
+        else {
             return error_reply(
                 codes::NOT_FOUND,
                 format!("no route {method} {path_only} (docs/agent-surfaces.md lists them)"),
@@ -1074,49 +1080,6 @@ impl SurfaceCore {
         }
         reply(status, answer.to_string())
     }
-}
-
-/// The route table: `(verb, id from the path, arguments from the body)`
-/// for one `/api/surface/…` request (after `/api/surface`). Two bodies have
-/// a shorthand the verb's own shape does not: a spec on its own (it has a
-/// `surface` key; the arguments never do) is `{"spec": …}`, and an event on
-/// its own (a `widget` key) is `{"event": …}`.
-fn route_of(
-    method: &str,
-    rest: &[&str],
-    body: Option<serde_json::Value>,
-) -> Option<(&'static str, Option<String>, Option<serde_json::Value>)> {
-    fn spec_body(body: Option<serde_json::Value>) -> Option<serde_json::Value> {
-        match body {
-            Some(v) if v.get("surface").is_some() => Some(serde_json::json!({ "spec": v })),
-            other => other,
-        }
-    }
-    fn event_body(body: Option<serde_json::Value>) -> Option<serde_json::Value> {
-        match body {
-            Some(v) if v.get("widget").is_some() => Some(serde_json::json!({ "event": v })),
-            other => other,
-        }
-    }
-    let id = |s: &&str| Some(s.to_string());
-    Some(match (method, rest) {
-        ("GET", []) => ("surface_list", None, body),
-        ("POST", []) => ("surface_create", None, spec_body(body)),
-        ("GET", ["schema"]) => ("surface_schema", None, body),
-        ("GET", ["examples"]) => ("surface_examples", None, body),
-        ("POST", ["validate"]) => ("surface_validate", None, spec_body(body)),
-        ("GET", [s]) => ("surface_get", id(s), body),
-        ("PUT", [s]) => ("surface_update", id(s), spec_body(body)),
-        ("DELETE", [s]) => ("surface_delete", id(s), body),
-        ("POST", [s, "show"]) => ("surface_show", id(s), body),
-        ("GET", [s, "render"]) => ("surface_render", id(s), body),
-        ("POST", [s, "dispatch"]) => ("surface_dispatch", id(s), event_body(body)),
-        ("GET", [s, "state"]) => ("surface_state_get", id(s), body),
-        ("PUT", [s, "state"]) => ("surface_state_set", id(s), body),
-        ("GET", [s, "events"]) => ("surface_events", id(s), body),
-        ("GET", [s, "wait"]) => ("surface_wait", id(s), body),
-        _ => return None,
-    })
 }
 
 /// A query string as verb arguments: every key is an argument name (the
@@ -2049,7 +2012,7 @@ mod tests {
         let id = create_signal_explorer(&store);
 
         // Shown through the SERVICE — a different registry from any handle's.
-        let service = DefaultImpressSurfaceService::with_store(store.core());
+        let service = DefaultImpressSurfaceService::with_store(store.core(), builtin_manifest());
         let shown = runtime().block_on(service.surface_show(
             id.clone(),
             ShowTargetDto {

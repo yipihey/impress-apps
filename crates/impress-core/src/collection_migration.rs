@@ -116,7 +116,7 @@ use crate::collection_ops::{
 use crate::item::Value;
 use crate::schemas::collection::{COLLECTION_SCHEMA, KIND_SCOPE_ANY};
 use crate::sqlite_store::SqliteItemStore;
-use crate::store::StoreError;
+use crate::store::{AttributedStore, StoreError};
 
 /// `store_metadata` key holding the convergence flag. Present with
 /// [`MARKER_VALUE`] means the store's collections are `collection@1.0.0`.
@@ -277,12 +277,17 @@ impl RollbackReport {
 /// it, which is what keeps migrate/rollback visible immediately to every live
 /// store handle instead of requiring cache invalidation nobody would remember.
 pub fn is_migrated(store: &SqliteItemStore) -> Result<bool, StoreError> {
-    let values = store.query_raw(
-        "SELECT value FROM store_metadata WHERE key = ?1",
-        params![MARKER_KEY],
-        |row| row.get::<_, String>(0),
-    )?;
-    Ok(values.first().map(|v| v == MARKER_VALUE).unwrap_or(false))
+    is_migrated_on(store)
+}
+
+/// [`is_migrated`] over any backend of the store port.
+pub fn is_migrated_on(store: &dyn AttributedStore) -> Result<bool, StoreError> {
+    // The port's `metadata_get`, which SQLite answers from the same
+    // `store_metadata` row this used to select, so the runtimes can ask the
+    // question of any backend (docs/plan-koine-host.md H-D1).
+    Ok(store
+        .metadata_get(MARKER_KEY)?
+        .is_some_and(|v| v == MARKER_VALUE))
 }
 
 // ─── Status ──────────────────────────────────────────────────────────────────

@@ -405,6 +405,7 @@ impl SharedLayout {
             service: DefaultLayoutService::with_store_and_sessions(
                 core.clone(),
                 store.layout_sessions(),
+                builtin_manifest(),
             )
             .with_tree_in_results(),
             store: core,
@@ -1542,7 +1543,7 @@ impl InvalidationFeed {
                 return subscriptions;
             }
         };
-        let resolver = CollectionSubtrees::read(&self.store);
+        let resolver = CollectionSubtrees::read(&*self.store);
         let manifest = builtin_manifest();
         for tile in layout.panes() {
             let Some(spec) = layout.pane(tile) else {
@@ -2814,8 +2815,11 @@ mod tests {
 
         // What `SharedSurface`'s executor does: the same store, the same
         // registry, a different service object.
-        let other =
-            DefaultLayoutService::with_store_and_sessions(store.core(), store.layout_sessions());
+        let other = DefaultLayoutService::with_store_and_sessions(
+            store.core(),
+            store.layout_sessions(),
+            builtin_manifest(),
+        );
         let new_pane = PaneSpec::new(
             serde_json::from_value(serde_json::json!({
                 "kinds": ["surface"], "scope": {"scope": "all"}, "filters": [],

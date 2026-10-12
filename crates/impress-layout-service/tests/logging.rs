@@ -77,8 +77,10 @@ fn device() -> Option<String> {
 #[tokio::test]
 async fn save_apply_delete_and_the_preset_refusals_are_logged_with_their_actor() {
     capture();
-    let svc =
-        DefaultLayoutService::with_store(Arc::new(SqliteItemStore::open_in_memory().unwrap()));
+    let svc = DefaultLayoutService::with_store(
+        Arc::new(SqliteItemStore::open_in_memory().unwrap()),
+        impress_core::pane_query::builtin_manifest(),
+    );
     let human = || Some("human".to_string());
     let agent = || Some("agent".to_string());
 

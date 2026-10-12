@@ -14,7 +14,10 @@ fn device() -> Option<String> {
 }
 
 fn service() -> DefaultLayoutService {
-    DefaultLayoutService::with_store(Arc::new(SqliteItemStore::open_in_memory().unwrap()))
+    DefaultLayoutService::with_store(
+        Arc::new(SqliteItemStore::open_in_memory().unwrap()),
+        impress_core::pane_query::builtin_manifest(),
+    )
 }
 
 #[tokio::test]

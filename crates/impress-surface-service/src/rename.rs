@@ -35,14 +35,14 @@
 //! Same mechanism as the layout-service pass: the highest applied
 //! [`RenameTable::version`](impress_service_core::lifecycle::RenameTable::version)
 //! is recorded in `store_metadata` under [`MARKER_KEY`], via
-//! [`impress_core::sqlite_store::SqliteItemStore::get_store_metadata`] /
-//! `set_store_metadata`, so a second run of an already-applied table is a
+//! [`AttributedStore::metadata_get`] /
+//! `metadata_set`, so a second run of an already-applied table is a
 //! no-op.
 
 use std::sync::Arc;
 
 use impress_core::item::ActorKind;
-use impress_core::sqlite_store::SqliteItemStore;
+use impress_item::store::AttributedStore;
 use impress_service_core::lifecycle::{
     DeprecatedProviderNames, DeprecatedReference, RenameTable, RenameVisitor,
 };
@@ -81,7 +81,7 @@ impl RenameVisitor for RenamePass {
 }
 
 impl RenamePass {
-    pub fn new(store: Arc<SqliteItemStore>) -> Self {
+    pub fn new(store: Arc<dyn AttributedStore>) -> Self {
         Self {
             store: SurfaceStore::new(store),
         }
@@ -223,7 +223,7 @@ impl RenamePass {
         Ok(self
             .store
             .store()
-            .get_store_metadata(MARKER_KEY)
+            .metadata_get(MARKER_KEY)
             .map_err(|e| Refusal::store(format!("read rename marker: {e}")))?
             .and_then(|v| v.parse::<u32>().ok()))
     }
@@ -231,7 +231,7 @@ impl RenamePass {
     fn record_version(&self, version: u32) -> Result<()> {
         self.store
             .store()
-            .set_store_metadata(MARKER_KEY, &version.to_string())
+            .metadata_set(MARKER_KEY, &version.to_string())
             .map_err(|e| Refusal::store(format!("write rename marker: {e}")))
     }
 }
@@ -325,7 +325,7 @@ mod tests {
         view_kinds: &[],
     };
 
-    fn scratch_store() -> Arc<SqliteItemStore> {
+    fn scratch_store() -> Arc<dyn AttributedStore> {
         Arc::new(SqliteItemStore::open_in_memory().expect("scratch store"))
     }
 

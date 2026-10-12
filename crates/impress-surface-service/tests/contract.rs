@@ -24,7 +24,10 @@ const HOST: &str = "contract-device";
 
 fn world() -> (Arc<SqliteItemStore>, DefaultImpressSurfaceService) {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
-    let service = DefaultImpressSurfaceService::with_store(store.clone());
+    let service = DefaultImpressSurfaceService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
     (store, service)
 }
 
@@ -354,7 +357,10 @@ fn paper_view() -> Value {
 #[tokio::test]
 async fn params_come_from_the_pane_and_effects_land_in_the_panes_app() {
     let (store, service) = world();
-    let layout = DefaultLayoutService::with_store(store.clone());
+    let layout = DefaultLayoutService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
     let app = "implore";
     let paper = insert_paper(&store, "Bound through the pane");
 

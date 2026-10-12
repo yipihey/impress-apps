@@ -28,6 +28,7 @@ change with it. They do not keep a second list.
 | `impress-service-macros` | pure | The `#[impress_service]` / `#[impress_method]` proc macros that generate those entries from one trait. |
 | `impress-pane-query` | pure | The ADR-0031 D2 pane-query algebra (`PaneQuery`, scopes, filters, sorts), moved out of impress-core by S0. |
 | `impress-item` | pure | The item protocol below `impress-core` (K1b): `Item`, `ItemQuery`, `OperationSpec`, the `ItemStore` / `AttributedStore` traits, and the schema-ref constants. Depends on `impress-pane-query` for the edge-type conversion. `impress-core` keeps `SqliteItemStore` and re-exports this crate. |
+| `impress-pane-query-compile` | pure | The pane-query compiler (`compile`, `compile_with`, `CompiledQuery`, `SubtreeResolver`) and the incremental-invalidation module, over `impress-pane-query` and `impress-item` alone (docs/plan-koine-host.md H-D2). A crate of its own because `impress-item` depends on `impress-pane-query`, so the algebra crate cannot depend back on the item protocol the compiler targets. Takes the `KindManifest` as a parameter; `impress-core` keeps `builtin_manifest()` and re-exports the compiler, so `impress_core::pane_query::compile` and `::invalidation::QuerySubscriptions` still resolve. Tested on koine's memory store. |
 | `impress-schema-ref-codegen` | pure | Build-time reader of `schema-refs.json` (`IMPRESS_SCHEMA_REFS`, else the snapshot two directories up). Emits the Rust constants and the UniFFI enum text. No dependency on `impress-core`; the generated `as_core` match is source text that only `impress-store-ffi` compiles. |
 | `impress-layout` | pure | The layout tree as pure values: panes, containers, channels, the D8 verbs, patches and undo rings. |
 | `impress-surface` | pure | Surfaces as pure values: spec, JSON schema, plan / resolve / reduce, `RenderTree`. |
@@ -44,8 +45,8 @@ change with it. They do not keep a second list.
 | `impress-store-service` | store | Store-generic verbs (the collection kernel, triage, the settings registry's `settings-service`), with no app dependency. **Added in W6:** `impress-layout-service` calls its `store_instance()` to share the one store connection, and `impress-capabilities` links it. |
 | `impress-workflow` | pure | W1/W2 (plan-self-reflective-layer.md § Workflows): the workflow spec, validator, pure planner (`plan`) and pure trigger engine (`trigger::tick`). Reaches `impress-surface` only. |
 | `impress-workflow-service` | store | W1/W2: the workflow verbs (`validate`/`create`/`get`/`list`/`dry-run`/`enable`/`disable`) and `WorkflowEngine` (W2's planner wired to a store — the `store`/`job`/`call` signal scans, the daemon-vs-app lease, running a fired workflow's steps through the pipeline). **Added in W2** so `impress-store-ffi` can export `workflow_tick()` — the app-side host runs the identical engine `impel-taskd`'s fourth spawn rule does. |
-| `impress-layout-service` | store | The layout verbs over a store-backed live layout (`impress/ui/layout@1.0.0` rows), plus the Tier-B catalogue. |
-| `impress-surface-service` | store | The surface verbs, surface records and the runtime that executes a surface's effects. |
+| `impress-layout-service` | store | The layout verbs over a store-backed live layout (`impress/ui/layout@1.0.0` rows), plus the Tier-B catalogue. The runtime holds `Arc<dyn AttributedStore>` and an `Arc<KindManifest>` it was constructed with (H-D1): it asks the store only what the port answers (`metadata_get`/`metadata_set` for the rename marker), so a bespoke host passes its own store and manifest. Its `impress/ui/*` schema refs are `impress_item::schema::refs` constants, so they no longer name `impress-core`. `impress-core` is still a regular dependency, for what is not the port: `impress_store_service::store_instance()` (the process-wide store `DefaultLayoutService::new()` pairs with `process_manifest()`, which is `builtin_manifest()`), `collection_ops::{list_tree_on, *_COLLECTION}` (the subtree resolver), `call_context::actor_kind_of`, `loopback_token` (Tier B and the scenario caller), and Tier A/B's `SqliteItemStore::open_in_memory` and `builtin_manifest()` (`tier_a`/`tier_b` are in the library, not test-only). |
+| `impress-surface-service` | store | The surface verbs, surface records and the runtime that executes a surface's effects. Same reach as `impress-layout-service`: `Arc<dyn AttributedStore>` and a `KindManifest` passed at construction (H-D1), the `/api/surface/*` route table in `http::route` (H-D3) so the Swift FFI and a headless host call one table, and `impress-core` still a regular dependency for `store_instance()` and the Tier A/B pieces named on the layout row. |
 | `impress-capabilities` | store | The one linked inventory, with only its `kit` feature selected and default features disabled (P5). |
 | `impress-ai` | store | Provenance-first AI conversations and the provider registry, which the FFI binds (`ai.rs`, `ai_registry.rs`, ADR-0029). **Added in W6:** it reaches only `impress-core` (sqlite) once its `executor` feature (the impel task executors, and its one path to `impel-core`) is off, which it is for every kit consumer. |
 | `impress-store-ffi` | store | The UniFFI bindings the Swift side links (`ImpressRustCore`'s xcframework): store, layout, surface, and the AI conversation and registry bindings. |
@@ -96,8 +97,11 @@ nothing else outside it. The features it may turn on are:
 **Why this reach is still here.** D7's rule is that no kit crate depends on
 impress-core's *domain modules*. The pane-query algebra moved out in S0, and the
 item protocol (`Item`, `ItemQuery`, `OperationSpec`, `AttributedStore`) moved to
-`impress-item` in K1b. What remains is `SqliteItemStore`: the service crates open
-that concrete store, so they still depend on `impress-core`. `cargo tree` cannot
+`impress-item` in K1b. What remains is `SqliteItemStore` and the store-tier helpers around it. The layout and
+surface runtimes no longer name it (they hold `Arc<dyn AttributedStore>`, H-D1), but the
+process-store seam (`impress_store_service::store_instance`), the collection kernel,
+the call context, the loopback token and the Tier A/B catalogues still reach
+`impress-core`, so the dependency stays. `cargo tree` cannot
 tell that import from a domain import, because both are the same crate. The checks
 pin what they can: which crates may reach impress-core at all (store tier only),
 and with which features. Keeping those imports to the store is a review rule,

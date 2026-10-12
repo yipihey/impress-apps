@@ -33,7 +33,7 @@
 //! [`RenamePass::run_if_needed`] records the highest table
 //! [`RenameTable::version`](impress_service_core::lifecycle::RenameTable::version)
 //! it has applied in `store_metadata` (`MARKER_KEY`), via the store's new
-//! [`SqliteItemStore::get_store_metadata`]/[`SqliteItemStore::set_store_metadata`]
+//! [`AttributedStore::metadata_get`]/[`AttributedStore::metadata_set`]
 //! — the same table `origin_id` and `impress_core::task_schema_migration`'s
 //! marker already live in — so a second run of an already-applied table is a
 //! no-op, and the pass is meant to be called at store open or service start.
@@ -43,9 +43,10 @@ use std::sync::Arc;
 use impress_core::item::{ActorKind, Item};
 use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
 use impress_core::query::ItemQuery;
-use impress_core::schemas::{LAYOUT_SCHEMA_REF, PRESET_SCHEMA_REF};
-use impress_core::sqlite_store::SqliteItemStore;
-use impress_core::store::ItemStore;
+use impress_item::schema::refs::{
+    IMPRESS_UI_LAYOUT as LAYOUT_SCHEMA_REF, IMPRESS_UI_PRESET as PRESET_SCHEMA_REF,
+};
+use impress_item::store::AttributedStore;
 use impress_layout::{Layout, ViewKindId};
 use impress_service_core::lifecycle::{RenameTable, RenameVisitor};
 use impress_service_core::Refusal;
@@ -77,7 +78,7 @@ impl RenameReport {
 /// workflow or scenario document kind adds its own implementation elsewhere,
 /// without this one changing.
 pub struct RenamePass {
-    store: Arc<SqliteItemStore>,
+    store: Arc<dyn AttributedStore>,
 }
 
 impl RenameVisitor for RenamePass {
@@ -87,7 +88,7 @@ impl RenameVisitor for RenamePass {
 }
 
 impl RenamePass {
-    pub fn new(store: Arc<SqliteItemStore>) -> Self {
+    pub fn new(store: Arc<dyn AttributedStore>) -> Self {
         Self { store }
     }
 
@@ -131,14 +132,14 @@ impl RenamePass {
     fn applied_version(&self) -> crate::store::Result<Option<u32>> {
         Ok(self
             .store
-            .get_store_metadata(MARKER_KEY)
+            .metadata_get(MARKER_KEY)
             .map_err(|e| Refusal::store(format!("read rename marker: {e}")))?
             .and_then(|v| v.parse::<u32>().ok()))
     }
 
     fn record_version(&self, version: u32) -> crate::store::Result<()> {
         self.store
-            .set_store_metadata(MARKER_KEY, &version.to_string())
+            .metadata_set(MARKER_KEY, &version.to_string())
             .map_err(|e| Refusal::store(format!("write rename marker: {e}")))
     }
 
@@ -254,7 +255,7 @@ mod tests {
         view_kinds: &[("a", "b")],
     };
 
-    fn scratch_store() -> Arc<SqliteItemStore> {
+    fn scratch_store() -> Arc<dyn AttributedStore> {
         Arc::new(SqliteItemStore::open_in_memory().expect("scratch store"))
     }
 

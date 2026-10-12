@@ -29,10 +29,17 @@ const PICKED: &str = "2b995442-c45a-4922-8c22-600d98900fc1";
 /// are the ones `layout` reads and undoes on — as the app's are.
 fn world() -> (World, DefaultLayoutService) {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
-    let executor =
-        DefaultExecutor::with_store_and_sessions(store.clone(), Arc::new(SessionRegistry::new()));
+    let executor = DefaultExecutor::with_store_and_sessions(
+        store.clone(),
+        Arc::new(SessionRegistry::new()),
+        impress_core::pane_query::builtin_manifest(),
+    );
     let layout = executor.layout().clone();
-    let service = DefaultImpressSurfaceService::with_store(store.clone()).with_executor(executor);
+    let service = DefaultImpressSurfaceService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    )
+    .with_executor(executor);
     (World { service, store }, layout)
 }
 

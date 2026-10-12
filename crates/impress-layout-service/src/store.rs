@@ -70,11 +70,10 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use impress_core::pane_query::PaneQuery;
-use impress_core::schemas::LAYOUT_SCHEMA_REF;
-use impress_core::sqlite_store::SqliteItemStore;
 use impress_item::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
 use impress_item::operation::{OperationSpec, OperationType};
 use impress_item::query::ItemQuery;
+use impress_item::schema::refs::IMPRESS_UI_LAYOUT as LAYOUT_SCHEMA_REF;
 use impress_item::store::{AttributedStore, GuardedWrite};
 use impress_layout::{preset, Layout, ViewKindId};
 use impress_service_core::Refusal;
@@ -149,11 +148,11 @@ pub struct LayoutRow {
 /// `S` defaults to [`SqliteItemStore`]. The methods below call
 /// [`AttributedStore`], so a test or a future backend can host the same rows
 /// without this service naming sqlite (`docs/plan-koine-separation.md`, K1).
-pub struct LayoutStore<S: AttributedStore = SqliteItemStore> {
+pub struct LayoutStore<S: AttributedStore + ?Sized = dyn AttributedStore> {
     store: Arc<S>,
 }
 
-impl<S: AttributedStore> Clone for LayoutStore<S> {
+impl<S: AttributedStore + ?Sized> Clone for LayoutStore<S> {
     fn clone(&self) -> Self {
         Self {
             store: Arc::clone(&self.store),
@@ -161,8 +160,20 @@ impl<S: AttributedStore> Clone for LayoutStore<S> {
     }
 }
 
-impl<S: AttributedStore> LayoutStore<S> {
-    pub fn new(store: Arc<S>) -> Self {
+impl LayoutStore<dyn AttributedStore> {
+    /// Rows over any backend of the port. This is the only `new`, so
+    /// `LayoutStore::new(sqlite_arc)` is the default `LayoutStore` and an
+    /// `Arc<SqliteItemStore>` coerces at the call, the way
+    /// `HashMap::new` fixes its hasher.
+    pub fn new(store: Arc<dyn AttributedStore>) -> Self {
+        Self { store }
+    }
+}
+
+impl<S: AttributedStore + ?Sized> LayoutStore<S> {
+    /// Rows over a store of one named type — for a caller that wants the
+    /// concrete handle back from [`Self::store`] rather than the port.
+    pub fn over(store: Arc<S>) -> Self {
         Self { store }
     }
 
@@ -691,6 +702,15 @@ pub fn layout_of(item: &Item) -> Result<Layout> {
     serde_json::from_value(json).map_err(|e| Refusal::store(format!("read layout tree: {e}")))
 }
 
+/// `pub(crate)`: [`crate::rename`]'s pass reuses this instead of a second
+/// encoder for the same tree, on both a layout row and a preset row (they
+/// store their tree under the same `layout` field).
+pub(crate) fn layout_value(layout: &Layout) -> Result<Value> {
+    let json = serde_json::to_value(layout)
+        .map_err(|e| Refusal::store(format!("encode layout tree: {e}")))?;
+    serde_json::from_value(json).map_err(|e| Refusal::store(format!("encode layout tree: {e}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -702,10 +722,12 @@ mod tests {
     #[test]
     fn layout_store_speaks_the_attributed_port() {
         fn host<S: AttributedStore>(store: Arc<S>) -> LayoutStore<S> {
-            LayoutStore::new(store)
+            LayoutStore::over(store)
         }
 
-        let store = Arc::new(SqliteItemStore::open_in_memory().expect("memory store"));
+        let store = Arc::new(
+            impress_core::sqlite_store::SqliteItemStore::open_in_memory().expect("memory store"),
+        );
         let layouts = host(store);
         let loaded = layouts
             .load_live("koine", "test-device", ActorKind::System)
@@ -717,13 +739,4 @@ mod tests {
             .expect("reload");
         assert_eq!(again.item_id, loaded.item_id);
     }
-}
-
-/// `pub(crate)`: [`crate::rename`]'s pass reuses this instead of a second
-/// encoder for the same tree, on both a layout row and a preset row (they
-/// store their tree under the same `layout` field).
-pub(crate) fn layout_value(layout: &Layout) -> Result<Value> {
-    let json = serde_json::to_value(layout)
-        .map_err(|e| Refusal::store(format!("encode layout tree: {e}")))?;
-    serde_json::from_value(json).map_err(|e| Refusal::store(format!("encode layout tree: {e}")))
 }

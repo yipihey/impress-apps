@@ -29,7 +29,10 @@ fn device() -> Option<String> {
 }
 
 fn service() -> DefaultLayoutService {
-    DefaultLayoutService::with_store(Arc::new(SqliteItemStore::open_in_memory().unwrap()))
+    DefaultLayoutService::with_store(
+        Arc::new(SqliteItemStore::open_in_memory().unwrap()),
+        impress_core::pane_query::builtin_manifest(),
+    )
 }
 
 /// Call a generated tool exactly as MCP and the CLI do: through the
@@ -468,7 +471,11 @@ async fn several_verbs_apply_as_one_gesture_and_one_undo_step() {
 #[tokio::test]
 async fn a_verb_answers_with_its_tree_only_for_the_host_that_asked() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
-    let host = DefaultLayoutService::with_store(store.clone()).with_tree_in_results();
+    let host = DefaultLayoutService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    )
+    .with_tree_in_results();
     let current = || async {
         let layout = host.get_layout(APP.into(), device()).await.layout.unwrap();
         serde_json::to_string(&layout).unwrap()
@@ -544,7 +551,8 @@ async fn a_verb_answers_with_its_tree_only_for_the_host_that_asked() {
     assert_eq!(deleted.tree_json, None);
 
     // The same verb on an instance that did not ask carries no tree.
-    let plain = DefaultLayoutService::with_store(store);
+    let plain =
+        DefaultLayoutService::with_store(store, impress_core::pane_query::builtin_manifest());
     let quiet = plain.apply_verb_as(APP, device(), ActorKind::Agent, None, |_| {
         Ok(Verb::SetViewKind {
             target: PaneRef::id(list),

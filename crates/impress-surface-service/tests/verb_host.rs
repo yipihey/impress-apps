@@ -107,7 +107,11 @@ fn store() -> Arc<SqliteItemStore> {
 /// echoed value in the tree once a host that knows it is installed.
 #[tokio::test]
 async fn a_host_verb_renders_through_the_service() {
-    let service = DefaultImpressSurfaceService::with_store(store()).with_verb_host(FakeHost::ok());
+    let service = DefaultImpressSurfaceService::with_store(
+        store(),
+        impress_core::pane_query::builtin_manifest(),
+    )
+    .with_verb_host(FakeHost::ok());
 
     let created = service
         .surface_create(fixture_spec().into(), None, None)
@@ -132,7 +136,10 @@ async fn a_host_verb_renders_through_the_service() {
 /// installed, and clean once one is.
 #[tokio::test]
 async fn validate_accepts_a_host_verb_only_once_a_host_is_installed() {
-    let without_host = DefaultImpressSurfaceService::with_store(store());
+    let without_host = DefaultImpressSurfaceService::with_store(
+        store(),
+        impress_core::pane_query::builtin_manifest(),
+    );
     let result = without_host.surface_validate(fixture_spec().into()).await;
     assert!(
         !result.ok,
@@ -147,8 +154,11 @@ async fn validate_accepts_a_host_verb_only_once_a_host_is_installed() {
         result.problems
     );
 
-    let with_host =
-        DefaultImpressSurfaceService::with_store(store()).with_verb_host(FakeHost::ok());
+    let with_host = DefaultImpressSurfaceService::with_store(
+        store(),
+        impress_core::pane_query::builtin_manifest(),
+    )
+    .with_verb_host(FakeHost::ok());
     let result = with_host.surface_validate(fixture_spec().into()).await;
     assert!(result.ok, "{:?}", result.problems);
 }
@@ -159,7 +169,11 @@ async fn validate_accepts_a_host_verb_only_once_a_host_is_installed() {
 #[tokio::test]
 async fn the_linked_inventory_wins_over_the_host_on_a_shared_name() {
     let poisoned_host = FakeHost::ok();
-    let service = DefaultImpressSurfaceService::with_store(store()).with_verb_host(poisoned_host);
+    let service = DefaultImpressSurfaceService::with_store(
+        store(),
+        impress_core::pane_query::builtin_manifest(),
+    )
+    .with_verb_host(poisoned_host);
 
     let created = service
         .surface_create(linked_verb_spec().into(), None, None)
@@ -189,8 +203,11 @@ async fn the_linked_inventory_wins_over_the_host_on_a_shared_name() {
 /// carrying a reason, never a panic.
 #[tokio::test]
 async fn a_failing_host_verb_yields_a_placeholder_not_a_panic() {
-    let service = DefaultImpressSurfaceService::with_store(store())
-        .with_verb_host(FakeHost::failing("the fake host refuses"));
+    let service = DefaultImpressSurfaceService::with_store(
+        store(),
+        impress_core::pane_query::builtin_manifest(),
+    )
+    .with_verb_host(FakeHost::failing("the fake host refuses"));
 
     let created = service
         .surface_create(fixture_spec().into(), None, None)

@@ -42,7 +42,10 @@ fn click() -> Event {
 
 fn world() -> (Arc<SqliteItemStore>, DefaultImpressSurfaceService) {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
-    let service = DefaultImpressSurfaceService::with_store(store.clone());
+    let service = DefaultImpressSurfaceService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
     (store, service)
 }
 
@@ -156,7 +159,8 @@ async fn an_event_records_who_caused_it() {
     // As the pane does it: the runtime, dispatched as the human.
     let registry = SessionRegistry::new();
     let surfaces = SurfaceStore::new(store.clone());
-    let executor = DefaultExecutor::with_store(store.clone());
+    let executor =
+        DefaultExecutor::with_store(store.clone(), impress_core::pane_query::builtin_manifest());
     let writer = surfaces.clone();
     registry
         .with(&surfaces, surface_id, HOST, move |rt| {

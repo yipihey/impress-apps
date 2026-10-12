@@ -28,9 +28,11 @@ serde_json = { workspace = true }
 # The item protocol (K1b). This crate keeps SqliteItemStore and re-exports it.
 impress-item = { workspace = true }
 # The ADR-0031 D2 pane-query algebra's types (ADR-0033 D7): this crate keeps
-# only the compiler that lowers a query onto its store and the built-in kind
-# manifest, which is domain data.
+# only the built-in kind manifest, which is domain data.
 impress-pane-query = { workspace = true }
+# The compiler and invalidation rules (docs/plan-koine-host.md H-D2),
+# re-exported by `pane_query` so no caller changes.
+impress-pane-query-compile = { workspace = true }
 # The pipeline's task-local call context (ADR-0036 D2, hook H-P2-2): the
 # store stamps `batch_id = call_id` on every operation written under a verb
 # call. A pure kit crate with no reach back here, like impress-pane-query.

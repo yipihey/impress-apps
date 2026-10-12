@@ -149,10 +149,13 @@ async fn interleave(
 #[tokio::test]
 async fn two_services_on_two_connections_never_lose_each_others_change() {
     let (_dir, store_a, store_b) = two_handles();
-    let reader = DefaultLayoutService::with_store(store_a.clone());
+    let reader = DefaultLayoutService::with_store(
+        store_a.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
     interleave(
-        &DefaultLayoutService::with_store(store_a),
-        &DefaultLayoutService::with_store(store_b),
+        &DefaultLayoutService::with_store(store_a, impress_core::pane_query::builtin_manifest()),
+        &DefaultLayoutService::with_store(store_b, impress_core::pane_query::builtin_manifest()),
         &reader,
     )
     .await;
@@ -164,10 +167,16 @@ async fn two_services_on_two_connections_never_lose_each_others_change() {
 #[tokio::test]
 async fn two_registries_on_one_connection_never_lose_each_others_change() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
-    let reader = DefaultLayoutService::with_store(store.clone());
+    let reader = DefaultLayoutService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
     interleave(
-        &DefaultLayoutService::with_store(store.clone()),
-        &DefaultLayoutService::with_store(store),
+        &DefaultLayoutService::with_store(
+            store.clone(),
+            impress_core::pane_query::builtin_manifest(),
+        ),
+        &DefaultLayoutService::with_store(store, impress_core::pane_query::builtin_manifest()),
         &reader,
     )
     .await;
@@ -179,8 +188,10 @@ async fn two_registries_on_one_connection_never_lose_each_others_change() {
 #[tokio::test]
 async fn a_writer_whose_row_moved_drops_its_rings_and_says_so() {
     let (_dir, store_a, store_b) = two_handles();
-    let gui = DefaultLayoutService::with_store(store_a);
-    let agent = DefaultLayoutService::with_store(store_b);
+    let gui =
+        DefaultLayoutService::with_store(store_a, impress_core::pane_query::builtin_manifest());
+    let agent =
+        DefaultLayoutService::with_store(store_b, impress_core::pane_query::builtin_manifest());
 
     let explored = gui
         .set_query(
@@ -240,7 +251,8 @@ fn a_save_that_loses_the_race_writes_nothing() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let registry = SessionRegistry::new();
     let layouts = LayoutStore::new(store_a);
-    let other = DefaultLayoutService::with_store(store_b);
+    let other =
+        DefaultLayoutService::with_store(store_b, impress_core::pane_query::builtin_manifest());
 
     registry
         .with(&layouts, APP, DEVICE, ActorKind::Human, |_| ())
@@ -299,7 +311,10 @@ fn a_save_that_loses_the_race_writes_nothing() {
 #[tokio::test]
 async fn an_undecodable_live_row_is_quarantined_and_a_fresh_preset_loaded() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
-    let first = DefaultLayoutService::with_store(store.clone());
+    let first = DefaultLayoutService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
     let live = first.get_layout(APP.into(), device()).await;
     let broken_id: uuid::Uuid = live.item_id.unwrap().parse().unwrap();
 
@@ -326,7 +341,13 @@ async fn an_undecodable_live_row_is_quarantined_and_a_fresh_preset_loaded() {
 
     // A fresh registry — the app at its next launch — and the one that was
     // holding the session both recover.
-    for service in [DefaultLayoutService::with_store(store.clone()), first] {
+    for service in [
+        DefaultLayoutService::with_store(
+            store.clone(),
+            impress_core::pane_query::builtin_manifest(),
+        ),
+        first,
+    ] {
         let result = service.get_layout(APP.into(), device()).await;
         assert!(result.ok, "the scope still works: {}", result.message);
         assert_ne!(
@@ -347,9 +368,12 @@ async fn an_undecodable_live_row_is_quarantined_and_a_fresh_preset_loaded() {
         kept.payload.get("quarantined_reason"),
         Some(Value::String(reason)) if !reason.is_empty()
     ));
-    let listed = DefaultLayoutService::with_store(store.clone())
-        .list_layouts(APP.into())
-        .await;
+    let listed = DefaultLayoutService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    )
+    .list_layouts(APP.into())
+    .await;
     assert!(
         listed
             .layouts
@@ -363,7 +387,10 @@ async fn an_undecodable_live_row_is_quarantined_and_a_fresh_preset_loaded() {
 #[tokio::test]
 async fn the_first_verb_after_a_quarantine_reports_it() {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
-    let service = DefaultLayoutService::with_store(store.clone());
+    let service = DefaultLayoutService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
     let live = service.get_layout(APP.into(), device()).await;
     let id: uuid::Uuid = live.item_id.unwrap().parse().unwrap();
     store

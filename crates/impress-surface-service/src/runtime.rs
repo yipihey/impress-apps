@@ -27,13 +27,12 @@ use std::time::{Duration, Instant};
 
 use impress_core::item::{ActorKind, ItemId};
 use impress_core::pane_query::{Bindings, ItemRef, KindManifest, PaneQueryError, Scope};
-use impress_core::sqlite_store::SqliteItemStore;
-use impress_core::store::ItemStore;
+use impress_core::store::AttributedStore;
 use impress_layout::{
     ChannelId, LinearDir, PaneRef, PaneSpec, ParamBinding, ParamSource, TileId, Verb, ViewKindId,
 };
 use impress_layout_service::dto::PaneRefDto as LayoutPaneRefDto;
-use impress_layout_service::{DefaultLayoutService, LayoutService};
+use impress_layout_service::{process_manifest, DefaultLayoutService, LayoutService};
 use impress_service_core::call;
 use impress_service_core::descriptor_handle::VerbHandle;
 use impress_service_core::pipeline::{self, Call, PipelineError};
@@ -281,9 +280,12 @@ fn flatten_payloads(rows: Value) -> Value {
 /// events through the store, publish/open through `impress-layout-service`.
 #[derive(Clone)]
 pub struct DefaultExecutor {
-    store: Arc<SqliteItemStore>,
+    store: Arc<dyn AttributedStore>,
     surfaces: SurfaceStore,
     layout: DefaultLayoutService,
+    /// The record kinds `query` sources compile against and a published
+    /// kind is read in (`as_layout_kind`). Passed at construction.
+    manifest: Arc<KindManifest>,
     /// The second inventory consulted when a verb is not in this process's
     /// linked `#[impress_service]` set — see [`VerbHost`]. `None` in every
     /// binary that has not installed one (the CLI, MCP, and every Tier A
@@ -297,14 +299,16 @@ pub struct DefaultExecutor {
 }
 
 impl DefaultExecutor {
-    pub fn new(store: Arc<SqliteItemStore>) -> Self {
+    pub fn new(store: Arc<dyn AttributedStore>, manifest: impl Into<Arc<KindManifest>>) -> Self {
+        let manifest = manifest.into();
         Self {
             surfaces: SurfaceStore::new(store.clone()),
             // `DefaultLayoutService::new()` reaches the SAME process-wide
             // store and session registry every other layout verb does —
             // never a private one — so a surface shown here is the surface
             // the GUI (or the CLI, or another MCP call) already has open.
-            layout: DefaultLayoutService::new(),
+            layout: DefaultLayoutService::new().with_manifest(manifest.clone()),
+            manifest,
             store,
             verb_host: None,
             app_id: None,
@@ -313,10 +317,15 @@ impl DefaultExecutor {
 
     /// An instance over an explicit store — hermetic tests only, mirroring
     /// `impress-layout-service::DefaultLayoutService::with_store`.
-    pub fn with_store(store: Arc<SqliteItemStore>) -> Self {
+    pub fn with_store(
+        store: Arc<dyn AttributedStore>,
+        manifest: impl Into<Arc<KindManifest>>,
+    ) -> Self {
+        let manifest = manifest.into();
         Self {
             surfaces: SurfaceStore::new(store.clone()),
-            layout: DefaultLayoutService::with_store(store.clone()),
+            layout: DefaultLayoutService::with_store(store.clone(), manifest.clone()),
+            manifest,
             store,
             verb_host: None,
             app_id: None,
@@ -327,12 +336,19 @@ impl DefaultExecutor {
     /// renderer in this process reads from — so an `open`/`publish` effect
     /// changes the tree the window is showing, not a private copy of it.
     pub fn with_store_and_sessions(
-        store: Arc<SqliteItemStore>,
+        store: Arc<dyn AttributedStore>,
         sessions: Arc<impress_layout_service::SessionRegistry>,
+        manifest: impl Into<Arc<KindManifest>>,
     ) -> Self {
+        let manifest = manifest.into();
         Self {
             surfaces: SurfaceStore::new(store.clone()),
-            layout: DefaultLayoutService::with_store_and_sessions(store.clone(), sessions),
+            layout: DefaultLayoutService::with_store_and_sessions(
+                store.clone(),
+                sessions,
+                manifest.clone(),
+            ),
+            manifest,
             store,
             verb_host: None,
             app_id: None,
@@ -341,7 +357,7 @@ impl DefaultExecutor {
 
     /// Install a [`VerbHost`] this executor consults for any verb its own
     /// linked inventory lacks (ADR-0033 D4, amended 2026-09-23). Builder
-    /// style so `DefaultExecutor::new(store).with_verb_host(host)` reads as
+    /// style so `DefaultExecutor::new(store, manifest).with_verb_host(host)` reads as
     /// one setup step, matching every other `with_*` on this type.
     pub fn with_verb_host(mut self, host: Arc<dyn VerbHost>) -> Self {
         self.verb_host = Some(host);
@@ -368,7 +384,7 @@ impl DefaultExecutor {
         use impress_core::item::Value as ItemValue;
         use impress_core::query::{ItemQuery, Predicate};
         let query = ItemQuery {
-            schema: Some(impress_core::schemas::LAYOUT_SCHEMA_REF),
+            schema: Some(impress_item::schema::refs::IMPRESS_UI_LAYOUT),
             predicates: vec![
                 Predicate::Eq(
                     impress_layout_service::store::field::DEVICE.into(),
@@ -457,13 +473,8 @@ impl Executor for DefaultExecutor {
         decls: &[ParamDecl],
         bindings: &Bindings,
     ) -> Result<Value> {
-        let compiled = impress_core::pane_query::compile(
-            query,
-            decls,
-            bindings,
-            &impress_core::pane_query::builtin_manifest(),
-        )
-        .map_err(|e: PaneQueryError| Refusal::new("query-refused", e.to_string()))?;
+        let compiled = impress_core::pane_query::compile(query, decls, bindings, &self.manifest)
+            .map_err(|e: PaneQueryError| Refusal::new("query-refused", e.to_string()))?;
         let items = self
             .store
             .query(&compiled.item_query)
@@ -740,13 +751,13 @@ fn publish_verb(pane: &PaneHandle, kind: &str, ids: Value) -> Result<Verb> {
 /// The pane parameters a surface's declared `params` become when it is
 /// shown: each follows the window's default channel for its kind (a schema
 /// ref is read as its pane-query kind, the way `publish` does).
-pub(crate) fn pane_params_for(spec: &SurfaceSpec) -> Vec<ParamBinding> {
+pub(crate) fn pane_params_for(spec: &SurfaceSpec, manifest: &KindManifest) -> Vec<ParamBinding> {
     spec.params
         .iter()
         .map(|decl| ParamBinding {
             decl: ParamDecl {
                 name: decl.name.clone(),
-                kind: as_layout_kind(&decl.kind),
+                kind: as_layout_kind(&decl.kind, manifest),
                 required: decl.required,
             },
             source: ParamSource::Channel {
@@ -827,6 +838,9 @@ pub struct SurfaceRuntime {
     state_text: Option<String>,
     /// See [`FAILED_SOURCE_BACKOFF`].
     failed: BTreeMap<String, FailedFetch>,
+    /// The record kinds this runtime reads its `query` sources and published
+    /// kinds in — the registry's, passed at [`SessionRegistry::with_manifest`].
+    manifest: Arc<KindManifest>,
 }
 
 impl SurfaceRuntime {
@@ -835,6 +849,7 @@ impl SurfaceRuntime {
         host: String,
         row: SurfaceRow,
         state: Option<(String, u64)>,
+        manifest: Arc<KindManifest>,
     ) -> Self {
         let mut runtime = Self {
             surface_id,
@@ -850,6 +865,7 @@ impl SurfaceRuntime {
             spec_text: row.spec_text,
             state_text: None,
             failed: BTreeMap::new(),
+            manifest,
         };
         runtime.adopt_state(state);
         runtime
@@ -992,12 +1008,12 @@ impl SurfaceRuntime {
     /// resolves at run time, not this static walk), contributes nothing —
     /// it still re-runs on an argument change or an explicit refresh.
     pub fn query_refs(&self) -> BTreeSet<String> {
-        let manifest = impress_core::pane_query::builtin_manifest();
+        let manifest = &self.manifest;
         self.spec
             .sources
             .values()
             .filter_map(|source| match source {
-                Source::Query { query } => Some(refs_read_by(query, &manifest)),
+                Source::Query { query } => Some(refs_read_by(query, manifest)),
                 Source::Verb { verb, .. } => Some(verb_declared_read_refs(verb)),
                 _ => None,
             })
@@ -1015,14 +1031,14 @@ impl SurfaceRuntime {
     /// too: it still re-runs when its arguments change or an action
     /// refreshes it.
     pub fn invalidate_sources(&mut self, refs: &BTreeSet<String>) -> Vec<String> {
-        let manifest = impress_core::pane_query::builtin_manifest();
+        let manifest = &self.manifest;
         let names: Vec<String> = self
             .spec
             .sources
             .iter()
             .filter_map(|(name, source)| match source {
                 Source::Query { query }
-                    if refs_read_by(query, &manifest)
+                    if refs_read_by(query, manifest)
                         .iter()
                         .any(|r| refs.contains(r)) =>
                 {
@@ -1103,7 +1119,7 @@ impl SurfaceRuntime {
                         executor.call_verb(verb, args.clone()).await
                     }
                     SourceRequestKind::Query { query } => {
-                        let decls = query_decls(&self.spec.params);
+                        let decls = query_decls(&self.spec.params, &self.manifest);
                         let bindings = bindings_from_params(&decls, &self.params);
                         executor.run_query(query, &decls, &bindings).await
                     }
@@ -1451,7 +1467,7 @@ impl SurfaceRuntime {
                         "no pane shows this surface yet (surface_show has not run)",
                     ));
                 };
-                let (kind, ids) = publish_kind_and_ids(&self.spec, ids);
+                let (kind, ids) = publish_kind_and_ids(&self.spec, ids, &self.manifest);
                 let verb = publish_verb(&pane, &kind, ids)?;
                 Ok((pane, vec![verb], format!("published on kind '{kind}'")))
             }
@@ -1570,16 +1586,20 @@ pub fn actor_name(actor: ActorKind) -> &'static str {
 /// declared `params` entry names the kind a publish on this surface is FOR
 /// (the same kind a downstream pane would bind `param.selected` to), falling
 /// back to the generic `"item"` kind when the surface declares no params.
-fn publish_kind_and_ids(spec: &SurfaceSpec, ids: Value) -> (String, Value) {
+fn publish_kind_and_ids(
+    spec: &SurfaceSpec,
+    ids: Value,
+    manifest: &KindManifest,
+) -> (String, Value) {
     if let Value::Object(map) = &ids {
         if let (Some(Value::String(kind)), Some(inner)) = (map.get("kind"), map.get("ids")) {
-            return (as_layout_kind(kind), inner.clone());
+            return (as_layout_kind(kind, manifest), inner.clone());
         }
     }
     let kind = spec
         .params
         .first()
-        .map(|p| as_layout_kind(&p.kind))
+        .map(|p| as_layout_kind(&p.kind, manifest))
         .unwrap_or_else(|| "item".to_string());
     (kind, ids)
 }
@@ -1600,8 +1620,7 @@ fn publish_kind_and_ids(spec: &SurfaceSpec, ids: Value) -> (String, Value) {
 /// the vocabulary is documented with the ref and a spec already written that
 /// way must keep working. An unknown string passes through untouched — a
 /// surface may publish a kind this build has never heard of.
-fn as_layout_kind(kind: &str) -> String {
-    let manifest = impress_core::pane_query::builtin_manifest();
+fn as_layout_kind(kind: &str, manifest: &KindManifest) -> String {
     if manifest.kinds.contains_key(kind) {
         return kind.to_string();
     }
@@ -1668,12 +1687,12 @@ fn verb_declared_read_refs(verb: &str) -> Vec<String> {
 /// is its pane-query kind (`publication`), the same reading `publish` gives
 /// it — else a param bound to a paper is "the wrong kind" for a query over
 /// papers.
-fn query_decls(params: &[ParamDecl]) -> Vec<ParamDecl> {
+fn query_decls(params: &[ParamDecl], manifest: &KindManifest) -> Vec<ParamDecl> {
     params
         .iter()
         .map(|decl| ParamDecl {
             name: decl.name.clone(),
-            kind: as_layout_kind(&decl.kind),
+            kind: as_layout_kind(&decl.kind, manifest),
             required: decl.required,
         })
         .collect()
@@ -1739,14 +1758,33 @@ type SessionMap = HashMap<(ItemId, String), Arc<Slot>>;
 /// the same `(surface, host)` run one after the other and neither's result
 /// is overwritten by the other's stale copy; calls on different entries run
 /// in parallel.
-#[derive(Default)]
 pub struct SessionRegistry {
     sessions: Mutex<SessionMap>,
+    /// The record kinds every runtime in this registry reads in — handed to
+    /// each [`SurfaceRuntime`] as it loads.
+    manifest: Arc<KindManifest>,
+}
+
+impl Default for SessionRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SessionRegistry {
+    /// A registry over the [`process_manifest`] — what a process that never
+    /// chose a manifest runs (the process-wide [`Self::shared`] one, and the
+    /// tests). A host with its own record kinds uses [`Self::with_manifest`].
     pub fn new() -> Self {
-        Self::default()
+        Self::with_manifest(process_manifest())
+    }
+
+    /// A registry whose runtimes read `manifest`'s record kinds.
+    pub fn with_manifest(manifest: impl Into<Arc<KindManifest>>) -> Self {
+        Self {
+            sessions: Mutex::new(SessionMap::new()),
+            manifest: manifest.into(),
+        }
     }
 
     pub fn shared() -> Arc<SessionRegistry> {
@@ -1793,6 +1831,7 @@ impl SessionRegistry {
                 host.to_string(),
                 row,
                 state,
+                self.manifest.clone(),
             )),
         };
         *lock_set(&slot.reads) = runtime.query_refs();
@@ -1955,7 +1994,12 @@ mod flatten_tests {
 
 #[cfg(test)]
 mod publish_kind_tests {
-    use super::as_layout_kind;
+    use super::as_layout_kind as kind_in;
+    use impress_core::pane_query::builtin_manifest;
+
+    fn as_layout_kind(kind: &str) -> String {
+        kind_in(kind, &builtin_manifest())
+    }
 
     /// The channel key a pane parameter can actually bind to.
     #[test]
@@ -2100,7 +2144,13 @@ mod call_verb_tests {
         let row = surfaces
             .create(&provider_surface(), None, &[], ActorKind::Agent)
             .unwrap();
-        let mut runtime = SurfaceRuntime::load(row.id, "fixture-host".into(), row, None);
+        let mut runtime = SurfaceRuntime::load(
+            row.id,
+            "fixture-host".into(),
+            row,
+            None,
+            Arc::new(impress_core::pane_query::builtin_manifest()),
+        );
         let executor = ProviderReplyExecutor(reply);
         runtime.render(&executor).await;
         let event: Event = serde_json::from_value(json!({
@@ -2242,7 +2292,13 @@ mod call_verb_tests {
         let row = surfaces
             .create(&provider_surface(), None, &[], ActorKind::Agent)
             .unwrap();
-        let mut runtime = SurfaceRuntime::load(row.id, "fixture-host".into(), row, None);
+        let mut runtime = SurfaceRuntime::load(
+            row.id,
+            "fixture-host".into(),
+            row,
+            None,
+            Arc::new(impress_core::pane_query::builtin_manifest()),
+        );
         let executor = RecordingExecutor(Default::default());
 
         let with = runtime

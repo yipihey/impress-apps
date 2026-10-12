@@ -98,6 +98,9 @@ pub use schema::*;
 pub use source::*;
 pub use store::*;
 
+#[cfg(feature = "sqlite")]
+pub use sqlite_store::SqliteItemStore;
+
 #[cfg(test)]
 mod item_protocol {
     #[test]
@@ -108,6 +111,3 @@ mod item_protocol {
         let _same_schema: impress_item::SchemaRef = schema;
     }
 }
-
-#[cfg(feature = "sqlite")]
-pub use sqlite_store::SqliteItemStore;
