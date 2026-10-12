@@ -22,7 +22,10 @@ const HOST: &str = "verb-surface-proof";
 
 fn world() -> (Arc<SqliteItemStore>, DefaultImpressSurfaceService) {
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
-    let service = DefaultImpressSurfaceService::with_store(store.clone());
+    let service = DefaultImpressSurfaceService::with_store(
+        store.clone(),
+        impress_core::pane_query::builtin_manifest(),
+    );
     (store, service)
 }
 

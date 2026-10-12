@@ -80,6 +80,17 @@ tracing-subscriber = { workspace = true }
 # here so the grammar crate does not depend on this inventory.
 impress-verb-surface = { workspace = true }
 impress-surface = { workspace = true }
+# `tests/surface_over_suite_store.rs`: the two surface cases that drive the
+# store service's verbs (they left impress-surface-service's Tier A when that
+# crate moved to koine, K3b).
+impress-item = { workspace = true }
+impress-settings = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+# `tests/surface_doc_wire.rs` (moved from impress-surface-service with the
+# doc it checks).
+serde = { workspace = true }
+tempfile = "3"
 
 [features]
 perf = ["dep:perf-service"]

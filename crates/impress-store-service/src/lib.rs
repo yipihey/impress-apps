@@ -49,6 +49,7 @@ pub mod settings_service;
 pub mod source_assets;
 pub mod source_service;
 pub mod store;
+pub mod subtrees;
 pub mod triage_service;
 
 /// ADR-0023's watched-folder kernel, at the address W0 gave it.
@@ -106,9 +107,10 @@ pub use source_service::{
     SourceCitationInput, SourceLocatorInput, SourceRecordResult, SourceService,
 };
 pub use store::{
-    default_store_path, install_store, is_fallback_store, set_store_path, store_instance,
-    store_path,
+    default_store_path, install_store, is_fallback_store, register_process_ports, set_store_path,
+    store_instance, store_path,
 };
+pub use subtrees::CollectionSubtrees;
 pub use triage_service::{DefaultTriageService, TriageResult, TriageService};
 pub use watched_folder::{
     watched_file_id, watched_file_key, watched_folder_id, watched_folder_key, DiscoveredFileInput,

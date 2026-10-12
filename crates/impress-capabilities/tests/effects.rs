@@ -751,6 +751,13 @@ async fn run_examples(
     out.verified.insert(v.name, Verified::Example(ran));
 }
 
+/// A fresh in-memory `SqliteItemStore`, the backend the effects spy watches.
+fn sqlite_scratch() -> std::sync::Arc<dyn impress_core::store::AttributedStore> {
+    std::sync::Arc::new(
+        impress_core::sqlite_store::SqliteItemStore::open_in_memory().expect("scratch store"),
+    )
+}
+
 async fn run_catalogue(
     name: &'static str,
     services: &[&str],
@@ -758,6 +765,9 @@ async fn run_catalogue(
     verbs: &[&'static VerbDescriptor],
     out: &mut Verification,
 ) {
+    // The layout and surface catalogues read the process's kind manifest from
+    // koine's registry; the host installs it.
+    impress_store_service::register_process_ports();
     effects_spy::start();
     // imprint's report type predates the shared one; each catalogue's
     // results reduce to (id, pass, skipped) before the arms join.
@@ -767,16 +777,24 @@ async fn run_catalogue(
             provider_effects::verify().await,
             false,
         )],
-        "layout" => impress_layout_service::tier_a::run()
-            .await
-            .into_iter()
-            .map(|r| (r.id, r.pass, r.skipped))
-            .collect(),
-        "surface" => impress_surface_service::tier_a::run()
-            .await
-            .into_iter()
-            .map(|r| (r.id, r.pass, r.skipped))
-            .collect(),
+        "layout" => {
+            // The spy lives in `SqliteItemStore`; the catalogue's default
+            // store (the memory backend) reports nothing.
+            impress_layout_service::tier_a::set_store_factory(sqlite_scratch);
+            impress_layout_service::tier_a::run()
+                .await
+                .into_iter()
+                .map(|r| (r.id, r.pass, r.skipped))
+                .collect()
+        }
+        "surface" => {
+            impress_surface_service::tier_a::set_store_factory(sqlite_scratch);
+            impress_surface_service::tier_a::run()
+                .await
+                .into_iter()
+                .map(|r| (r.id, r.pass, r.skipped))
+                .collect()
+        }
         "imprint" => imprint_selftest::tier_a::run()
             .await
             .into_iter()

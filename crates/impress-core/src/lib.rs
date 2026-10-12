@@ -2,7 +2,6 @@ pub mod call_context;
 /// The per-launch loopback token the automation servers require on a
 /// mutating request (P0, SEC-2): the path convention, the file format and
 /// the client-side read, in one place for both halves of the suite.
-pub mod loopback_token;
 pub mod maintenance;
 /// The pane query algebra (ADR-0031 D2): what a pane shows, compiled to an
 /// `ItemQuery` in one place from the kind manifest.
@@ -81,6 +80,11 @@ pub mod watched_folder_ops;
 
 // The item protocol lives in `impress-item`. These re-exports keep every
 // `impress_core::Item` / `impress_core::item::Item` path working.
+// The per-launch loopback token contract moved to koine, beside the pipeline
+// that decides who may call (`impress_service_core::loopback_token`); this
+// path stays so every caller is unchanged.
+pub use impress_service_core::loopback_token;
+
 pub use impress_item::event;
 pub use impress_item::item;
 pub use impress_item::operation;
@@ -98,6 +102,9 @@ pub use schema::*;
 pub use source::*;
 pub use store::*;
 
+#[cfg(feature = "sqlite")]
+pub use sqlite_store::SqliteItemStore;
+
 #[cfg(test)]
 mod item_protocol {
     #[test]
@@ -108,6 +115,3 @@ mod item_protocol {
         let _same_schema: impress_item::SchemaRef = schema;
     }
 }
-
-#[cfg(feature = "sqlite")]
-pub use sqlite_store::SqliteItemStore;

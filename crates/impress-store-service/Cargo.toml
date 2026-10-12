@@ -18,6 +18,11 @@ impress-core = { workspace = true, features = ["sqlite", "schema", "collab"] }
 # The settings registry and its files (ADR-0036 D5); `settings_service.rs`
 # adds the verbs, the process-wide instance and the synced store row.
 impress-settings = { workspace = true }
+# The process-wide store, kind manifest and subtree resolver the layout and
+# surface runtimes read (`src/store.rs` keeps them answering this crate's one
+# `SqliteItemStore`).
+koine-store = { workspace = true }
+impress-pane-query = { workspace = true }
 impress-surface = { workspace = true }
 # W4: `propose_workflows`' n-gram miner validates each proposal against the
 # pure validator before writing it (`impress_workflow::validate`).

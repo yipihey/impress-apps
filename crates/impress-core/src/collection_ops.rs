@@ -109,7 +109,7 @@ use crate::query::{ItemQuery, Predicate, SortDescriptor};
 use crate::reference::{EdgeType, TypedReference};
 use crate::schemas::collection::KIND_SCOPE_ANY;
 use crate::sqlite_store::SqliteItemStore;
-use crate::store::{FieldMutation, ItemStore, StoreError};
+use crate::store::{AttributedStore, FieldMutation, ItemStore, StoreError};
 
 /// Hard ceiling on parent-chain walks. A tree deeper than this is a data bug
 /// (or a pre-existing cycle written before the check moved into Rust), and
@@ -410,7 +410,18 @@ pub fn resolve(
     store: &SqliteItemStore,
     binding: &CollectionSchemaBinding,
 ) -> Result<ResolvedBinding, StoreError> {
-    Ok(binding.resolved(collection_migration::is_migrated(store)?))
+    resolve_on(store, binding)
+}
+
+/// [`resolve`] over any backend of the store port — the marker is the port's
+/// `metadata_get`, so the layout runtime's collection-subtree read
+/// (`impress-layout-service`) works on a store it only knows as
+/// `dyn AttributedStore` (docs/plan-koine-host.md H-D1).
+pub fn resolve_on(
+    store: &dyn AttributedStore,
+    binding: &CollectionSchemaBinding,
+) -> Result<ResolvedBinding, StoreError> {
+    Ok(binding.resolved(collection_migration::is_migrated_on(store)?))
 }
 
 /// One flat collection row. Callers assemble the tree from `parent_id`
@@ -550,7 +561,15 @@ pub fn list_tree(
     store: &SqliteItemStore,
     binding: &CollectionSchemaBinding,
 ) -> Result<Vec<CollectionRow>, StoreError> {
-    let b = resolve(store, binding)?;
+    list_tree_on(store, binding)
+}
+
+/// [`list_tree`] over any backend of the store port (see [`resolve_on`]).
+pub fn list_tree_on(
+    store: &dyn AttributedStore,
+    binding: &CollectionSchemaBinding,
+) -> Result<Vec<CollectionRow>, StoreError> {
+    let b = resolve_on(store, binding)?;
     list_tree_resolved(store, &b, None)
 }
 
@@ -576,7 +595,7 @@ pub fn list_tree_in(
 }
 
 fn list_tree_resolved(
-    store: &SqliteItemStore,
+    store: &dyn AttributedStore,
     b: &ResolvedBinding,
     container: Option<ItemId>,
 ) -> Result<Vec<CollectionRow>, StoreError> {
@@ -1359,7 +1378,7 @@ fn reload_row(
 }
 
 fn row_of(
-    store: &SqliteItemStore,
+    store: &dyn AttributedStore,
     b: &ResolvedBinding,
     item: &Item,
 ) -> Result<CollectionRow, StoreError> {
@@ -1389,7 +1408,7 @@ fn row_of(
 /// the envelope arm is a count query, which is what [`member_counts`] has
 /// always done for it.
 fn member_count_of(
-    store: &SqliteItemStore,
+    store: &dyn AttributedStore,
     b: &ResolvedBinding,
     item: &Item,
 ) -> Result<u32, StoreError> {

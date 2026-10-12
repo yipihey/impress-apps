@@ -122,9 +122,9 @@ use impress_layout::{
 };
 use impress_layout_service::device::resolve_device;
 use impress_layout_service::{
-    CollectionSubtrees, DefaultLayoutService, LayoutService, LayoutStore, LayoutVerbResult,
-    PaneRefDto,
+    DefaultLayoutService, LayoutService, LayoutStore, LayoutVerbResult, PaneRefDto,
 };
+use impress_store_service::CollectionSubtrees;
 
 use crate::{item_to_row, SharedItemRow, SharedStore};
 use impress_service_core::pipeline::{self, Call, CallerIdentity};
@@ -405,7 +405,12 @@ impl SharedLayout {
             service: DefaultLayoutService::with_store_and_sessions(
                 core.clone(),
                 store.layout_sessions(),
+                builtin_manifest(),
             )
+            // `compiled_pane` compiles a pane's `CollectionSubtree` scope
+            // against the collection tree, read afresh each time: the tree
+            // changes between calls, and this service outlives them.
+            .with_subtree_resolver(Arc::new(CollectionSubtrees::live(core.clone())))
             .with_tree_in_results(),
             store: core,
             device_tag: resolve_device(device.as_deref()),
@@ -1068,6 +1073,7 @@ static LAYOUT_APPLY: VerbDescriptor = VerbDescriptor {
     strict: false,
     budget_ms: None,
     replay_full: false,
+    returns_kind: None,
     source: impress_service_core::Source::Linked,
     handler: apply_not_callable,
 };
@@ -1542,7 +1548,7 @@ impl InvalidationFeed {
                 return subscriptions;
             }
         };
-        let resolver = CollectionSubtrees::read(&self.store);
+        let resolver = CollectionSubtrees::read(&*self.store);
         let manifest = builtin_manifest();
         for tile in layout.panes() {
             let Some(spec) = layout.pane(tile) else {
@@ -2814,8 +2820,11 @@ mod tests {
 
         // What `SharedSurface`'s executor does: the same store, the same
         // registry, a different service object.
-        let other =
-            DefaultLayoutService::with_store_and_sessions(store.core(), store.layout_sessions());
+        let other = DefaultLayoutService::with_store_and_sessions(
+            store.core(),
+            store.layout_sessions(),
+            builtin_manifest(),
+        );
         let new_pane = PaneSpec::new(
             serde_json::from_value(serde_json::json!({
                 "kinds": ["surface"], "scope": {"scope": "all"}, "filters": [],

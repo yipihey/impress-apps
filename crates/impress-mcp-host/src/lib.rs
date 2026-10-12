@@ -503,6 +503,7 @@ mod tests {
         strict: false,
         budget_ms: None,
         replay_full: false,
+        returns_kind: None,
         source: impress_service_core::Source::Linked,
         handler: fixture_echo,
     };

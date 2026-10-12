@@ -802,7 +802,9 @@ fn surface_sessions_for(installed: bool) -> Arc<impress_surface_service::Session
     if installed {
         impress_surface_service::SessionRegistry::shared()
     } else {
-        Arc::new(impress_surface_service::SessionRegistry::new())
+        Arc::new(impress_surface_service::SessionRegistry::with_manifest(
+            impress_core::pane_query::builtin_manifest(),
+        ))
     }
 }
 

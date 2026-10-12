@@ -37,6 +37,10 @@ pub struct TierACaller {
 
 impl TierACaller {
     pub fn open() -> Result<Self, String> {
+        // The layout and surface verbs a scenario calls read the process's
+        // kind manifest and subtree resolver from koine's registries; this is
+        // the host that installs them.
+        impress_store_service::register_process_ports();
         let store =
             SqliteItemStore::open_in_memory().map_err(|e| format!("open scratch store: {e}"))?;
         Ok(Self {
