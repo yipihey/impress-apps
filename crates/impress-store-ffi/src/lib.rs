@@ -86,11 +86,11 @@ pub use ai::{
 };
 pub use keymap::keymap_json;
 pub use layout::{
-    cold_start_layout_json, compile_pane_query, kind_manifest_json, layout_vocabulary_json,
-    outline_cleared_verbs_json, outline_row_verbs_json, outline_sections_json, pane_spec_json,
-    section_bindings_json, SharedAppliedVerb, SharedLayout, SharedLayoutError,
-    SharedLayoutListener, SharedLayoutRow, SharedLayoutSnapshot, SharedPane, SharedPaneRows,
-    SharedWindow,
+    cold_start_layout_json, compile_pane_query, install_outline_surface, kind_manifest_json,
+    layout_vocabulary_json, outline_cleared_verbs_json, outline_row_verbs_json,
+    outline_sections_json, outline_surface_spec_json, pane_spec_json, section_bindings_json,
+    SharedAppliedVerb, SharedLayout, SharedLayoutError, SharedLayoutListener, SharedLayoutRow,
+    SharedLayoutSnapshot, SharedPane, SharedPaneRows, SharedWindow,
 };
 pub use providers::{SharedProviderHost, SharedProviderReply};
 pub use settings::{SharedSettingValue, SharedSettings, SharedSettingsError};

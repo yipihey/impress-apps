@@ -489,6 +489,12 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `layout-service_list-presets` | read_only | name/doc |
 | `layout-service_maximize` | mutating | name/doc |
 | `layout-service_move-tile` | mutating | name/doc |
+| `layout-service_outline-create` | mutating | name/doc |
+| `layout-service_outline-delete` | destructive | name/doc |
+| `layout-service_outline-move` | mutating | name/doc |
+| `layout-service_outline-rename` | mutating | name/doc |
+| `layout-service_outline-rows` | read_only | name/doc |
+| `layout-service_outline-select` | mutating | name/doc |
 | `layout-service_redo` | mutating | name/doc |
 | `layout-service_reset-preset` | destructive | service.rs:2445-2477 layout_store_for_write (refuses store-unavailable on fallback store) -> presets.rs:1373-1395 reset -> presets.rs:1316-1368 save patches layout/queries/roles/purpose/version of the user-edited pres… |
 | `layout-service_resize` | mutating | name/doc |
@@ -563,6 +569,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `store-query-service_search-all` | read_only | name/doc |
 | `surface-demo-service_histogram` | read_only | name/doc |
 | `surface-demo-service_series` | read_only | name/doc |
+| `surface-demo-service_tick` | read_only | name/doc |
 | `surface-selftest-service_run-selftest` | external | E/M: crates/impress-surface-service/src/selftest.rs:48-56 tier a -> tier_a.rs:48 World::open() uses SqliteItemStore::open_in_memory() (private store, nothing durable); tier b/all -> tier_b.rs:108-118 reqwest client to IMPR… |
 | `triage-service_add-tag` | mutating | name/doc |
 | `triage-service_remove-tag` | mutating | name/doc |

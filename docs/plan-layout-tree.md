@@ -187,3 +187,7 @@ Session log (append-only):
   `docs/plan-wave-6-tree-and-kit.md` (W0 Tier-B catalogue, W1 findings, W2–W4 the
   leaves in D11 order, W5 the flag and the three state types gone, W6 the kit) and the
   orchestrator brief `docs/next-steps-mac-orchestrator.md`, for Opus 5 agents on the Mac.
+- 2026-10-12 — L8 leaf 4b: the outline sidebar as a surface is planned and built
+  (not Mac-verified) in `docs/plan-l8-sidebar-surface.md`: koine's `tree` rows,
+  select and rename/delete/move/create are Rust verbs, and `LayoutOutlinePaneView`
+  hosts the installed surface behind `impress.outline.surface` (default off).

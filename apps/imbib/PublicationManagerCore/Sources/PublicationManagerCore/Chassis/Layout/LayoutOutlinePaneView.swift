@@ -74,6 +74,7 @@
 //
 
 import Foundation
+import ImpressKit
 import ImpressLayout
 import ImpressLogging
 import ImpressRustCore
@@ -90,14 +91,28 @@ struct LayoutOutlinePaneView: View {
     @Environment(\.appShellConfiguration) private var shell
     @Environment(LibraryManager.self) private var libraryManager
 
+    /// Draw the sidebar as a Rust-installed surface (L8 leaf 4b); off = the
+    /// legacy chassis sidebar. Device scope, default false (the registry's).
+    @ImpressSetting("impress.outline.surface") private var sidebarAsSurface: Bool
+
     init(context: PaneContext) {
         self.context = context
         self.state = LayoutOutlinePaneState.state(for: context)
     }
 
     var body: some View {
+        if sidebarAsSurface {
+            LayoutOutlineSurfaceView(context: context)
+        } else {
+            legacyBody
+        }
+    }
+
+    /// The chassis sidebar over `ImbibSidebarViewModel` — the route before
+    /// leaf 4b, unchanged.
+    private var legacyBody: some View {
         let viewModel = state.viewModel
-        ImbibSidebarColumn(viewModel: viewModel)
+        return ImbibSidebarColumn(viewModel: viewModel)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .modifier(
                 ImbibSidebarLifecycle(

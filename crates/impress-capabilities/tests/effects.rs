@@ -95,7 +95,14 @@ use serde_json::Value;
 // deletion; the optional file-container cleanup path needs the native imbib
 // host. Its isolated scratch proof is covered by LibraryDeletionContractTests
 // in the hosted transport suite, not by a headless store example.
-const EXCEPTION_CEILING: usize = 154;
+// L8 leaf 4b raises 153 → 157: the four forwarding outline verbs
+// (`layout-service_outline-{rename,delete,move,create}`) ship only refusal
+// examples (a missing collection, a library row), because a positive example
+// needs a seeded collection the example format has no seed step for. The spy
+// sees no declared read or write. Their positive evidence is
+// `tests/outline_sidebar.rs`, which drives each through the linked
+// collection kernel over SQLite and reads the payload back.
+const EXCEPTION_CEILING: usize = 157;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave
@@ -140,7 +147,14 @@ const REACH_ALLOWLIST: &[(&str, &str)] = &[
 /// inserts as fixtures, not through a verb), which the union check ignores.
 const CATALOGUES: &[(&str, &[&str], &[&str])] = &[
     ("provider", &["provider-service"], &[]),
-    ("layout", &["layout-service"], &[]),
+    (
+        "layout",
+        &["layout-service"],
+        // The outline cases of koine's layout Tier A (`outline-rows` counts,
+        // `outline-select`) seed a library and its papers by hand: filing
+        // them is imbib's verb, not the layout service's.
+        &["imbib/bibliography-entry", "imbib/library"],
+    ),
     ("surface", &["impress-surface-service"], &[]),
     (
         "imprint",

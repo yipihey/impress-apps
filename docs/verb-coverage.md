@@ -64,7 +64,7 @@ read.
 | `imprint-text-service` | imprint-service | 5 | 5 | 11 (11) | 11 | 5 |
 | `imprint-throughline-service` | imprint-service | 9 | 9 | 16 (16) | 16 | 9 |
 | `layout-selftest-service` | impress-layout-service | 1 | 1 | 1 (1) | 1 | 1 |
-| `layout-service` | impress-layout-service | 36 | 36 | 184 (83) | 184 | 36 |
+| `layout-service` | impress-layout-service | 42 | 42 | 205 (94) | 205 | 42 |
 | `manuscript-collab-service` | impress-store-service | 4 | 4 | 8 (8) | 8 | 4 |
 | `memory-service` | impress-memory-service | 7 | 7 | 20 (20) | 20 | 7 |
 | `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 9 | 6 |
@@ -74,7 +74,7 @@ read.
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 28 | 10 |
 | `source-service` | impress-store-service | 9 | 9 | 21 (10) | 21 | 9 |
 | `store-query-service` | impress-store-service | 4 | 4 | 8 (8) | 8 | 4 |
-| `surface-demo-service` | surface-demo-service | 2 | 2 | 4 (4) | 4 | 2 |
+| `surface-demo-service` | surface-demo-service | 3 | 3 | 6 (6) | 6 | 3 |
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 1 | 1 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 24 | 15 |

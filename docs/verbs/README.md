@@ -37,7 +37,7 @@ Tier A runs without an app or external service. Tier B requires an explicit isol
 - [imprint-text-service](imprint-text-service.md) (5 verbs)
 - [imprint-throughline-service](imprint-throughline-service.md) (9 verbs)
 - [layout-selftest-service](layout-selftest-service.md) (1 verbs)
-- [layout-service](layout-service.md) (36 verbs)
+- [layout-service](layout-service.md) (42 verbs)
 - [manuscript-collab-service](manuscript-collab-service.md) (4 verbs)
 - [memory-service](memory-service.md) (7 verbs)
 - [parsers-service](parsers-service.md) (6 verbs)

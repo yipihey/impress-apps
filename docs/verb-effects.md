@@ -459,6 +459,12 @@ catalogue, 300 on the exception table.
 | `layout-service_list-presets` | "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0" | — | — | example ×2 |
 | `layout-service_maximize` | "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0" | "impress/ui/layout@1.0.0" | — | example ×1 |
 | `layout-service_move-tile` | "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0" | "impress/ui/layout@1.0.0" | — | example ×1 |
+| `layout-service_outline-create` | "imbib/collection", "collection", "manuscript-collection", "figure-collection" | "imbib/collection", "collection", "manuscript-collection", "figure-collection" | — | — |
+| `layout-service_outline-delete` | "imbib/collection", "collection", "manuscript-collection", "figure-collection" | "imbib/collection", "collection", "manuscript-collection", "figure-collection" | — | — |
+| `layout-service_outline-move` | "imbib/collection", "collection", "manuscript-collection", "figure-collection" | "imbib/collection", "collection", "manuscript-collection", "figure-collection" | — | — |
+| `layout-service_outline-rename` | "imbib/collection", "collection", "manuscript-collection", "figure-collection" | "imbib/collection", "collection", "manuscript-collection", "figure-collection" | — | — |
+| `layout-service_outline-rows` | "imbib/library", "imbib/collection", "collection", "manuscript-collection", "figure-collection", "imbib/bibliography-entry", "imbib/smart-search", "impress/artifact/code", "impress/artifact/dataset", "impress/artifact/general", "impress/artifact/media", "impress/artifact/note", "impress/artifact/poster", "impress/artifact/presentation", "impress/artifact/webpage", any("a row's count is store.count of its own compiled query; the collection kind spans four refs, so its query is schemaless") | — | — | example ×2 |
+| `layout-service_outline-select` | "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0" | "impress/ui/layout@1.0.0" | — | example ×2 |
 | `layout-service_redo` | "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0" | "impress/ui/layout@1.0.0" | — | example ×1 |
 | `layout-service_reset-preset` | "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0" | "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0" | — | example ×1 |
 | `layout-service_resize` | "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0" | "impress/ui/layout@1.0.0" | — | example ×1 |
@@ -533,6 +539,7 @@ catalogue, 300 on the exception table.
 | `store-query-service_search-all` | any("searches every kind") | — | — | — |
 | `surface-demo-service_histogram` | — | — | — | example ×1 |
 | `surface-demo-service_series` | — | — | — | example ×1 |
+| `surface-demo-service_tick` | — | — | — | example ×1 |
 | `surface-selftest-service_run-selftest` | any("runs the catalogue's capabilities") | any("runs the catalogue's capabilities") | app("impress") | — |
 | `triage-service_add-tag` | target(id) | target(id) | — | — |
 | `triage-service_remove-tag` | target(id) | target(id) | — | — |
@@ -700,6 +707,10 @@ when one lands).
 | `imprint-project-service_project-render-figure` | leaves the process (subprocess, fs) |
 | `imprint-selftest-service_run-selftest` | needs a running app |
 | `layout-selftest-service_run-selftest` | needs a running app |
+| `layout-service_outline-create` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `layout-service_outline-delete` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `layout-service_outline-move` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `layout-service_outline-rename` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `memory-service_memory-status` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `parsers-service_resolve-publisher-pdf` | leaves the process (network) |
 | `settings-service_get` | exercised, unobserved (example ran, spy saw no declared read or write) |
