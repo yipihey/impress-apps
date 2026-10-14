@@ -84,8 +84,8 @@ if [ "$BUILD_IOS" = "1" ]; then
 fi
 
 echo "=== Building (native feature) ==="
-# IMPRESS_SKIP_X86=1 → arm64-only macOS slice (local dev loop); CI keeps
-# universal.
+# IMPRESS_SKIP_X86=1 → arm64-only macOS slice (local dev loop and the
+# self-hosted CI lanes); release keeps universal.
 cargo rustc --release --target $MACOS_TARGET --features native --lib --crate-type staticlib
 if [ "${IMPRESS_SKIP_X86:-0}" != "1" ]; then
     cargo rustc --release --target $MACOS_X86_TARGET --features native --lib --crate-type staticlib

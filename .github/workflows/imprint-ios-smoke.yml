@@ -105,44 +105,55 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      # IMPRESS_SKIP_X86=1 on every xcframework step: this runner is arm64 and
+      # nothing here links x86_64 (Debug macOS builds are ONLY_ACTIVE_ARCH, every
+      # xcodebuild passes ARCHS=arm64), so the two x86_64 slices were pure cost.
+      # env-extra is part of the runner store key: keep each crate's string the
+      # same in every lane. docs/build-machine-hygiene.md § Where builds go.
+
       # iOS slices required here, so imprint-core runs with the script's
       # default (multi-platform) slice set.
       - name: ImprintCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-core
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ImprintVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-verbs-ffi
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ImpressStoreFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impress-store-ffi
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ImpressHelix.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impress-helix
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ImbibCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
-          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
 
       - name: ImbibVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-verbs-ffi
-          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
 
       - name: ScixClientCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: scix-client-ffi
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: Generate Xcode project
         working-directory: apps/imprint
@@ -167,6 +178,7 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
           xcodebuild -derivedDataPath "$PWD/.ci-derived" -project imprint.xcodeproj -scheme imprint-iOS -configuration Debug \
             -destination "id=$UDID" \
+            ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO build | tail -30
           APP=$(find .ci-derived/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'imprint.app' | head -1)
           echo "installing $APP"

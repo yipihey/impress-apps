@@ -73,7 +73,8 @@ IOS_SIM_TARGET="aarch64-apple-ios-sim"
 IOS_SIM_X86_TARGET="x86_64-apple-ios"
 
 # IMPRESS_SKIP_X86=1 builds arm64-only (local dev loop on Apple Silicon —
-# roughly halves the macOS Rust compile). CI and release keep universal.
+# roughly halves the macOS Rust compile). The self-hosted CI lanes set it
+# too (the runner is arm64); release keeps universal.
 BUILD_X86=$([ "${IMPRESS_SKIP_X86:-0}" = "1" ] && echo 0 || echo 1)
 # IMPRESS_SKIP_IOS=1 skips the iOS device + simulator slices and produces a
 # macOS-only xcframework for the local dev loop. CI and release keep all slices.

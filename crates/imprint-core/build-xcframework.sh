@@ -76,7 +76,8 @@ IOS_FEATURES="native"
 # the C-dep tree universally is future work — so it skips the x86_64 slice.
 CARGO_FEATURES="native"
 # IMPRESS_SKIP_X86=1 builds arm64-only (local dev loop on Apple Silicon —
-# roughly halves the macOS Rust compile). CI and release keep universal.
+# roughly halves the macOS Rust compile). The self-hosted CI lanes set it
+# too (the runner is arm64); release keeps universal.
 BUILD_X86=$([ "${IMPRESS_SKIP_X86:-0}" = "1" ] && echo 0 || echo 1)
 # iOS slices are on by default; skip with IMPRESS_SKIP_IOS=1 (the suite-wide
 # spelling) or IMPRINT_SKIP_IOS=1 (this script's original spelling — CI

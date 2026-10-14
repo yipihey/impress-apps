@@ -355,8 +355,10 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   `-destination 'generic/platform=iOS Simulator'` compiles both simulator
   architectures, which also doubled every Swift compile in the gate. Before a
   push that triggers the gate (PMC/iOS/packages), rebuild with
-  `IMPRESS_SKIP_X86=1` so the iOS slices exist. CI and release set neither and
-  stay universal + all-slices; imprint-core also accepts its original
+  `IMPRESS_SKIP_X86=1` so the iOS slices exist. Release sets neither and
+  stays universal + all-slices. The self-hosted CI lanes set
+  `IMPRESS_SKIP_X86=1` on every xcframework step, because the runner is arm64
+  and links no x86_64 (docs/build-machine-hygiene.md); imprint-core also accepts its original
   `IMPRINT_SKIP_IOS` spelling, which CI passes as env-extra and which is baked
   into the xcframework cache key — never rename it in CI, though adding the
   suite spelling `IMPRESS_SKIP_IOS` alongside it is fine and is what the

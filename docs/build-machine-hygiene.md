@@ -80,6 +80,15 @@ Rules:
   anything a build touched in the last 2 hours.
 - Build scripts refuse to start below 50 GB free (`IMPRESS_MIN_FREE_GB`)
   instead of failing halfway with ENOSPC.
+- Self-hosted CI lanes build xcframeworks with `IMPRESS_SKIP_X86=1`
+  (decided 2026-10-14). The runner Mac is arm64, and no lane links x86_64:
+  Debug macOS builds use `ONLY_ACTIVE_ARCH`, every `xcodebuild` passes
+  `ARCHS=arm64`, and `swift build`/`swift test` build for the host. On a store
+  miss the two x86_64 slices took 36% of the Rust time (291 of 801 s across
+  eight five-slice builds). Each crate's `env-extra` string is part of the
+  `~/ci-xcframework-store` key, so it must match in every lane that builds
+  that crate. The `*-release.yml` workflows ship universal binaries and keep
+  every slice.
 
 ## DerivedData grows without bound, and why
 

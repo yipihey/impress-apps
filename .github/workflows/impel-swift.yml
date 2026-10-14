@@ -70,6 +70,13 @@ jobs:
       - name: Use a persistent cargo target directory
         run: |
           ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
+
+      # IMPRESS_SKIP_X86=1 on every xcframework step: this runner is arm64 and
+      # nothing here links x86_64 (Debug macOS builds are ONLY_ACTIVE_ARCH, every
+      # xcodebuild passes ARCHS=arm64), so the two x86_64 slices were pure cost.
+      # env-extra is part of the runner store key: keep each crate's string the
+      # same in every lane. docs/build-machine-hygiene.md § Where builds go.
+
       # No SwiftPM cache: ~/Library/Caches/org.swift.swiftpm is the developer's
       # own directory on this self-hosted Mac and already persists between jobs.
       # The step cost 8-9 minutes of upload per job, and its key hashed
@@ -82,7 +89,7 @@ jobs:
           crate: impress-store-ffi
           # macOS-only project: no iOS slices needed (the same reasoning the
           # imprint-core step below already applies).
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       # CounselEngine also declares its own impel_toolsFFI binary target.
       # `swift test` resolves the whole package graph, so the artifact has to
@@ -91,6 +98,7 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: impel-tools
+          env-extra: IMPRESS_SKIP_X86=1
 
       # impel links PublicationManagerCore (Stage 2-C chassis conversion), and
       # `swift test` resolves PMC's WHOLE binary-target closure even for
@@ -101,13 +109,13 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       - name: ImbibVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-verbs-ffi
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       - name: ScixClientCore.xcframework
         uses: ./.github/actions/xcframework
@@ -115,7 +123,7 @@ jobs:
           crate: scix-client-ffi
           # macOS-only project: no iOS slices needed (the same reasoning the
           # imprint-core step below already applies).
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       - name: ImpressHelix.xcframework
         uses: ./.github/actions/xcframework
@@ -123,13 +131,13 @@ jobs:
           crate: impress-helix
           # macOS-only project: no iOS slices needed (the same reasoning the
           # imprint-core step below already applies).
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       - name: ImprintCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-core
-          env-extra: IMPRINT_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_X86=1 IMPRINT_SKIP_IOS=1
 
       - name: Test ImpelCore
         working-directory: apps/impel/Packages/ImpelCore
@@ -177,7 +185,7 @@ jobs:
           crate: impress-store-ffi
           # macOS-only project: no iOS slices needed (the same reasoning the
           # imprint-core step below already applies).
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       # The impel app links the PublicationManagerCore chassis, which drags in
       # the imbib, Helix and SciX cores on top of impel's own ImpelTools. Every
@@ -187,18 +195,19 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: impel-tools
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ImbibCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       - name: ImbibVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-verbs-ffi
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       - name: ImpressHelix.xcframework
         uses: ./.github/actions/xcframework
@@ -206,7 +215,7 @@ jobs:
           crate: impress-helix
           # macOS-only project: no iOS slices needed (the same reasoning the
           # imprint-core step below already applies).
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       - name: ScixClientCore.xcframework
         uses: ./.github/actions/xcframework
@@ -214,16 +223,16 @@ jobs:
           crate: scix-client-ffi
           # macOS-only project: no iOS slices needed (the same reasoning the
           # imprint-core step below already applies).
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       # PMC -> ImprintCore -> imprint_coreFFI. impel is a macOS-only project,
-      # so skip the three iOS slices — imprint-core links Typst and is by far
+      # so skip the iOS slices — imprint-core links Typst and is by far
       # the most expensive crate in this graph.
       - name: ImprintCore.xcframework (macOS slices only)
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-core
-          env-extra: IMPRINT_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_X86=1 IMPRINT_SKIP_IOS=1
 
       - name: Generate Xcode project
         working-directory: apps/impel
@@ -237,6 +246,7 @@ jobs:
             -scheme impel \
             -configuration Debug \
             -destination 'platform=macOS' \
+            ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO \
             build | tail -50
 
@@ -252,6 +262,7 @@ jobs:
             -scheme impel \
             -configuration Debug \
             -destination 'platform=macOS' \
+            ARCHS=arm64 \
             -only-testing:impelTests \
             -resultBundlePath ${{ runner.temp }}/TestResults-impel.xcresult \
             CODE_SIGN_IDENTITY="-" \

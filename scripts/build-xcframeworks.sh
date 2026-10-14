@@ -17,8 +17,9 @@
 # no-change run take seconds instead of ~28 s.
 #
 # The skip envs also work directly with any crates/*/build-xcframework.sh;
-# the flags just export them for every crate built here. CI and release set
-# neither and stay universal + all-slices.
+# the flags just export them for every crate built here. Release sets
+# neither and stays universal + all-slices; the self-hosted CI lanes set
+# IMPRESS_SKIP_X86=1 (docs/build-machine-hygiene.md).
 
 set -e
 
