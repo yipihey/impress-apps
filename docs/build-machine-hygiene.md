@@ -174,12 +174,14 @@ offline before blaming the lane.
   `IMPRESS_SKIP_INSTALL=1`, nothing touches the developer's DerivedData or
   `~/Applications`. An in-checkout `.ci-derived` would be deleted by
   actions/checkout's clean, and both Swift builds would start cold.
-- It creates a throwaway simulator device and deletes it afterwards. Four
-  runners and the developer share the Mac's device set, and two lanes that
-  boot the same device shut it down under each other. The device boots before
-  the macOS build, so the 20-25 s boot overlaps that build.
-  `clean-build-data.sh` deletes any shut-down `ci-impart-*` device that a
-  killed job left behind.
+- It boots its runner's own simulator device, `ci-impart-<runner>`. The
+  device is created on the runner's first job and kept. Four runners and the
+  developer share the Mac's device set, and two lanes that boot the same
+  device shut it down under each other. A device made fresh for each job
+  re-ran its first-boot data migration every time, which took 24 s in one run
+  and 189 s in the next. The device boots before the macOS build, so the boot
+  overlaps that build, and the app is uninstalled before each install so that
+  every launch is a first launch.
 - Xcode is `latest-stable`, as on every lane on the Mac. The hosted path keeps
   its 27.0 pin.
 - `concurrency` cancels a PR's superseded run, which would otherwise hold one

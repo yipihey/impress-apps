@@ -250,11 +250,20 @@ jobs:
           set -eo pipefail
           DEVICES=$(xcrun simctl list devices available)
           UDID=""
-          # Self-hosted: a throwaway device of our own, deleted in the cleanup
-          # step. The Mac's device set is shared by four runners and the
-          # developer; picking an existing device let two lanes boot the same
-          # one, and whichever finished first shut it down under the other.
+          # Self-hosted: this runner's own device, `ci-impart-<runner>`, made
+          # once and kept. The Mac's device set is shared by four runners and
+          # the developer; picking an existing device let two lanes boot the
+          # same one, and whichever finished first shut it down under the
+          # other. A runner runs one job at a time, so its device is never
+          # contended. Kept rather than made per job: a new device's first boot
+          # migrates its data, which took 24 s in one run and 189 s in the next
+          # (38641974636, 38647461799 attempt 2); a device that has booted
+          # before skips it.
           if [ "$RUNNER_ENVIRONMENT" = "self-hosted" ]; then
+            NAME="ci-impart-$RUNNER_NAME"
+            UDID=$(echo "$DEVICES" | grep -F "    $NAME (" | grep -oE '[0-9A-F-]{36}' | head -1 || true)
+          fi
+          if [ "$RUNNER_ENVIRONMENT" = "self-hosted" ] && [ -z "$UDID" ]; then
             # The type of an iPhone the newest iOS runtime already pairs with:
             # the newest device TYPE may need a runtime this Mac does not have.
             PAIR=$(xcrun simctl list devices available -j | python3 -c '
@@ -269,8 +278,7 @@ jobs:
           ' || true)
             TYPE=${PAIR% *}; RUNTIME=${PAIR#* }
             if [ -n "$PAIR" ]; then
-              UDID=$(xcrun simctl create "ci-impart-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$TYPE" "$RUNTIME" || true)
-              if [ -n "$UDID" ]; then echo "CREATED_SIM=1" >> "$GITHUB_ENV"; fi
+              UDID=$(xcrun simctl create "$NAME" "$TYPE" "$RUNTIME" || true)
             fi
             DEVICES=$(xcrun simctl list devices available)
           fi
@@ -339,6 +347,9 @@ jobs:
             ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-output-ios.txt | tail -30 \
             || { echo "::group::compiler errors"; grep -E '(error|fatal error):' build-output-ios.txt | sort -u | head -60; echo "::endgroup::"; exit 1; }
           APP=$(find "$DERIVED/Build/Products/Debug-iphonesimulator" -maxdepth 1 -name 'impart.app' | head -1)
+          # The device outlives the job (self-hosted), so remove the last
+          # run's copy and its data: every launch is a first launch.
+          xcrun simctl uninstall "$UDID" com.imbib.impart 2>/dev/null || true
           echo "installing $APP"
           xcrun simctl install "$UDID" "$APP"
           xcrun simctl launch "$UDID" com.imbib.impart
@@ -371,4 +382,3 @@ jobs:
           [ -n "${UDID:-}" ] || exit 0
           xcrun simctl terminate "$UDID" com.imbib.impart || true
           xcrun simctl shutdown "$UDID" || true
-          if [ "${CREATED_SIM:-}" = "1" ]; then xcrun simctl delete "$UDID" || true; fi

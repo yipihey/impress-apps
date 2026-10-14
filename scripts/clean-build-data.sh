@@ -22,8 +22,7 @@
 #      TARGET_BUDGET_GB (default 150). Main's `target/release` is KEPT: the
 #      signed impress-mcp, vw-mcp and impress binaries run from it;
 #   4. DerivedData untouched for 14 days (prune-derived-data.sh);
-#   5. unavailable simulators, and shut-down `ci-impart-*` devices a killed
-#      impart-apps.yml job never deleted;
+#   5. unavailable simulators;
 #   6. proof and pre-push scratch dirs in /tmp and $TMPDIR older than 3 days;
 #   7. legacy per-job CI target dirs (runner dirs bound themselves, see
 #      scripts/ci-cargo-target.sh), and CI DerivedData dirs no job has used for
@@ -35,7 +34,7 @@ APPLY=no
 for a in "$@"; do
     case "$a" in
         --apply) APPLY=yes ;;
-        -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "unknown option: $a" >&2; exit 2 ;;
     esac
 done
@@ -118,12 +117,6 @@ fi
 echo "5. unavailable simulators"
 n=$(xcrun simctl list devices unavailable 2>/dev/null | grep -c '(unavailable')
 if [ "${n:-0}" -gt 0 ]; then act "$n unavailable simulators" xcrun simctl delete unavailable; fi
-# impart-apps.yml creates one device per job and deletes it in an always()
-# step; a job killed with the runner leaves its device behind. A booted one may
-# belong to a running job, so only shut-down devices go.
-for udid in $(xcrun simctl list devices 2>/dev/null | grep -E '^ +ci-impart-' | grep '(Shutdown)' | grep -oE '[0-9A-F-]{36}'); do
-    act "simulator $udid (ci-impart-*)" xcrun simctl delete "$udid"
-done
 
 echo "6. proof and pre-push scratch older than 3 days"
 for d in /tmp/impress-*-proof-* /tmp/impress-p5b-transport-* /tmp/imbib-autonomous-tests/* "${TMPDIR:-/tmp}"/impress-pre-push.* "${TMPDIR:-/tmp}"/xcfw-*; do
