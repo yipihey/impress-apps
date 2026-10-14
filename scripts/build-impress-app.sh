@@ -102,15 +102,33 @@ else
 fi
 
 set -o pipefail
-xcodebuild \
-    -workspace "$REPO_ROOT/impress.xcworkspace" \
-    -scheme "$APP" \
-    -configuration "$CONFIG" \
-    -destination 'platform=macOS' \
-    -derivedDataPath "$DERIVED" \
-    -allowProvisioningUpdates \
-    -allowProvisioningDeviceRegistration \
-    build 2>&1 | "${PIPE[@]}"
+XCB=(xcodebuild
+    -workspace "$REPO_ROOT/impress.xcworkspace"
+    -scheme "$APP"
+    -configuration "$CONFIG"
+    -destination 'platform=macOS'
+    -derivedDataPath "$DERIVED")
+LOG="$(mktemp -t "impress-build-$APP")"
+trap 'rm -f "$LOG"' EXIT
+
+# Fast path first: no provisioning-portal round trip and no package
+# re-resolution. -allowProvisioningUpdates asks Apple's developer portal on
+# every build (one no-change build measured 24 s against 6 s without it), and
+# automatic resolution re-checks the remote packages. Both are only needed when
+# a profile or Package.resolved is missing or stale, so the build retries with
+# them exactly when the fast attempt fails for one of those reasons
+# (docs/plan-build-storage.md § Dev loop).
+if ! "${XCB[@]}" -skipPackageUpdates -disableAutomaticPackageResolution build 2>&1 \
+        | tee "$LOG" | "${PIPE[@]}"; then
+    if grep -qiE 'provisioning profile|No profiles for|requires a development team|No Account for Team|Package\.resolved|resolv(e|ing) package|package resolution|dependencies could not be resolved' "$LOG"; then
+        echo
+        echo "Retrying with provisioning updates and package resolution..."
+        "${XCB[@]}" -allowProvisioningUpdates -allowProvisioningDeviceRegistration build 2>&1 \
+            | "${PIPE[@]}"
+    else
+        exit 1
+    fi
+fi
 
 mkdir -p "$HOME/MyApplications"
 ln -sfn "$APP_PATH" "$LAUNCHER"

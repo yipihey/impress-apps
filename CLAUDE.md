@@ -338,6 +338,13 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   and nothing deletes the private dir. `scripts/clean-build-data.sh` (dry run;
   `--apply` deletes) is the weekly janitor. Build scripts refuse to start below
   50 GB free. See [docs/build-machine-hygiene.md](docs/build-machine-hygiene.md).
+- **Framework rebuilds skip what did not change**: `build-xcframeworks.sh`
+  runs only the crates an edit can reach (`scripts/framework-plan.py`), and each
+  crate script skips repackaging when its archives are byte-identical to the last
+  publish (`frameworks/.impress-stamp`). A no-change run takes 0.5 s, down from
+  28 s. `--force` (or `IMPRESS_FORCE_FRAMEWORKS=1`) rebuilds and repackages
+  everything, for when a framework was edited or copied by hand. Measurements are
+  in docs/plan-build-storage.md § Dev loop.
 - **Fast local framework rebuilds**: every `crates/*/build-xcframework.sh` honors
   `IMPRESS_SKIP_X86=1` (no x86_64 anywhere — macOS *and* the iOS simulator
   slice) and `IMPRESS_SKIP_IOS=1` (skip the iOS device+sim slices).
