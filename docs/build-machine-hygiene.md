@@ -68,6 +68,7 @@ numbers are in [plan-build-storage.md](plan-build-storage.md).
 | Pre-push gate | DerivedData `impress-prepush` | one tree |
 | Proof and interlock runners | DerivedData `impress-proof.noindex/<app>` | one tree per app |
 | CI xcframeworks | `~/ci-xcframework-store` | entries untouched for 3 days |
+| Xcode, CI (impart-apps.yml) | `~/ci-derived-data.noindex/runner-<name>/<lane>` (`scripts/ci-derived-data.sh`) | 30 GB or Xcode change, checked at job start; dirs unused for 14 days by `clean-build-data.sh` |
 
 Rules:
 
@@ -168,11 +169,17 @@ offline before blaming the lane.
 - It builds every slice, not `IMPRESS_SKIP_X86=1`. That is the variant every
   other lane on the Mac uses (the set matches impart-tests.yml's iOS job). The
   store is keyed by variant, so the lanes share entries.
-- It uses `-derivedDataPath .ci-derived` and `IMPRESS_SKIP_INSTALL=1`, so
-  nothing touches the developer's DerivedData or `~/Applications`.
+- Its DerivedData is a per-runner dir outside the checkout
+  (`scripts/ci-derived-data.sh`), shared by the macOS and iOS builds. With
+  `IMPRESS_SKIP_INSTALL=1`, nothing touches the developer's DerivedData or
+  `~/Applications`. An in-checkout `.ci-derived` would be deleted by
+  actions/checkout's clean, and both Swift builds would start cold.
 - It creates a throwaway simulator device and deletes it afterwards. Four
   runners and the developer share the Mac's device set, and two lanes that
-  boot the same device shut it down under each other.
+  boot the same device shut it down under each other. The device boots before
+  the macOS build, so the 20-25 s boot overlaps that build.
+  `clean-build-data.sh` deletes any shut-down `ci-impart-*` device that a
+  killed job left behind.
 - Xcode is `latest-stable`, as on every lane on the Mac. The hosted path keeps
   its 27.0 pin.
 - `concurrency` cancels a PR's superseded run, which would otherwise hold one

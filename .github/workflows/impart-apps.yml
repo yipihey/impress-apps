@@ -241,34 +241,11 @@ jobs:
           df -h "$GITHUB_WORKSPACE"
           if [ "$RUNNER_ENVIRONMENT" != "self-hosted" ]; then du -sh target 2>/dev/null || true; fi
 
-      - name: Generate Xcode project
-        working-directory: apps/impart
-        run: xcodegen generate
-
-      # tee + grep on failure: `tail -50` alone keeps xcodebuild's summary of
-      # WHICH files failed and drops every `error:` line saying why.
-      # DerivedData inside the checkout, as in every self-hosted lane: the
-      # default location on the build Mac is the developer's own DerivedData.
-      - name: Build impart (macOS)
-        working-directory: apps/impart
-        run: |
-          set -o pipefail
-          xcodebuild -project impart.xcodeproj -derivedDataPath "$PWD/.ci-derived" \
-            -scheme impart \
-            -configuration Debug \
-            -destination 'platform=macOS' \
-            ARCHS=arm64 \
-            CODE_SIGNING_ALLOWED=NO \
-            build 2>&1 | tee build-output-macos.txt | tail -50 \
-          || { echo "::group::compiler errors"; grep -E '(error|fatal error):' build-output-macos.txt | sort -u | head -60; echo "::endgroup::"; exit 1; }
-
-      # Install-smoke: boot a sim, build for it, install, launch. A plain
-      # `build` (generic destination) never installs, so it CANNOT catch
-      # Info.plist/appex install rejections — the class of bug that broke
-      # imprint-iOS install (missing NSExtension/CFBundleDisplayName),
-      # which impart-ShareExtension also had.
-      - name: impart-iOS install smoke (Simulator)
-        working-directory: apps/impart
+      # Booted here, before either Swift build, so the 20-25 s a fresh device
+      # takes to boot overlaps the macOS build instead of preceding the iOS
+      # one. `simctl boot` returns once the boot has started; the smoke step
+      # waits for it with `bootstatus -b`.
+      - name: Boot a simulator
         run: |
           set -eo pipefail
           DEVICES=$(xcrun simctl list devices available)
@@ -311,12 +288,57 @@ jobs:
           echo "sim: $UDID ($(echo "$DEVICES" | grep "$UDID" | sed -E 's/^ +//'))"
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID" || true
+
+      # Self-hosted: a DerivedData dir per runner that survives the checkout's
+      # clean, so Xcode rebuilds only what changed (scripts/ci-derived-data.sh;
+      # the default location on the build Mac is the developer's own
+      # DerivedData). Hosted: inside the checkout, a VM that is discarded.
+      # Both Swift builds share it: they compile the same packages for two
+      # platforms, and one dir keeps one package resolution.
+      - name: DerivedData location
+        run: |
+          if [ "$RUNNER_ENVIRONMENT" = "self-hosted" ]; then
+            DERIVED=$(./scripts/ci-derived-data.sh impart-apps)
+          else
+            DERIVED="$GITHUB_WORKSPACE/apps/impart/.ci-derived"
+          fi
+          echo "DERIVED=$DERIVED" >> "$GITHUB_ENV"
+          echo "DerivedData: $DERIVED"
+
+      - name: Generate Xcode project
+        working-directory: apps/impart
+        run: xcodegen generate
+
+      # tee + grep on failure: `tail -50` alone keeps xcodebuild's summary of
+      # WHICH files failed and drops every `error:` line saying why.
+      - name: Build impart (macOS)
+        working-directory: apps/impart
+        run: |
+          set -o pipefail
+          xcodebuild -project impart.xcodeproj -derivedDataPath "$DERIVED" \
+            -scheme impart \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee build-output-macos.txt | tail -50 \
+          || { echo "::group::compiler errors"; grep -E '(error|fatal error):' build-output-macos.txt | sort -u | head -60; echo "::endgroup::"; exit 1; }
+
+      # Install-smoke: build for the booted sim, install, launch. A plain
+      # `build` (generic destination) never installs, so it CANNOT catch
+      # Info.plist/appex install rejections — the class of bug that broke
+      # imprint-iOS install (missing NSExtension/CFBundleDisplayName),
+      # which impart-ShareExtension also had.
+      - name: impart-iOS install smoke (Simulator)
+        working-directory: apps/impart
+        run: |
+          set -eo pipefail
           xcrun simctl bootstatus "$UDID" -b
           xcodebuild -project impart.xcodeproj -scheme impart-iOS -configuration Debug \
-            -destination "id=$UDID" -derivedDataPath build-ios \
+            -destination "id=$UDID" -derivedDataPath "$DERIVED" \
             ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-output-ios.txt | tail -30 \
             || { echo "::group::compiler errors"; grep -E '(error|fatal error):' build-output-ios.txt | sort -u | head -60; echo "::endgroup::"; exit 1; }
-          APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'impart.app' | head -1)
+          APP=$(find "$DERIVED/Build/Products/Debug-iphonesimulator" -maxdepth 1 -name 'impart.app' | head -1)
           echo "installing $APP"
           xcrun simctl install "$UDID" "$APP"
           xcrun simctl launch "$UDID" com.imbib.impart
