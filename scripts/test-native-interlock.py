@@ -98,7 +98,12 @@ def run_logged(command: list[str], log: Path, environment: dict[str, str]) -> No
 
 def run(app: str, repo_root: Path, log: Path) -> None:
     app_dir = repo_root / "apps" / app
-    derived = app_dir / ".ci-derived"
+    # CI keeps its per-runner .ci-derived; a local run shares the proof root
+    # instead of leaving a cold build in every worktree (docs/plan-build-storage.md).
+    if os.environ.get("GITHUB_ACTIONS"):
+        derived = app_dir / ".ci-derived"
+    else:
+        derived = Path.home() / "Library/Developer/Xcode/DerivedData/impress-proof.noindex" / ("interlock-" + app)
     products = derived / "Build/Products"
     run_id = uuid.uuid4().hex
     bundle_id = f"com.impress.codex.interlock.{app}.{run_id}"

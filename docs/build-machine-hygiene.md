@@ -52,6 +52,35 @@ ends in `.noindex`, the convention Xcode already uses for
 `defaults write com.apple.dt.Xcode IDECustomDerivedDataLocation`. It orphans
 the entire build cache, which is why the Privacy list is the better trade.
 
+## Where builds go, and what keeps them bounded
+
+Measured 2026-10-14, when the disk filled mid-build: builds of this repo held
+~3.2 TB, and the same habit made every build slow. Each new build location was
+a cold build of ~900 crates that nothing ever deleted. The plan and the
+numbers are in [plan-build-storage.md](plan-build-storage.md).
+
+| What | Where | Bounded by |
+|---|---|---|
+| Cargo, main checkout | `target/` | `clean-build-data.sh` (150 GB or toolchain change; `target/release` kept, since signed binaries run from it) |
+| Cargo, every worktree | `.claude/target-worktrees`, set by the untracked `.claude/worktrees/.cargo/config.toml` (`scripts/build-env.sh`) | same |
+| Cargo, CI | `~/ci-cargo-target/runner-<name>`, one per runner (`scripts/ci-cargo-target.sh`) | 120 GB or toolchain change, checked at job start |
+| Xcode app builds | DerivedData `impress-suite` | one tree, overwritten in place |
+| Pre-push gate | DerivedData `impress-prepush` | one tree |
+| Proof and interlock runners | DerivedData `impress-proof.noindex/<app>` | one tree per app |
+| CI xcframeworks | `~/ci-xcframework-store` | entries untouched for 3 days |
+
+Rules:
+
+- **Never** set `CARGO_TARGET_DIR=$PWD/target-<task>` to avoid waiting on
+  another build's lock. Wait instead: a warm build that queues is faster than a
+  cold one, and the private dir is never deleted.
+- `scripts/clean-build-data.sh` is the janitor. It dry-runs by default, and
+  `--apply` deletes. `scripts/install-build-janitor.sh` runs it every Sunday at
+  03:30. It removes merged, clean worktrees idle for 2 days, and leaves alone
+  anything a build touched in the last 2 hours.
+- Build scripts refuse to start below 50 GB free (`IMPRESS_MIN_FREE_GB`)
+  instead of failing halfway with ENOSPC.
+
 ## DerivedData grows without bound, and why
 
 Xcode names each build directory after a hash of the `.xcodeproj`'s **absolute
@@ -83,19 +112,19 @@ deliberate — it fires exactly when new DerivedData is being created, costs one
 plist read per directory, and adds no background item to a Login Items list
 that took real work to make legible (see [self-hosted-runners.md](self-hosted-runners.md)).
 
-The six directories the build script owns (`imbib`, `imprint`, `implore`,
-`impel`, `impart`, `impress`) are never pruned at any age, and never emptied by
-`--products` either. Two separate things depend on them:
-
-- `~/Applications/<app>.app` is a real copy, `ditto`'d out of them by the
-  target's "Install to ~/Applications (Debug)" post-build phase;
-- **`~/MyApplications/<app>.app` is a symlink pointing straight INTO
-  `DerivedData/<app>/Build/Products/Debug/`.** Emptying one of those six
-  dangles the alias the user launches from.
+The fixed roots are never pruned at any age, and never emptied by
+`--products` either: `impress-suite` (every app build from
+`build-impress-app.sh`), `impress-prepush` (the pre-push dual-platform gate)
+and `impress-proof.noindex` (proof and interlock runners), plus Xcode's own
+`*Cache*.noindex` dirs. `~/MyApplications/<app>.app` is a symlink straight into
+`impress-suite/Build/Products/Debug/`, and `~/Applications/<app>.app` is
+`ditto`'d out of it, so emptying that root dangles the alias the user launches
+from. The old per-app dirs (`imbib`, `imprint`, …) predate `impress-suite` and
+age out like any other cache.
 
 ## Duplicate built products, and the two routes that diverge
 
-`--products` empties `Build/Products` everywhere except those six. What it
+`--products` empties `Build/Products` everywhere except the fixed roots. What it
 removes are duplicate `.app` bundles — Spotlight indexes them, and it can rank
 one above `~/Applications`.
 

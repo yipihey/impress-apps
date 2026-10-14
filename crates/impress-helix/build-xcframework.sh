@@ -23,7 +23,9 @@ export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-1}"
 # Output directories
 # When in a workspace, cargo builds to the workspace root target directory
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-BUILD_DIR="${CARGO_TARGET_DIR:-$WORKSPACE_ROOT/target}"
+source "$WORKSPACE_ROOT/scripts/build-env.sh"
+impress_require_free_space
+BUILD_DIR="$(impress_target_dir "$WORKSPACE_ROOT")"
 FRAMEWORK_DIR="$SCRIPT_DIR/frameworks"
 
 # --- content-guarded publication -------------------------------------------
@@ -52,6 +54,7 @@ impress_sync_tree() {   # srcdir dstdir
 
 # Snapshot the previous framework so unchanged files can keep their timestamps.
 PREV_SNAPSHOT="$(mktemp -d)"
+trap 'rm -rf "$PREV_SNAPSHOT"' EXIT   # a failed build must not leak a GB-sized snapshot
 if [ -d "$FRAMEWORK_DIR" ]; then
     cp -Rp "$FRAMEWORK_DIR/." "$PREV_SNAPSHOT/" 2>/dev/null || true
 fi
@@ -191,6 +194,11 @@ fi
 xcodebuild -create-xcframework \
     "${XCFRAMEWORK_ARGS[@]}" \
     -output "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
+
+# The xcframework holds its own copy of every slice; the per-slice staging
+# above (lipo outputs, .framework wrappers, filtered archives) is consumed only
+# by create-xcframework, and left in place it doubled or tripled each archive.
+rm -rf "$FRAMEWORK_DIR"/{macos-universal,ios-sim-universal,ios-simulator-universal,macos.framework,ios.framework,ios-sim.framework,filtered}
 
 echo ""
 echo "Cleaning up xcframework headers..."

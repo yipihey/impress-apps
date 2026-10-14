@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
     derived = args.derived_data.resolve()
-    if not derived.name.startswith(("target-r3-", "impress-r3-")):
+    if not derived.name.startswith(("target-r3-", "impress-r3-")) and derived.parent != (Path.home() / "Library/Developer/Xcode/DerivedData/impress-proof.noindex").resolve():
         parser.error("--derived-data must be an owned R3 build directory")
     products = derived / "Build/Products"
     originals = list(products.glob("imprint_macosx*.xctestrun"))

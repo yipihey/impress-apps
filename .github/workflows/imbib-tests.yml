@@ -62,9 +62,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
-          mkdir -p "$dir"
-          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
       - name: ImbibCore.xcframework
         uses: ./.github/actions/xcframework
         with:
@@ -173,9 +171,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
-          mkdir -p "$dir"
-          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
       - name: ImbibCore.xcframework
         uses: ./.github/actions/xcframework
         with:
@@ -282,9 +278,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
-          mkdir -p "$dir"
-          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
       # Same MACOSX_DEPLOYMENT_TARGET as the macOS jobs — it is the script's
       # own default, stated explicitly so all three jobs share one cache entry
       # instead of building the identical artifact twice.

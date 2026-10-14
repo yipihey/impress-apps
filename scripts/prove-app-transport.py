@@ -48,13 +48,17 @@ def main():
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--build-only", action="store_true")
     parser.add_argument("--derived-data", type=Path,
-                        help="Owned target-p5b-* DerivedData directory in this worktree")
+                        help="Owned DerivedData directory (default: the shared proof root)")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
     app_dir = repo / ("apps/imbib/imbib" if args.app == "imbib" else "apps/" + args.app)
-    derived = (args.derived_data or repo / ("target-p5b-transport-" + args.app)).resolve()
-    if derived.parent != repo or not derived.name.startswith("target-p5b-"):
-        parser.error("--derived-data must be an owned target-p5b-* directory in this worktree")
+    # Proof builds share one DerivedData root outside every worktree, one dir per
+    # app, reused run after run (docs/plan-build-storage.md). A build dir inside
+    # the worktree was a cold multi-GB build per task that outlived the task.
+    proof_root = Path.home() / "Library/Developer/Xcode/DerivedData/impress-proof.noindex"
+    derived = (args.derived_data or proof_root / args.app).resolve()
+    if derived.parent != proof_root.resolve() and not (derived.parent == repo and derived.name.startswith("target-p5b-")):
+        parser.error("--derived-data must be a directory in " + str(proof_root))
     proof = Path(tempfile.mkdtemp(prefix="impress-p5b-transport-", dir="/tmp"))
     bootstrap = proof / "bootstrap"
     bootstrap.mkdir()

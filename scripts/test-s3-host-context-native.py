@@ -74,7 +74,7 @@ def main():
 
     repo = Path(__file__).resolve().parent.parent
     derived = args.derived_data.resolve()
-    if not derived.is_dir() or not derived.name.startswith(("target-s3-", "impress-s3-")):
+    if not derived.is_dir() or not (derived.name.startswith(("target-s3-", "impress-s3-")) or derived.parent == (Path.home() / "Library/Developer/Xcode/DerivedData/impress-proof.noindex").resolve()):
         parser.error("--derived-data must name the dedicated S3 proof build directory")
     if derived == Path.home() / "Library/Developer/Xcode/DerivedData":
         parser.error("do not use the shared Xcode DerivedData directory")

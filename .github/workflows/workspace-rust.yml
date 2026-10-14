@@ -132,9 +132,7 @@ jobs:
       # delete the directory to reclaim the space.
       - name: Use a persistent cargo target directory
         run: |
-          dir="$HOME/ci-cargo-target/workspace-rust-isolated"
-          mkdir -p "$dir"
-          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
 
       - name: Clippy each crate alone
         run: ./scripts/clippy-each-crate.sh both
@@ -170,9 +168,7 @@ jobs:
       # ~/.cargo is already shared and persistent on this machine.
       - name: Use a persistent cargo target directory
         run: |
-          dir="$HOME/ci-cargo-target/${{ github.workflow }}-clippy-${{ matrix.shard.name }}"
-          mkdir -p "$dir"
-          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
 
       # `--all-targets` reaches tests and benches; the feature spelling matches
       # what the apps actually link — see the sharding note above.
@@ -208,9 +204,7 @@ jobs:
       # ~/.cargo is already shared and persistent on this machine.
       - name: Use a persistent cargo target directory
         run: |
-          dir="$HOME/ci-cargo-target/${{ github.workflow }}-test-${{ matrix.shard.name }}"
-          mkdir -p "$dir"
-          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
 
       - name: Run tests
         run: ./scripts/rust-gate.sh test ${{ matrix.shard.name }}
