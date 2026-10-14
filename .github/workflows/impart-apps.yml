@@ -5,36 +5,18 @@ name: impart - App Builds (macOS + iOS)
 # nothing ever built it. This workflow builds BOTH app targets on every
 # change that could affect them.
 
+# PR GATE ONLY: no `push` trigger. impart-tests.yml is the post-merge signal.
+# On a push to main it builds the same two app targets (as build-for-testing,
+# which also compiles the test bundles) from the same seven xcframeworks (the
+# same variants once #189 lands), and runs MessageManagerCore's tests too.
+# A main run here repeated that on one of the build Mac's four runners, ~10
+# runner-minutes per merge, and PR runs queued 11-12 min behind main's lanes.
+# What main gives up: the iOS install smoke below, and an impart build for a
+# merge that touches only paths impart-tests.yml does not enumerate (Cargo.lock,
+# rust-toolchain.toml, crates outside its list). The PR that made each change
+# already ran this lane on its merge ref. See docs/build-machine-hygiene.md
+# § "The impart lane runs on the build Mac".
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/impart/**'
-      - 'apps/chassis-utis.yml'
-      # Everything impart's package graph resolves outside apps/impart:
-      # both targets link PublicationManagerCore, which reaches imbib's and
-      # imprint's Swift cores and their committed bindings. A PMC-only PR
-      # changes what this lane compiles without touching apps/impart.
-      - 'apps/imbib/PublicationManagerCore/**'
-      - 'apps/imbib/ImbibRustCore/**'
-      - 'apps/imbib/ImbibVerbsFFI/**'
-      - 'apps/imprint/Packages/ImprintCore/**'
-      - 'apps/imprint/ImprintRustCore/**'
-      - 'packages/**'
-      # All of crates/, not a list. The frameworks below reach many crate
-      # directories between them (their --all-features path closure, the same
-      # set the xcframework action hashes into each cache key), and an
-      # enumeration here would drift the first time one gains a dependency.
-      # Over-triggering is cheap: a crate outside every closure leaves the
-      # keys unchanged, so only the Swift build runs.
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
-      - 'schema-refs.json'
-      - '.cargo/**'
-      - '.github/actions/xcframework/**'
-      - '.github/workflows/impart-apps.yml'
   pull_request:
     branches: [main]
     paths:
@@ -78,8 +60,8 @@ env:
   # does not have the problem, and rust-toolchain.toml pins it.
 
 # A newer push to the same PR makes the running one worthless, and on the
-# self-hosted Mac it holds one of four runners for twenty minutes. main keeps
-# every run: each one is a post-merge signal for its own commit.
+# self-hosted Mac it holds one of four runners for twenty minutes. (There are
+# no push runs any more; the event check only matters if a trigger is added.)
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -88,7 +70,7 @@ jobs:
   build-apps:
     # The job name is the required check; keep it whichever runner it lands on.
     name: Build impart (macOS + iOS Simulator)
-    # SELF-HOSTED for pushes to main and for pull requests from branches of
+    # SELF-HOSTED for pull requests from branches of
     # this repository; HOSTED (xcode-27) for pull requests from forks.
     #
     # It was hosted for everything until 2026-10-14 and took 1h45-2h on almost
