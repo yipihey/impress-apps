@@ -52,8 +52,12 @@ target-dir = "../target-worktrees"'
 }
 
 # Refuse to start a build that would run the disk out of space halfway.
+# 50 GB on a workstation; 10 GB under CI, where GitHub-hosted macOS runners
+# start with ~37 GB free and a framework build fits comfortably in that.
 impress_require_free_space() {   # [min_gb]
-    local min="${1:-${IMPRESS_MIN_FREE_GB:-50}}" free_kb
+    local default=50 free_kb min
+    [ -n "${GITHUB_ACTIONS:-}" ] && default=10
+    min="${1:-${IMPRESS_MIN_FREE_GB:-$default}}"
     free_kb=$(df -k "${HOME}" | awk 'NR==2 {print $4}')
     if [ -n "$free_kb" ] && [ "$free_kb" -lt $((min * 1048576)) ]; then
         echo "error: only $((free_kb / 1048576)) GB free; builds need ${min} GB." >&2
