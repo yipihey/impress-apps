@@ -154,6 +154,20 @@ Those are the five that cost ~80 minutes on the hosted runner, and they took
 8 minutes here. The Swift half fell from ~25 min to ~3.5 min: macOS build
 85 s, iOS build and install smoke 128 s.
 
+**Warm DerivedData and a kept simulator** (later commits on #187). All seven
+frameworks were restored in each of these runs, so the job is almost all Swift:
+
+| Run | Runner state | macOS build | iOS build + install + launch | Job |
+|---|---|---|---|---|
+| 38645030048 | before: in-checkout DerivedData, a new device per job | 79 s | 109 s | 216 s |
+| 38648827300 #1 | first job on impress-mac-2: cold DerivedData, the device's first boot (5 min 24 s, overlapped) | 274 s | 157 s | 487 s |
+| 38647461799 #2 | warm DerivedData, a new device per job (that commit) | 34 s | 200 s, 189 s of it the boot | 270 s |
+| 38648827300 #2 | warm DerivedData on impress-mac-4, its kept device's first boot (38 s, overlapped) | 26 s | 50 s | **108 s** |
+
+A runner pays the cold row once per Xcode change. After that, a Swift-only PR
+costs about 2 minutes of job time, and one that touches `impress-core`
+about 9.5 minutes, of which 8 are the Rust frameworks.
+
 **The new cost is queueing.** Both runs waited 11–12 minutes for a runner,
 because a merge to main had just queued five self-hosted lanes ahead of them.
 One of the four runners had also been offline since the disk filled on
