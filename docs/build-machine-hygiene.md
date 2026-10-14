@@ -140,6 +140,28 @@ Persisting a Cargo target dir with `actions/cache` (option c) cannot fit. The
 first cold build here left `target/` at 8.9 GB, and on 2026-10-14 the repo
 held 11.2 GB of cache entries against its 10 GB quota.
 
+### After the move (PR #187's own runs, 2026-10-14)
+
+| Run | Frameworks | Rust steps | Job | Wall (incl. queue) |
+|---|---|---|---|---|
+| Hosted baseline, Rust-touching PR (#185) | 7 misses | ~4,900 s | ~1h50 | ~1h50 |
+| 38638956741: workflow-only change | 4 store hits, 3 misses | 190 s | 10.1 min | 22.5 min |
+| 38641974636: comment-only edit to `impress-core` | 5 misses, 2 hits | 491 s | 12.1 min | 23.5 min |
+
+The second run invalidated every framework with `impress-core` in its closure.
+Those are the five that cost ~80 minutes on the hosted runner, and they took
+8 minutes here. The Swift half fell from ~25 min to ~3.5 min: macOS build
+85 s, iOS build and install smoke 128 s.
+
+**The new cost is queueing.** Both runs waited 11–12 minutes for a runner,
+because a merge to main had just queued five self-hosted lanes ahead of them.
+One of the four runners had also been offline since the disk filled on
+2026-10-12. Its listener crashed with `No space left on device`, and launchd
+stopped restarting it. `launchctl kickstart -k gui/$(id -u)/actions.runner.yipihey-impress-apps.impress-mac`
+brought it back. When a PR's run sits in "queued", check
+`gh api repos/yipihey/impress-apps/actions/runners` for a runner that is
+offline before blaming the lane.
+
 ### How the self-hosted path differs
 
 - It uses `scripts/ci-cargo-target.sh`, the runner's bounded target dir.
