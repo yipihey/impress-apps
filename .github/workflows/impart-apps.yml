@@ -26,7 +26,7 @@ on:
       # set the xcframework action hashes into each cache key), and an
       # enumeration here would drift the first time one gains a dependency.
       # Over-triggering is cheap: a crate outside every closure leaves the
-      # keys unchanged, so only the Swift build runs on the hosted runner.
+      # keys unchanged, so only the Swift build runs.
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -55,7 +55,7 @@ on:
       # set the xcframework action hashes into each cache key), and an
       # enumeration here would drift the first time one gains a dependency.
       # Over-triggering is cheap: a crate outside every closure leaves the
-      # keys unchanged, so only the Swift build runs on the hosted runner.
+      # keys unchanged, so only the Swift build runs.
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -77,34 +77,65 @@ env:
   # 36047933967, 36049515666), so this lane turned stripping off. 1.98.1
   # does not have the problem, and rust-toolchain.toml pins it.
 
+# A newer push to the same PR makes the running one worthless, and on the
+# self-hosted Mac it holds one of four runners for twenty minutes. main keeps
+# every run: each one is a post-merge signal for its own commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-apps:
+    # The job name is the required check; keep it whichever runner it lands on.
     name: Build impart (macOS + iOS Simulator)
-    # HOSTED on purpose, and the only Swift app lane that is: it is also the
-    # only one with a pull_request trigger. The repo is public, so a fork PR
-    # must never reach the self-hosted Mac (the rule every other lane
-    # documents). The price is that this runner starts with nothing: every
-    # xcframework the package graph declares has to be built or restored here.
+    # SELF-HOSTED for pushes to main and for pull requests from branches of
+    # this repository; HOSTED (xcode-27) for pull requests from forks.
     #
-    # xcode-27, not macos-latest: the self-hosted lanes build with Xcode 27.0,
-    # and macos-latest's newest is 26.6, whose
-    # type checker gives up on SectionContentView.swift:462 ("unable to
-    # type-check this expression in reasonable time") — a toolchain this lane
-    # alone was on, compiling Swift every other lane compiles. xcode-27 is
-    # GitHub's hosted image for that toolchain (runner-images#14404).
-    runs-on: xcode-27
+    # It was hosted for everything until 2026-10-14 and took 1h45-2h on almost
+    # every run (docs/build-machine-hygiene.md § "The impart lane"). The
+    # xcframework cache key was not the problem: it is already scoped to each
+    # crate's closure, and the closure of five of the seven frameworks includes
+    # impress-core, koine (a git dependency bumped by most PRs) and the hakari
+    # workspace-hack, so nearly every PR is a genuine miss. A miss on a hosted
+    # runner is a cold release build of ~600-900 crates per slice
+    # (ImpressStoreFfi alone: 33-35 min). The same miss on the self-hosted Mac,
+    # with its warm per-runner target dir, is 5-6 min. PR-scoped actions/cache
+    # entries were also invisible to main, so the post-merge push rebuilt the
+    # exact keys its PR had just built; the runner's local store is not scoped
+    # by ref, so a merged PR's frameworks are there for main and for the other
+    # lanes.
+    #
+    # Fork PRs stay hosted because the repo is public: code from a fork must
+    # never run on the build Mac. `head.repo.full_name` comes from the event
+    # payload, which a fork cannot set. A branch of this repository can only be
+    # pushed by someone who can already push to main, which runs every other
+    # self-hosted lane. (A fork can still edit this file in its own PR; what
+    # stops that is the repository's approval policy for outside contributors,
+    # "all_external_contributors" as of 2026-10-14, not this expression.)
+    #
+    # Hosted: xcode-27, not macos-latest. macos-latest's newest Xcode is 26.6,
+    # whose type checker gives up on SectionContentView.swift:462 ("unable to
+    # type-check this expression in reasonable time"). xcode-27 is GitHub's
+    # hosted image for that toolchain (runner-images#14404).
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","impress-mac"]') || 'xcode-27' }}
+    env:
+      # The impart target's Debug post-build phase installs into
+      # ~/Applications; on the build Mac that is the developer's own copy.
+      # CODE_SIGNING_ALLOWED=NO already skips it; this says so explicitly.
+      IMPRESS_SKIP_INSTALL: 1
     steps:
       - uses: actions/checkout@v4
 
-      # PINNED to 27.0 (27A266a), the exact build the self-hosted lanes get
-      # from latest-stable. On this image latest-stable picks 27.1, which is
-      # installed as Xcode_27.1_beta.app, and under it every Rust build died
-      # before compiling a line of ours: "can't find crate for
-      # `zerofrom_derive`" (run 36047933967). Move this with the self-hosted Mac.
+      # Hosted: PINNED to 27.0 (27A266a), the exact build the self-hosted Mac
+      # has. On the hosted image latest-stable picks 27.1, installed as
+      # Xcode_27.1_beta.app, and under it every Rust build died before
+      # compiling a line of ours: "can't find crate for `zerofrom_derive`"
+      # (run 36047933967). Self-hosted: latest-stable, like every other lane
+      # on that Mac. Move the pin with the Mac.
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '27.0'
+          xcode-version: ${{ runner.environment == 'self-hosted' && 'latest-stable' || '27.0' }}
 
       # The arm64-only decision below is only right on Apple Silicon; fail
       # loudly if the label ever lands on an Intel image instead of producing
@@ -114,20 +145,33 @@ jobs:
           uname -m; xcodebuild -version
           [ "$(uname -m)" = "arm64" ]
 
-      # arm64 only. The runner is Apple Silicon and the simulator it boots is
-      # arm64, so x86_64 slices would be built, cached and never linked — two
-      # of every framework's five slices. IMPRESS_SKIP_X86=1 below and
-      # ARCHS=arm64 in both xcodebuild calls are the same decision.
+      # Hosted: arm64 only. The runner is Apple Silicon and the simulator it
+      # boots is arm64, so x86_64 slices would be built, cached and never
+      # linked — two of every framework's five slices. IMPRESS_SKIP_X86=1 below
+      # and ARCHS=arm64 in both xcodebuild calls are the same decision.
+      #
+      # Self-hosted: every slice, because that is the variant every other lane
+      # on the Mac builds (impart-tests.yml's iOS job uses exactly this set).
+      # The runner's xcframework store is keyed by variant, so matching it
+      # means a PR's build is the entry main's lanes restore after the merge,
+      # and theirs is the one this lane restores. The two x86_64 slices cost a
+      # few minutes against a target dir that already holds them.
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim
+          targets: ${{ runner.environment == 'self-hosted' && 'aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim' || 'aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim' }}
 
-      # No target/ cache. It used to be round-tripped here keyed on Cargo.lock,
-      # which for five release builds is several GB of tarball against a 10 GB
-      # repo quota that is already full and already evicting the xcframework
-      # entries. The xcframework action below caches the OUTPUTS instead, which
-      # is what lets a Swift-only PR skip the Rust entirely.
+      # Hosted: no target/ cache. It used to be round-tripped here keyed on
+      # Cargo.lock, which for five release builds is several GB of tarball
+      # against a 10 GB repo quota that is already full (11.2 GB of entries on
+      # 2026-10-14) and already evicting the xcframework entries. The
+      # xcframework action below caches the OUTPUTS instead, which is what lets
+      # a Swift-only PR skip the Rust entirely.
+      #
+      # Self-hosted: the runner's own bounded target dir, as in every lane there.
+      - name: Use a persistent cargo target directory
+        if: runner.environment == 'self-hosted'
+        run: ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
 
       - name: Install xcodegen
         run: brew install xcodegen
@@ -141,54 +185,61 @@ jobs:
       # ImpressStoreFfi, and was waved through as "base-red". The set matches
       # impart-tests.yml's; FULL iOS slices because the smoke below builds
       # impart-iOS.
+      #
+      # env-extra is written `hosted && X || Y`, never `self-hosted && '' || X`:
+      # '' is falsy in an expression, so the second form always yields X.
       - name: ImpressStoreFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impress-store-ffi
-          env-extra: IMPRESS_SKIP_X86=1
+          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1' || '' }}
 
       - name: ImbibCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
-          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
+          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0' || 'MACOSX_DEPLOYMENT_TARGET=14.0' }}
 
       - name: ImbibVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-verbs-ffi
-          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
+          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0' || 'MACOSX_DEPLOYMENT_TARGET=14.0' }}
 
       # MessageManagerCore imports ImpartVerbsFFI on both platforms.
       - name: ImpartVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impart-verbs-ffi
-          env-extra: IMPRESS_SKIP_X86=1
+          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1' || '' }}
 
       - name: ScixClientCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: scix-client-ffi
-          env-extra: IMPRESS_SKIP_X86=1
+          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1' || '' }}
 
       - name: ImpressHelix.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impress-helix
-          env-extra: IMPRESS_SKIP_X86=1
+          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1' || '' }}
 
       - name: ImprintCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-core
-          env-extra: IMPRESS_SKIP_X86=1
+          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1' || '' }}
 
       # Record the headroom so a space failure never has to be guessed at. The
       # first full build (run 36037604487) left target/ at 8.9 GB with 83 GiB
       # still free on macos-26-arm64.
+      # Self-hosted: df only. The target dir there is the runner's shared one,
+      # tens of GB that `du` would spend minutes walking.
       - name: Disk after Rust
-        run: df -h "$GITHUB_WORKSPACE" && du -sh target 2>/dev/null || true
+        run: |
+          df -h "$GITHUB_WORKSPACE"
+          if [ "$RUNNER_ENVIRONMENT" != "self-hosted" ]; then du -sh target 2>/dev/null || true; fi
 
       - name: Generate Xcode project
         working-directory: apps/impart
@@ -196,11 +247,13 @@ jobs:
 
       # tee + grep on failure: `tail -50` alone keeps xcodebuild's summary of
       # WHICH files failed and drops every `error:` line saying why.
+      # DerivedData inside the checkout, as in every self-hosted lane: the
+      # default location on the build Mac is the developer's own DerivedData.
       - name: Build impart (macOS)
         working-directory: apps/impart
         run: |
           set -o pipefail
-          xcodebuild -project impart.xcodeproj \
+          xcodebuild -project impart.xcodeproj -derivedDataPath "$PWD/.ci-derived" \
             -scheme impart \
             -configuration Debug \
             -destination 'platform=macOS' \
@@ -218,12 +271,37 @@ jobs:
         working-directory: apps/impart
         run: |
           set -eo pipefail
+          DEVICES=$(xcrun simctl list devices available)
+          UDID=""
+          # Self-hosted: a throwaway device of our own, deleted in the cleanup
+          # step. The Mac's device set is shared by four runners and the
+          # developer; picking an existing device let two lanes boot the same
+          # one, and whichever finished first shut it down under the other.
+          if [ "$RUNNER_ENVIRONMENT" = "self-hosted" ]; then
+            # The type of an iPhone the newest iOS runtime already pairs with:
+            # the newest device TYPE may need a runtime this Mac does not have.
+            PAIR=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)["devices"]
+          rts = sorted((k for k in d if ".iOS-" in k), reverse=True,
+                       key=lambda k: [int(x) for x in k.rsplit(".iOS-", 1)[1].split("-")])
+          for rt in rts:
+              for dev in d[rt]:
+                  if ".iPhone-" in dev.get("deviceTypeIdentifier", ""):
+                      print(dev["deviceTypeIdentifier"], rt); sys.exit()
+          ' || true)
+            TYPE=${PAIR% *}; RUNTIME=${PAIR#* }
+            if [ -n "$PAIR" ]; then
+              UDID=$(xcrun simctl create "ci-impart-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$TYPE" "$RUNTIME" || true)
+              if [ -n "$UDID" ]; then echo "CREATED_SIM=1" >> "$GITHUB_ENV"; fi
+            fi
+            DEVICES=$(xcrun simctl list devices available)
+          fi
           # `|| true` on each lookup: under pipefail a grep with no match
           # killed the step on the FIRST line, so the fallback never ran and
           # the step died silently — which it did on the xcode-27 image, whose
           # device set has no iPad Pro.
-          DEVICES=$(xcrun simctl list devices available)
-          UDID=$(echo "$DEVICES" | grep -E 'iPad Pro' | grep -oE '[0-9A-F-]{36}' | head -1 || true)
+          [ -n "$UDID" ] || UDID=$(echo "$DEVICES" | grep -E 'iPad Pro' | grep -oE '[0-9A-F-]{36}' | head -1 || true)
           [ -n "$UDID" ] || UDID=$(echo "$DEVICES" | grep -E 'iPhone|iPad' | grep -oE '[0-9A-F-]{36}' | head -1 || true)
           if [ -z "$UDID" ]; then
             echo "::error::no available iOS simulator on this image"
@@ -268,5 +346,7 @@ jobs:
       - name: Terminate and shut down the simulator
         if: always()
         run: |
+          [ -n "${UDID:-}" ] || exit 0
           xcrun simctl terminate "$UDID" com.imbib.impart || true
           xcrun simctl shutdown "$UDID" || true
+          if [ "${CREATED_SIM:-}" = "1" ]; then xcrun simctl delete "$UDID" || true; fi

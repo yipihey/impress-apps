@@ -81,6 +81,92 @@ Rules:
 - Build scripts refuse to start below 50 GB free (`IMPRESS_MIN_FREE_GB`)
   instead of failing halfway with ENOSPC.
 
+## The impart lane runs on the build Mac
+
+`impart - App Builds (macOS + iOS)` (`.github/workflows/impart-apps.yml`) is
+the one Swift lane with a `pull_request` trigger, so it gates PRs. Until
+2026-10-14 it ran on GitHub's hosted `xcode-27` image for every event and took
+**1h45–2h on almost every run**. It now runs on the self-hosted runners for
+pushes to main and for PRs from branches of this repository, and on the hosted
+image only for PRs from forks.
+
+### What was measured
+
+On hosted runs that missed the xcframework cache (runs 38620534627,
+38333122147, 38324588980):
+
+| Step | Hosted, cache miss | Self-hosted, store miss (impart-tests.yml) |
+|---|---|---|
+| ImpressStoreFfi | 1261–2106 s | 324–373 s |
+| ImbibCore | 971–1213 s | 221–225 s |
+| ImbibVerbsFfi | 745–890 s | 193–350 s |
+| ImprintCore | 778–893 s | — |
+| impart macOS build | 252–461 s | 153–188 s |
+| impart-iOS build (+ smoke on hosted) | 1109–1304 s | 124–128 s |
+
+The same commit (f6ea40de, a koine bump) took ~1h45 on the hosted lane and
+20 min for impart-tests.yml's macOS job on the Mac, with five framework misses.
+A hosted run that hit the cache for all seven frameworks (38140265201) took
+26 min, all of it Swift.
+
+### Why the cache key was not the fix
+
+The suspected cause was the key's `crates/**/*.rs` hash. That glob is only the
+fallback. The key is already scoped to each crate's own path-dependency closure
+(the "Scope the cache key" step in `.github/actions/xcframework/action.yml`),
+and every run in the sample used the scoped key. The keys still changed on
+nearly every PR, for real reasons:
+
+- five of the seven frameworks have `impress-core` in their closure, and
+  `impress-core` depends on koine, a git dependency whose rev most PRs bump.
+  That changes the root `Cargo.toml` and `Cargo.lock`. #180–#184 changed
+  nothing else under `crates/`;
+- every closure includes `crates/impress-workspace-hack`, the hakari crate,
+  whose manifest changes whenever any crate's dependencies change.
+
+Narrowing the key further (option b) would only rescue `impress-helix` and
+`scix-client-ffi`, which take about 3 minutes together. The expensive
+frameworks really do change on most PRs. The cost of a miss was the problem:
+on a hosted runner it is a cold release build of 600–900 crates for each
+slice.
+
+A second waste: `actions/cache` entries are scoped to the ref that saved them.
+A PR's entries were invisible to main, so the post-merge push rebuilt the keys
+its PR had just built, and each merged change paid for two cold builds. The
+runner's store (`~/ci-xcframework-store`) is not scoped by ref, so after a
+merge the main lanes restore what the PR built.
+
+Persisting a Cargo target dir with `actions/cache` (option c) cannot fit. The
+first cold build here left `target/` at 8.9 GB, and on 2026-10-14 the repo
+held 11.2 GB of cache entries against its 10 GB quota.
+
+### How the self-hosted path differs
+
+- It uses `scripts/ci-cargo-target.sh`, the runner's bounded target dir.
+- It builds every slice, not `IMPRESS_SKIP_X86=1`. That is the variant every
+  other lane on the Mac uses (the set matches impart-tests.yml's iOS job). The
+  store is keyed by variant, so the lanes share entries.
+- It uses `-derivedDataPath .ci-derived` and `IMPRESS_SKIP_INSTALL=1`, so
+  nothing touches the developer's DerivedData or `~/Applications`.
+- It creates a throwaway simulator device and deletes it afterwards. Four
+  runners and the developer share the Mac's device set, and two lanes that
+  boot the same device shut it down under each other.
+- Xcode is `latest-stable`, as on every lane on the Mac. The hosted path keeps
+  its 27.0 pin.
+- `concurrency` cancels a PR's superseded run, which would otherwise hold one
+  of the four runners. Runs on main are never cancelled.
+
+### Fork PRs
+
+Fork PRs stay on the hosted runner, and they still pay the cold build. The
+repo is public, and code from a fork must not run on the build Mac. The routing
+expression reads `github.event.pull_request.head.repo.full_name`, which a fork
+cannot set. A branch of this repository can only be pushed by someone who can
+push to main, and a push to main already runs every self-hosted lane. A fork
+can still edit any workflow in its own PR, this one included. What stops that
+is the repository's approval policy for outside contributors
+(`all_external_contributors` on 2026-10-14). Keep that setting.
+
 ## DerivedData grows without bound, and why
 
 Xcode names each build directory after a hash of the `.xcodeproj`'s **absolute
