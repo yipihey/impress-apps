@@ -125,9 +125,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
-          mkdir -p "$dir"
-          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
       # No SwiftPM cache: ~/Library/Caches/org.swift.swiftpm is the developer's
       # own directory on this self-hosted Mac and already persists between jobs.
       # The step cost 8-9 minutes of upload per job, and its key hashed
@@ -204,9 +202,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
-          mkdir -p "$dir"
-          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
       # Both impart targets link PublicationManagerCore, which drags in four
       # more Rust cores on top of impart's own graph. Every xcframework below is
       # a gitignored build artifact, so a clean checkout has to produce them all
@@ -328,9 +324,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
-          mkdir -p "$dir"
-          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
       - name: ImpressStoreFfi.xcframework
         uses: ./.github/actions/xcframework
         with:

@@ -62,6 +62,12 @@ esac
 "$(dirname "$0")/prune-derived-data.sh" --apply --quiet || true
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Refuse to start on a nearly full disk (a half-written build is worse than
+# none), and re-assert the one shared Cargo target dir for worktrees.
+# shellcheck source=build-env.sh
+source "$REPO_ROOT/scripts/build-env.sh"
+impress_require_free_space
+impress_install_worktree_cargo_config "$REPO_ROOT"
 # ONE DerivedData for the whole suite, reached through impress.xcworkspace.
 # Per-app derived data meant PublicationManagerCore + ImpressChassis + ~25
 # packages were compiled once per app (17 PublicationManagerCore.build trees,

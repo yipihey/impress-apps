@@ -205,9 +205,17 @@ pushd "$IMBIB_DIR" >/dev/null
 echo "pre-push: regenerating Xcode project"
 xcodegen generate >/dev/null
 
+# One DerivedData for every pre-push gate, whichever worktree pushes. Without
+# -derivedDataPath Xcode hashes the project's absolute path, so each agent
+# worktree got its own cold multi-GB cache that outlived the worktree
+# (docs/plan-build-storage.md). Two simultaneous pushes share it and may wait
+# on Xcode's build database lock; that is the intended trade.
+PREPUSH_DERIVED="${IMPRESS_PREPUSH_DERIVED:-$HOME/Library/Developer/Xcode/DerivedData/impress-prepush}"
+
 echo "pre-push: building imbib (macOS)"
 if ! xcodebuild build \
     -scheme imbib \
+    -derivedDataPath "$PREPUSH_DERIVED" \
     -destination 'platform=macOS' \
     CODE_SIGN_IDENTITY="-" \
     CODE_SIGNING_REQUIRED=NO \
@@ -223,6 +231,7 @@ fi
 echo "pre-push: building imbib-iOS (Simulator)"
 if ! xcodebuild build \
     -scheme imbib-iOS \
+    -derivedDataPath "$PREPUSH_DERIVED" \
     -destination 'generic/platform=iOS Simulator' \
     ARCHS=arm64 \
     CODE_SIGN_IDENTITY="-" \

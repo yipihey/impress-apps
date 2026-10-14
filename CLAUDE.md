@@ -320,6 +320,24 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   must bind its own audit store to the exact GUI database; another framework's
   initialization does not initialize it. The native bundle checker rejects
   exported Rust implementation symbols before hosted proofs launch.
+- **Build storage is bounded; never make a private target dir.** On 2026-10-14
+  this repo's builds held about 3.2 TB and filled the disk mid-build. The
+  causes were 111 `target-<task>` dirs in agent worktrees, 33 per-job CI target
+  dirs, and 74 worktrees that were never removed. Every one was a cold build of
+  about 900 crates, which is also why builds were slow. The layout now:
+  - the main checkout builds into `target/`;
+  - every worktree builds into one shared `.claude/target-worktrees`, set by
+    cargo config that `scripts/build-env.sh` writes, so plain `cargo test`
+    picks it up;
+  - CI uses one dir per runner (`scripts/ci-cargo-target.sh`);
+  - Xcode uses fixed DerivedData roots (`impress-suite`, `impress-prepush`,
+    `impress-proof.noindex`).
+
+  **Do not set `CARGO_TARGET_DIR=$PWD/target-<task>`** to get around another
+  build's lock. Wait for the lock: a warm queued build beats a cold private one,
+  and nothing deletes the private dir. `scripts/clean-build-data.sh` (dry run;
+  `--apply` deletes) is the weekly janitor. Build scripts refuse to start below
+  50 GB free. See [docs/build-machine-hygiene.md](docs/build-machine-hygiene.md).
 - **Fast local framework rebuilds**: every `crates/*/build-xcframework.sh` honors
   `IMPRESS_SKIP_X86=1` (no x86_64 anywhere — macOS *and* the iOS simulator
   slice) and `IMPRESS_SKIP_IOS=1` (skip the iOS device+sim slices).

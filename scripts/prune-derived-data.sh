@@ -64,14 +64,18 @@ say() { [ "$QUIET" = yes ] || printf '%s\n' "$*"; }
 
 [ -d "$ROOT" ] || { say "no DerivedData at $ROOT"; exit 0; }
 
-# The six directories `build-impress-app.sh` builds into are load-bearing:
-# they are what gets installed to ~/Applications, so they are never stale and
-# never pruned, whatever their mtime says.
+# The fixed roots are load-bearing and reused by every checkout, so they are
+# never stale and never pruned, whatever their mtime says. Anything else —
+# including the old per-app dirs (imbib, imprint, …) the build script used
+# before impress-suite, and ad-hoc `*-proof.noindex` dirs — ages out under
+# --stale-days like any other cache. (A blanket `*.noindex` exemption kept two
+# dead proof roots alive until 2026-10-14.)
 is_protected() {
     case "$1" in
-        imbib|imprint|implore|impel|impart|impress) return 0 ;;
-        impress-suite) return 0 ;;   # the shared workspace build (build-impress-app.sh)
-        *.noindex) return 0 ;;   # ModuleCache & friends — Xcode's, not ours
+        impress-suite) return 0 ;;          # app builds (build-impress-app.sh)
+        impress-prepush) return 0 ;;        # pre-push dual-platform gate
+        impress-proof.noindex) return 0 ;;  # proof and interlock runners
+        ModuleCache.noindex|SDKStatCaches.noindex|SymbolCache.noindex|CompilationCache.noindex) return 0 ;;   # Xcode's own
         *) return 1 ;;
     esac
 }
