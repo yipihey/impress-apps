@@ -1351,7 +1351,6 @@
 				};
 			};
 			buildConfigurationList = 9A2B646DEB0B0C734E396477 /* Build configuration list for PBXProject "imprint" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -1388,16 +1387,17 @@
 				B52258AB04360D4E5C8F4A6E /* XCLocalSwiftPackageReference "../imbib/PublicationManagerCore" */,
 			);
 			preferredProjectObjectVersion = 77;
+			productRefGroup = A8D30776BA85CC107874B788 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				8F6B47B1A88086956E703EBC /* imprint */,
-				92D0D66C5B01923C4A4CB5CF /* imprint-ShareExtension */,
-				70AB98D22601A991C23E4991 /* imprint-iOS */,
-				3F693C7E5B1EA50340DBBC2F /* imprint-iOSTests */,
-				C7405FB05837C71D5FB39645 /* imprint-iOSUITests */,
 				9E4949C0B5D2D2D1F6F68B5A /* imprintTests */,
 				5EBF5F5AB29A089358E3394D /* imprintUITests */,
+				70AB98D22601A991C23E4991 /* imprint-iOS */,
+				92D0D66C5B01923C4A4CB5CF /* imprint-ShareExtension */,
+				C7405FB05837C71D5FB39645 /* imprint-iOSUITests */,
+				3F693C7E5B1EA50340DBBC2F /* imprint-iOSTests */,
 			);
 		};
 /* End PBXProject section */
@@ -1453,7 +1453,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# IMPRESS_SKIP_INSTALL=1 opts out (worktree/CI builds must not\n# hijack the ~/Applications copy a developer is actively using).\n# Also require a real signing identity: an ad-hoc (CODE_SIGNING_ALLOWED=NO)\n# copy has NO entitlements, and installing it strips the app-sandbox +\n# application-groups grants → macOS prompts on every launch for the\n# shared group container and Documents.\nif [ \"$CONFIGURATION\" = \"Debug\" ] && [ \"$PLATFORM_NAME\" = \"macosx\" ] && [ -z \"$IMPRESS_SKIP_INSTALL\" ] && [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ]; then\n  DEST=\"$HOME/Applications\"\n  LSREG=\"/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister\"\n  mkdir -p \"$DEST\"\n  rm -rf \"$DEST/$FULL_PRODUCT_NAME\"\n  /usr/bin/ditto \"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME\" \"$DEST/$FULL_PRODUCT_NAME\"\n  # Script phases run BEFORE Xcode's final product codesign, so the copy is\n  # unsigned at this point — sign it ourselves or launchd refuses to spawn it.\n  ENT=$(/usr/bin/find \"$TARGET_TEMP_DIR\" -name \"*.xcent\" -print -quit 2>/dev/null)\n  if [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ]; then\n    # The debug dylib (Xcode 16 previews) is also only signed during final\n    # product signing — sign nested dylibs first or the outer sign fails.\n    for dl in \"$DEST/$FULL_PRODUCT_NAME/Contents/MacOS/\"*.dylib; do\n      [ -e \"$dl\" ] && /usr/bin/codesign --force --timestamp=none --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" \"$dl\"\n    done\n    /usr/bin/codesign --force ${ENT:+--entitlements \"$ENT\"} --options runtime --timestamp=none --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" \"$DEST/$FULL_PRODUCT_NAME\" || echo \"warning: re-sign of installed copy failed\"\n  fi\n  /usr/bin/chflags nohidden \"$DEST/$FULL_PRODUCT_NAME\"\n  \"$LSREG\" -f \"$DEST/$FULL_PRODUCT_NAME\" || true\n  # Keep the DerivedData copy out of Spotlight so ~/Applications is the only hit\n  \"$LSREG\" -u \"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME\" 2>/dev/null || true\n  /usr/bin/chflags hidden \"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME\" || true\n  echo \"note: installed $FULL_PRODUCT_NAME to $DEST\"\nfi\n";
+			shellScript = "# IMPRESS_SKIP_INSTALL=1 opts out (worktree/CI builds must not\n# hijack the ~/Applications copy a developer is actively using).\n# Also require a real signing identity: an ad-hoc (CODE_SIGNING_ALLOWED=NO)\n# copy has NO entitlements, and installing it strips the app-sandbox +\n# application-groups grants → macOS prompts on every launch for the\n# shared group container and Documents.\nif [ \"$CONFIGURATION\" = \"Debug\" ] && [ \"$PLATFORM_NAME\" = \"macosx\" ] && [ -z \"$IMPRESS_SKIP_INSTALL\" ] && [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ]; then\n  DEST=\"$HOME/Applications\"\n  LSREG=\"/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister\"\n  mkdir -p \"$DEST\"\n  rm -rf \"$DEST/$FULL_PRODUCT_NAME\"\n  /usr/bin/ditto --clone \"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME\" \"$DEST/$FULL_PRODUCT_NAME\"   # APFS clone: 0.2 s, not 0.6 s for imbib's 910 MB\n  # Script phases run BEFORE Xcode's final product codesign, so the copy is\n  # unsigned at this point — sign it ourselves or launchd refuses to spawn it.\n  ENT=$(/usr/bin/find \"$TARGET_TEMP_DIR\" -name \"*.xcent\" -print -quit 2>/dev/null)\n  if [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ]; then\n    # The debug dylib (Xcode 16 previews) is also only signed during final\n    # product signing — sign nested dylibs first or the outer sign fails.\n    for dl in \"$DEST/$FULL_PRODUCT_NAME/Contents/MacOS/\"*.dylib; do\n      [ -e \"$dl\" ] && /usr/bin/codesign --force --timestamp=none --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" \"$dl\"\n    done\n    /usr/bin/codesign --force ${ENT:+--entitlements \"$ENT\"} --options runtime --timestamp=none --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" \"$DEST/$FULL_PRODUCT_NAME\" || echo \"warning: re-sign of installed copy failed\"\n  fi\n  /usr/bin/chflags nohidden \"$DEST/$FULL_PRODUCT_NAME\"\n  \"$LSREG\" -f \"$DEST/$FULL_PRODUCT_NAME\" || true\n  # Keep the DerivedData copy out of Spotlight so ~/Applications is the only hit\n  \"$LSREG\" -u \"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME\" 2>/dev/null || true\n  /usr/bin/chflags hidden \"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME\" || true\n  echo \"note: installed $FULL_PRODUCT_NAME to $DEST\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

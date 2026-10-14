@@ -8,6 +8,13 @@
 #   ./scripts/build-xcframeworks.sh --fast       # Local macOS dev loop:
 #                                                #   IMPRESS_SKIP_X86=1 + IMPRESS_SKIP_IOS=1
 #   ./scripts/build-xcframeworks.sh --macos-only # IMPRESS_SKIP_IOS=1 only
+#   ./scripts/build-xcframeworks.sh --force      # run every crate script, and
+#                                                #   repackage even unchanged archives
+#
+# Crates an edit cannot reach are skipped outright (scripts/framework-plan.py),
+# and a crate whose archives came out identical is not repackaged
+# (impress_framework_current in scripts/build-env.sh). Both are what make a
+# no-change run take seconds instead of ~28 s.
 #
 # The skip envs also work directly with any crates/*/build-xcframework.sh;
 # the flags just export them for every crate built here. CI and release set
@@ -62,6 +69,10 @@ while [[ $# -gt 0 ]]; do
             export IMPRESS_SKIP_IOS=1
             shift
             ;;
+        --force)
+            export IMPRESS_FORCE_FRAMEWORKS=1
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [options] [crate-names...]"
             echo ""
@@ -71,6 +82,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --fast, -f       Local macOS dev loop: skip x86_64 and iOS slices"
             echo "                   (IMPRESS_SKIP_X86=1 IMPRESS_SKIP_IOS=1)"
             echo "  --macos-only     Skip only the iOS slices (IMPRESS_SKIP_IOS=1)"
+            echo "  --force          Build every named crate, even when up to date"
             echo "  --help, -h       Show this help message"
             echo ""
             echo "Available crates:"
@@ -108,6 +120,23 @@ for crate in "${CRATES_TO_BUILD[@]}"; do
         exit 1
     fi
 done
+
+# Drop the crates whose inputs have not changed since their last publish.
+REQUESTED=("${CRATES_TO_BUILD[@]}")
+if [ "${IMPRESS_FORCE_FRAMEWORKS:-0}" != "1" ]; then
+    if PLANNED=$(python3 "$SCRIPT_DIR/framework-plan.py" "${CRATES_TO_BUILD[@]}"); then
+        CRATES_TO_BUILD=()
+        while IFS= read -r crate; do
+            [ -n "$crate" ] && CRATES_TO_BUILD+=("$crate")
+        done <<< "$PLANNED"
+    else
+        echo "framework-plan.py failed; building every requested crate" >&2
+    fi
+fi
+if [ ${#CRATES_TO_BUILD[@]} -eq 0 ]; then
+    echo "All requested frameworks are up to date (${REQUESTED[*]})."
+    exit 0
+fi
 
 echo "=== Building XCFrameworks ==="
 echo "Crates: ${CRATES_TO_BUILD[*]}"

@@ -65,3 +65,86 @@ impress_require_free_space() {   # [min_gb]
         return 1
     fi
 }
+
+# --- framework publish stamp -------------------------------------------------
+# Repackaging a framework whose archives did not change costs ~3 s a crate —
+# a uniffi-bindgen pass, lipo, create-xcframework and the app-side copies — so
+# an edit that touched one crate paid ~25 s for the seven it did not
+# (measured 2026-10-14, docs/plan-build-storage.md § Dev loop). Each crate
+# script records what it published in frameworks/.impress-stamp, and skips
+# packaging when the archives cargo just produced are the same ones.
+#
+# "Same" is decided by size+mtime first and, only when those moved, by
+# content: cargo relinks an archive whenever an input's mtime changes, and a
+# touched-but-identical source produces a byte-identical archive.
+# IMPRESS_FORCE_FRAMEWORKS=1 repackages regardless.
+
+_impress_framework_stamp_tool() {   # mode framework_dir build_dir lib_name script
+    python3 - "$@" <<'PY'
+import glob, hashlib, json, os, sys
+mode, fw, build, lib, script = sys.argv[1:6]
+stamp = os.path.join(fw, ".impress-stamp")
+flags = {k: os.environ.get(k, "") for k in
+         ("IMPRESS_SKIP_X86", "IMPRESS_SKIP_IOS", "IMPRINT_SKIP_IOS", "IMPRINT_TECTONIC")}
+def digest(path):
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 22), b""):
+            h.update(block)
+    return h.hexdigest()
+with open(script, "rb") as f:
+    script_sum = hashlib.md5(f.read()).hexdigest()
+libs = {}
+for p in sorted(glob.glob(os.path.join(build, "*", "release", "lib%s.a" % lib))):
+    st = os.stat(p)
+    libs[p] = {"size": st.st_size, "mtime": st.st_mtime_ns}
+def write(entries):
+    tmp = stamp + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"flags": flags, "script": script_sum, "libs": entries}, f, indent=1)
+    os.replace(tmp, stamp)
+if mode == "write":
+    write({p: dict(m, md5=digest(p)) for p, m in libs.items()})
+    sys.exit(0)
+# mode == "check": exit 0 when the published framework is current
+try:
+    old = json.load(open(stamp))
+except (OSError, ValueError):
+    sys.exit(1)
+if not glob.glob(os.path.join(fw, "*.xcframework")):
+    sys.exit(1)
+if old.get("flags") != flags or old.get("script") != script_sum:
+    sys.exit(1)
+if set(old.get("libs", {})) != set(libs):
+    sys.exit(1)
+entries, moved = {}, False
+for p, m in libs.items():
+    o = old["libs"][p]
+    if o["size"] == m["size"] and o["mtime"] == m["mtime"]:
+        entries[p] = o
+        continue
+    moved = True
+    if o["size"] != m["size"]:
+        sys.exit(1)
+    d = digest(p)
+    if d != o.get("md5"):
+        sys.exit(1)
+    entries[p] = dict(m, md5=d)
+if moved:
+    write(entries)              # same bytes, newer mtime: remember it
+else:
+    os.utime(stamp)             # fresh for build-xcframeworks.sh's planner
+sys.exit(0)
+PY
+}
+
+# 0 when frameworks/ already holds exactly these archives' packaging.
+impress_framework_current() {   # framework_dir build_dir lib_name script
+    [ "${IMPRESS_FORCE_FRAMEWORKS:-0}" = "1" ] && return 1
+    _impress_framework_stamp_tool check "$1" "$2" "$3" "$4"
+}
+
+# Record what was just published; the last line of every crate script.
+impress_framework_stamp() {   # framework_dir build_dir lib_name script
+    _impress_framework_stamp_tool write "$1" "$2" "$3" "$4"
+}

@@ -105,6 +105,13 @@ if [ "$BUILD_IOS" = "1" ]; then
 fi
 
 echo "=== Creating framework structure ==="
+# Archives identical to the last publish: nothing to repackage (~3 s saved;
+# see impress_framework_current in scripts/build-env.sh).
+if impress_framework_current "$FRAMEWORK_DIR" "$BUILD_DIR" impart_verbs_ffi "$SCRIPT_DIR/build-xcframework.sh"; then
+    echo "impart-verbs-ffi: archives unchanged since the last publish; nothing to repackage"
+    exit 0
+fi
+
 rm -rf "$FRAMEWORK_DIR"
 mkdir -p "$FRAMEWORK_DIR"
 
@@ -242,3 +249,7 @@ if [ -n "${PREV_SNAPSHOT:-}" ] && [ -d "$PREV_SNAPSHOT" ]; then
       done )
     rm -rf "$PREV_SNAPSHOT"
 fi
+
+# Last step: record what was published, for the check above and for
+# scripts/framework-plan.py.
+impress_framework_stamp "$FRAMEWORK_DIR" "$BUILD_DIR" impart_verbs_ffi "$SCRIPT_DIR/build-xcframework.sh"

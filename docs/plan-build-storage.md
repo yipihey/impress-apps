@@ -157,3 +157,54 @@ worktree builds into the main checkout's `target/`.
      `precrossedsheet`, `hopf-cole-cosmology`.
    - `~/ci-xcframework-store` (98 GB) is CI's framework cache. It is handled
      in 2d, not deleted blind.
+
+## Dev loop
+
+Measured 2026-10-14 on an M5 Max (18 cores: 6 performance, 12 efficiency;
+128 GB). Cargo and Xcode already use every core during a compile. The rest of
+the loop was the problem: fixed per-crate overhead, and crates that were
+rebuilt without any input having changed.
+
+- **Unchanged archives are not repackaged.** Each `crates/*/build-xcframework.sh`
+  writes `frameworks/.impress-stamp` as its last step. Its check
+  (`impress_framework_current` in `scripts/build-env.sh`) skips
+  uniffi-bindgen, lipo, `create-xcframework` and the app copies when the
+  archives cargo produced are the ones already published. Size and mtime are
+  compared first, content only when those moved.
+- **Unaffected crates are not run.** `scripts/framework-plan.py` drops every
+  crate whose stamp is newer than all of its inputs: the workspace crates in its
+  dependency closure, `Cargo.lock`, the manifests, the cargo and toolchain
+  config, and its own build script. An `imbib-core` edit reaches 4 of the 8
+  frameworks. `build-xcframeworks.sh --force` runs and repackages everything.
+- **`build-impress-app.sh` skips the provisioning-portal round trip and package
+  re-resolution.** It retries with `-allowProvisioningUpdates` and automatic
+  resolution only when the fast attempt fails for one of those reasons. The
+  app install uses `ditto --clone`.
+
+| Step | Before | After |
+|---|---|---|
+| frameworks `--fast`, no change | 28.6 s / 27.5 s | **0.6 s / 0.5 s** |
+| frameworks `--fast`, `imbib-core` touched | 32.0 s | **16.5 s** |
+| frameworks `--fast`, `imbib-core` edited | 30.9 s | **14.6 s** |
+| frameworks `--fast`, edit reverted | 31.3 s | **14.8 s** |
+| imbib app, right after a framework rebuild | 14.9 s | 11.6 s |
+| imbib app, no change | 7.8 s | 7.8 s |
+| imbib app, 1-line PublicationManagerCore edit | 18.6 s | 19.0 s |
+
+The framework loop is now limited by real compilation. A touched crate's own
+archive is not byte-identical after a rebuild, so it is still repackaged. Its
+dependents usually come out identical and are skipped.
+
+The app-build change does not help the steady state. A no-change build was
+already about 5 s of `xcodebuild` plus about 3 s of script overhead. What it
+removes is the occasional portal round trip: one no-change build measured
+24 s with `-allowProvisioningUpdates` against 6 s without. A 1-line
+PublicationManagerCore edit is about 19 s of Swift compile, link, sign and
+install, untouched by this change. That is the next place to look, for example
+narrower module boundaries in PMC, or `-jobs`/`SWIFT_ENABLE_BATCH_MODE`
+experiments.
+
+Not changed:
+- Building the three slices (macOS, iOS, iOS simulator) in parallel would need
+  separate target dirs per slice, and it only helps full builds.
+- The linker is already Apple's fast `ld`.

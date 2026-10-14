@@ -114,6 +114,13 @@ fi
 # Create framework directory structure
 echo ""
 echo "Creating framework structure..."
+# Archives identical to the last publish: nothing to repackage (~3 s saved;
+# see impress_framework_current in scripts/build-env.sh).
+if impress_framework_current "$FRAMEWORK_DIR" "$BUILD_DIR" impress_helix "$SCRIPT_DIR/build-xcframework.sh"; then
+    echo "impress-helix: archives unchanged since the last publish; nothing to repackage"
+    exit 0
+fi
+
 rm -rf "$FRAMEWORK_DIR"
 mkdir -p "$FRAMEWORK_DIR"
 
@@ -250,3 +257,7 @@ if [ -n "${PREV_SNAPSHOT:-}" ] && [ -d "$PREV_SNAPSHOT" ]; then
       done )
     rm -rf "$PREV_SNAPSHOT"
 fi
+
+# Last step: record what was published, for the check above and for
+# scripts/framework-plan.py.
+impress_framework_stamp "$FRAMEWORK_DIR" "$BUILD_DIR" impress_helix "$SCRIPT_DIR/build-xcframework.sh"
