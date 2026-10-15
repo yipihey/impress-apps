@@ -353,9 +353,10 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   `ARCHS=arm64`, so an `IMPRESS_SKIP_X86=1` build now satisfies it: the x86_64
   simulator slice existed only because a bare
   `-destination 'generic/platform=iOS Simulator'` compiles both simulator
-  architectures, which also doubled every Swift compile in the gate. Before a
-  push that triggers the gate (PMC/iOS/packages), rebuild with
-  `IMPRESS_SKIP_X86=1` so the iOS slices exist. Release sets neither and
+  architectures, which also doubled every Swift compile in the gate. The gate
+  builds those iOS slices itself (`IMPRESS_SKIP_X86=1`, about a second when
+  already current), so `--fast` is the normal edit loop: about 15 s per Rust
+  edit, against about 80 s when the iOS slices are rebuilt every time. Release sets neither and
   stays universal + all-slices. The self-hosted CI lanes set
   `IMPRESS_SKIP_X86=1` on every xcframework step, because the runner is arm64
   and links no x86_64 (docs/build-machine-hygiene.md); imprint-core also accepts its original

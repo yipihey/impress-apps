@@ -195,6 +195,20 @@ fi
 
 echo "pre-push: building both platforms (Rule 1 of ADR-023)..."
 
+# The iOS build below links every framework's iOS slices, which the macOS-only
+# edit loop (`build-xcframeworks.sh --fast`, ~15 s per Rust edit against ~80 s
+# with iOS) never builds. Bring them up to date here rather than failing the
+# push on a missing or stale slice; when they are already current the planner
+# makes this about a second (docs/plan-build-storage.md § Dev loop).
+echo "pre-push: bringing xcframeworks up to date (macOS + iOS, no x86)"
+if ! env -u IMPRESS_SKIP_IOS -u IMPRINT_SKIP_IOS IMPRESS_SKIP_X86=1 \
+        "$REPO_ROOT/scripts/build-xcframeworks.sh" >"$LOG_DIR/xcframeworks.log" 2>&1; then
+    echo ""
+    echo "ERROR: building the xcframeworks failed. See $LOG_DIR/xcframeworks.log"
+    tail -20 "$LOG_DIR/xcframeworks.log"
+    exit 1
+fi
+
 if ! command -v xcodegen >/dev/null 2>&1; then
     echo "pre-push: xcodegen not installed; install with 'brew install xcodegen'"
     exit 1

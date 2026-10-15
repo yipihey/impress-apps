@@ -125,7 +125,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
+          "$GITHUB_WORKSPACE/scripts/ci-cargo-target.sh" >> "$GITHUB_ENV"   # one bounded dir per runner
 
       # IMPRESS_SKIP_X86=1 on every xcframework step: this runner is arm64 and
       # nothing here links x86_64 (Debug macOS builds are ONLY_ACTIVE_ARCH, every
@@ -210,7 +210,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
+          "$GITHUB_WORKSPACE/scripts/ci-cargo-target.sh" >> "$GITHUB_ENV"   # one bounded dir per runner
       # Both impart targets link PublicationManagerCore, which drags in four
       # more Rust cores on top of impart's own graph. Every xcframework below is
       # a gitignored build artifact, so a clean checkout has to produce them all
@@ -338,7 +338,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
+          "$GITHUB_WORKSPACE/scripts/ci-cargo-target.sh" >> "$GITHUB_ENV"   # one bounded dir per runner
       - name: ImpressStoreFfi.xcframework
         uses: ./.github/actions/xcframework
         with:

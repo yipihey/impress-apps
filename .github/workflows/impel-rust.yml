@@ -44,7 +44,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
+          "$GITHUB_WORKSPACE/scripts/ci-cargo-target.sh" >> "$GITHUB_ENV"   # one bounded dir per runner
       - name: Check formatting
         run: cargo fmt -p impel-core --check
 
@@ -96,7 +96,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
+          "$GITHUB_WORKSPACE/scripts/ci-cargo-target.sh" >> "$GITHUB_ENV"   # one bounded dir per runner
       - name: Check formatting
         run: cargo fmt -p impel-tui --check
 
@@ -129,7 +129,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
+          "$GITHUB_WORKSPACE/scripts/ci-cargo-target.sh" >> "$GITHUB_ENV"   # one bounded dir per runner
       - name: Check formatting
         run: cargo fmt -p impel-server --check
 
@@ -160,7 +160,7 @@ jobs:
       # persists on this machine and needs no cache step.
       - name: Use a persistent cargo target directory
         run: |
-          ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
+          "$GITHUB_WORKSPACE/scripts/ci-cargo-target.sh" >> "$GITHUB_ENV"   # one bounded dir per runner
       - name: Build library with UniFFI
         run: |
           # Release compile check, then the staticlib the bindgen step reads.
