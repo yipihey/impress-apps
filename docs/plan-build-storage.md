@@ -208,3 +208,58 @@ Not changed:
 - Building the three slices (macOS, iOS, iOS simulator) in parallel would need
   separate target dirs per slice, and it only helps full builds.
 - The linker is already Apple's fast `ld`.
+
+## Cold build
+
+Measured 2026-10-15 on the M5 Max. Before the run, `target/`,
+`.claude/target-worktrees`, every published framework and its copies, all of
+DerivedData and the SwiftPM `.build` dirs were deleted. Network caches were
+kept (`~/.cargo/registry`, the SwiftPM package cache, rustup). Frameworks were
+built with `IMPRESS_SKIP_X86=1`: macOS and iOS slices, the set the pre-push gate
+needs. CPU is averaged over 18 cores.
+
+| Step | Time | CPU |
+|---|---|---|
+| frameworks, 11 crates, macOS + iOS | 10 m 13 s | 66 % |
+| imbib Debug, Xcode | 1 m 36 s | 53 % |
+| clippy, `rest` shard | 59 s | 66 % |
+| test build, `rest` shard | 1 m 03 s | 84 % |
+| imbib Release (arm64 compile; the link needs x86 slices) | ~4 m | 40 % |
+| **from nothing to a running Debug imbib** | **~12 min** | |
+
+| Warm step | Time |
+|---|---|
+| frameworks, no change | 1 s |
+| clippy `rest`, no change | 1 s |
+| frameworks after an `imbib-core` edit, macOS + iOS | 1 m 19 s |
+| frameworks after an `impress-core` edit, macOS + iOS | 1 m 44 s |
+| frameworks after an `imbib-core` edit, `--fast` (macOS only) | ~15 s |
+| clippy `rest` / test build after an `impress-core` edit | 10 s / 23 s |
+| imbib Debug after a PublicationManagerCore edit | 20–26 s |
+| running the `rest` tests (stops at the first failing binary) | ~10 s |
+
+**What a clean build exposed.** Both were fixed in #190.
+- `build-xcframeworks.sh` built 8 of the 11 frameworks. `impress.xcworkspace`
+  resolves every app's packages for any scheme, so a clean checkout could not
+  build any app: "local binary target … does not contain a binary artifact".
+  It worked only because old copies of the three `*-verbs-ffi` frameworks
+  were lying around.
+- The iOS slices cost about 60 s on every Rust edit. The pre-push gate now
+  builds them itself, so `--fast` is the edit loop.
+
+**Release.**
+- A universal macOS imbib Release built locally in 7.4 min: frameworks for
+  arm64 + x86_64 in 4 m 4 s, then the app in 3 m 20 s.
+- The `imbib-release.yml` workflow on GitHub's hosted `macos-15` took 49 min
+  for `imbib-core` alone.
+- The four `*-release.yml` workflows had never run before 2026-10-15, and they
+  are stale:
+  - they build only one or two of the frameworks the app now links;
+  - they compile iOS slices for a macOS DMG;
+  - `implore-release.yml` calls an `apps/implore/build-rust.sh` that does not
+    exist.
+
+**CI.**
+- A PR runs three workflows. #190's took 3 m 18 s, with the impart build on
+  the build Mac.
+- On 2026-10-14 it took 1 h 45 m – 2 h on GitHub's hosted runner.
