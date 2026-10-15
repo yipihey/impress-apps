@@ -25,7 +25,8 @@
 #   5. unavailable simulators;
 #   6. proof and pre-push scratch dirs in /tmp and $TMPDIR older than 3 days;
 #   7. legacy per-job CI target dirs (runner dirs bound themselves, see
-#      scripts/ci-cargo-target.sh);
+#      scripts/ci-cargo-target.sh), and CI DerivedData dirs no job has used for
+#      14 days (live ones bound themselves, see scripts/ci-derived-data.sh);
 #   8. framework backups beyond the newest.
 set -uo pipefail
 
@@ -33,7 +34,7 @@ APPLY=no
 for a in "$@"; do
     case "$a" in
         --apply) APPLY=yes ;;
-        -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "unknown option: $a" >&2; exit 2 ;;
     esac
 done
@@ -130,6 +131,11 @@ for d in "$HOME"/ci-cargo-target/*/; do
         runner-*|*build-cost|*"Tectonic engine"*) continue ;;
     esac
     [ -n "$(find "$d" -maxdepth 0 -mtime +7 2>/dev/null)" ] && act "$d" rm -rf "$d"
+done
+
+for d in "$HOME"/ci-derived-data.noindex/*/*/; do
+    d="${d%/}"; [ -d "$d" ] || continue
+    [ -n "$(find "$d" -maxdepth 0 -mtime +14 2>/dev/null)" ] && act "$d" rm -rf "$d"
 done
 
 echo "8. framework backups beyond the newest"
