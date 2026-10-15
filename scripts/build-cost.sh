@@ -34,7 +34,11 @@ export CARGO_TARGET_DIR
 export CARGO_INCREMENTAL=0
 
 SERVICE_TOUCH=crates/imbib-service/src/lib.rs
-CORE_TOUCH=crates/impress-service-core/src/lib.rs
+# The shared crate every service rebuilds on. impress-service-core was
+# this probe until it moved to the koine repository (7ff63500), after
+# which the pathspec matched nothing and this job failed on every run;
+# impress-core is the in-repo crate most services depend on.
+CORE_TOUCH=crates/impress-core/src/lib.rs
 
 # Restore the touched files no matter how the script exits.
 cleanup() {
@@ -74,7 +78,7 @@ printf '\n// build-cost probe\n' >> "$SERVICE_TOUCH"
 incr_service_ms=$(timed_ms cargo build -p impress-mcp --timings) || { echo "service-touch build failed" >&2; exit 1; }
 git checkout -- "$SERVICE_TOUCH"
 
-echo "== build-cost: impress-service-core touch rebuild ==" >&2
+echo "== build-cost: impress-core touch rebuild ==" >&2
 printf '\n// build-cost probe\n' >> "$CORE_TOUCH"
 incr_core_ms=$(timed_ms cargo build -p impress-mcp --timings) || { echo "core-touch build failed" >&2; exit 1; }
 git checkout -- "$CORE_TOUCH"
