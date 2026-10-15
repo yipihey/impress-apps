@@ -12,6 +12,7 @@
 
 import Foundation
 import SwiftUI
+import ImpressKit
 import ImpressRustCore
 
 public extension Notification.Name {
@@ -149,24 +150,49 @@ public struct AskAgentSheet: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 480, minHeight: 240)
-        .onAppear(perform: refresh)
+        .impressResizableSheet(minWidth: 480, minHeight: 240, idealHeight: 420)
+        .task { await watchDesk() }
     }
 
+    // The desk verbs write the suite store, so they run off the main thread
+    // (a store open on main can block on the App Group prompt); only the
+    // results come back to the view.
     private func submit() {
-        switch AgentDesk.ask(trimmed, app: app) {
-        case .success(let id):
-            status = "Filed request \(id.prefix(8))."
-            prompt = ""
-            refresh()
+        let prompt = trimmed
+        let app = app
+        status = "Filing…"
+        Task {
+            let result = await Task.detached { AgentDesk.ask(prompt, app: app) }.value
+            switch result {
+            case .success(let id):
+                status = "Filed request \(id.prefix(8))."
+                self.prompt = ""
+            case .failure(let error):
+                status = error.message
+            }
+            await refresh()
+        }
+    }
+
+    private func refresh() async {
+        let app = app
+        let result = await Task.detached { AgentDesk.requests(app: app) }.value
+        switch result {
+        case .success(let rows):
+            if rows != requests { requests = rows }
         case .failure(let error):
             status = error.message
         }
     }
 
-    private func refresh() {
-        if case .success(let rows) = AgentDesk.requests(app: app) {
-            requests = rows
+    /// The answer arrives on the desk whenever the agent finishes, so the
+    /// sheet re-reads it while it is open. One sleep per pass and an
+    /// explicit cancellation check: `.task` cancels this when the sheet
+    /// closes.
+    private func watchDesk() async {
+        while !Task.isCancelled {
+            await refresh()
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
         }
     }
 }
