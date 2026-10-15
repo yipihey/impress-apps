@@ -27,6 +27,9 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 # The item protocol (K1b). This crate keeps SqliteItemStore and re-exports it.
 impress-item = { workspace = true }
+# The task state machine, the task store port and jobs (koine
+# docs/plan-koine-ai-tasks.md Q-D1, Q-D4); `runtime` stays off here.
+koine-tasks = { workspace = true }
 # The ADR-0031 D2 pane-query algebra's types (ADR-0033 D7): this crate keeps
 # only the built-in kind manifest, which is domain data.
 impress-pane-query = { workspace = true }

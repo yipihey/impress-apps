@@ -67,8 +67,13 @@ fn open_process_store() {
     let _ = store_instance();
 }
 
-/// Mirror the SQLite handle into the port registry.
+/// Mirror the SQLite handle into the port registry, and name the directory
+/// beside it as the process workspace (koine docs/plan-koine-ai-tasks.md
+/// AI-D3: `<workspace>/ai/preferences.json` and the other per-device files).
 fn publish(store: &Arc<SqliteItemStore>, fallback: bool) {
+    if let Some(dir) = store_path().parent() {
+        koine_store::process::set_workspace(dir);
+    }
     let port: Arc<dyn AttributedStore> = store.clone();
     if fallback {
         koine_store::process::install_as_fallback_for(port, store_path().display().to_string());

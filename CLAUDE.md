@@ -387,7 +387,10 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
 - **AI providers live in Rust** (ADR-0029): every model host the suite talks to — oMLX,
   Ollama, any OpenAI-compatible server, Anthropic, OpenAI, Google, OpenRouter — is a
   `crates/impress-ai` client behind the `InferenceProvider` port, declared once in
-  `impress_ai::catalogue::CATALOGUE`. `packages/ImpressAI` is a GUI projection over the
+  `impress_ai::catalogue::CATALOGUE`. The kernel itself is koine's `koine-ai`, which
+  `impress-ai` re-exports (adding only the SQLite `AiStoreSqlite::open` and the LocalModels
+  import); the task kernel is `koine-tasks`, re-exported by `impel-core` (koine
+  docs/plan-koine-ai-tasks.md). `packages/ImpressAI` is a GUI projection over the
   UniFFI `SharedAiRegistry` and must never gain an HTTP client again; Apple on-device
   (FoundationModels) is the one Swift-executed provider, listed by Rust as `foreign`. The
   device-wide selection is the Rust-owned file `<workspace>/ai/preferences.json`

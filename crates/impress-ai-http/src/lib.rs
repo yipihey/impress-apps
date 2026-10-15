@@ -18,8 +18,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use impress_ai::registry::ResolveTarget;
 use impress_ai::{
-    AiRegistry, AiStore, BlobStore, ConversationDraft, InferenceProvider, MessageDraft, OmlxClient,
-    ToolPolicy,
+    AiRegistry, AiStore, AiStoreSqlite, BlobStore, ConversationDraft, InferenceProvider,
+    MessageDraft, OmlxClient, ToolPolicy,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -428,7 +428,7 @@ async fn health(
     let ai = state.ai.clone();
     let (freelist, ops_last_24h, ops_by_author, ops_by_target, manuscript_change_chunks) =
         tokio::task::spawn_blocking(move || {
-            let store = ai.shared_store();
+            let store = ai.sqlite_store();
             let since = chrono::Utc::now().timestamp_millis() - window_minutes * 60 * 1000;
             (
                 store.freelist_pages().unwrap_or(0),

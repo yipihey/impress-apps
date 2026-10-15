@@ -5266,6 +5266,11 @@ impl AttributedStore for SqliteItemStore {
         SqliteItemStore::logical_clock_of(self, id)
     }
 
+    /// One SQLite transaction, every target (the port's default guards one).
+    fn apply_operation_batch(&self, specs: Vec<OperationSpec>) -> Result<Vec<ItemId>, StoreError> {
+        SqliteItemStore::apply_operation_batch(self, specs)
+    }
+
     /// The indexed `op_target_id` column, not the port's query default
     /// (same order, oldest first; this one also breaks ties on `created`,
     /// then `id`).

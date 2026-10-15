@@ -123,6 +123,10 @@ use imbib_semantic_service as _force_link_imbib_semantic_service;
 /// exports, so without an explicit call it would make no reference to
 /// this inventory at all.
 pub fn force_link() {
+    // The AI verbs are koine-ai's; impress-ai-service deploys them over the
+    // suite's store (koine docs/plan-koine-ai-tasks.md AI-D1).
+    #[cfg(feature = "ai")]
+    impress_ai_service::ensure_linked();
     #[cfg(feature = "impact")]
     std::hint::black_box(capabilities_service::DefaultCapabilitiesService::new as *const ());
     #[cfg(feature = "kit")]

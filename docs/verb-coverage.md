@@ -32,6 +32,7 @@ read.
 <!-- verb-coverage-services:begin -->
 | Service | Crate | Verbs | Real description | Args (required) | Args described | Strict |
 |---|---|---:|---:|---:|---:|---:|
+| `agent-service` | koine-agent | 11 | 11 | 19 (9) | 19 | 11 |
 | `capabilities-service` | capabilities-service | 4 | 4 | 5 (1) | 5 | 4 |
 | `collection-service` | impress-store-service | 12 | 12 | 25 (22) | 25 | 12 |
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 38 | 10 |
@@ -52,7 +53,7 @@ read.
 | `impart-service` | impart-service | 10 | 10 | 24 (14) | 24 | 10 |
 | `impel-service` | impel-service | 11 | 11 | 15 (12) | 15 | 11 |
 | `implore-service` | implore-service | 23 | 23 | 51 (17) | 51 | 23 |
-| `impress-ai-service` | impress-ai-service | 16 | 16 | 25 (19) | 25 | 16 |
+| `impress-ai-service` | koine-ai | 16 | 16 | 25 (19) | 25 | 16 |
 | `impress-bridges-service` | impress-bridges-service | 18 | 18 | 30 (29) | 30 | 18 |
 | `impress-scenario-service` | impress-scenario-service | 6 | 6 | 11 (4) | 11 | 6 |
 | `impress-surface-service` | impress-surface-service | 15 | 15 | 33 (18) | 33 | 15 |
@@ -74,8 +75,9 @@ read.
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 28 | 10 |
 | `source-service` | impress-store-service | 9 | 9 | 21 (10) | 21 | 9 |
 | `store-query-service` | impress-store-service | 4 | 4 | 8 (8) | 8 | 4 |
-| `surface-demo-service` | surface-demo-service | 3 | 3 | 6 (6) | 6 | 3 |
+| `surface-demo-service` | surface-demo-service | 11 | 11 | 16 (14) | 16 | 11 |
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 1 | 1 |
+| `task-service` | koine-tasks | 5 | 5 | 11 (4) | 11 | 5 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 24 | 15 |
 | **Total** | 21 crates, 46 services | **491** | **491** | **1126 (728)** | **1126** | **491** |
@@ -167,7 +169,7 @@ and the implore owner decides between verbs and deletion.
 | `implore-verbs-ffi` | ffi | internal | implore's own per-app UniFFI target (P5); dispatches `implore-service`'s existing verbs by name, no capability of its own |
 | `impress-ai` | domain-core | should-be-verb | `registry::{complete, stream}` (direct completion), `set_model_enabled`, `set_task_category` have no verb; `queue_message` only enqueues a turn |
 | `impress-ai-http` | binary | internal | HTTP transport for impress-ai chat |
-| `impress-ai-service` | verb-crate | verb-crate | |
+| `impress-ai-service` | glue | internal | deploys koine-ai's `impress-ai-service_*` verbs over the suite's store (`koine_ai::service::Deployment`); the verbs' block is koine-ai's (koine docs/plan-koine-ai-tasks.md AI-D1) |
 | `impress-ai-tools` | glue/inventory | internal | a third force-link list beside `impress-capabilities` (recorded in the pipeline plan) |
 | `impress-app-transport` | library | internal | the P5 transport's client side (`call(app, verb, args)`); no capability of its own, it reaches a verb another crate already holds |
 | `impress-bibtex` | ffi | internal | Swift-only `*_ffi` shims over `im-bibtex` (the gap is `im-bibtex`'s row) |

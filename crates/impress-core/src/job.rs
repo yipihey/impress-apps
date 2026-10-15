@@ -23,109 +23,24 @@
 //!
 //! The scheduler's own executors need none of this: their tasks stay the
 //! kernel's, and `cancel_requested` is honoured on their resume pass too.
+//!
+//! The helpers are koine's (`koine_tasks::job`, koine
+//! docs/plan-koine-ai-tasks.md Q-D4), written against the store port. These
+//! keep the `&SqliteItemStore` signatures every caller in this workspace
+//! uses; `finish_job`'s batch is SQLite's own transaction
+//! (`AttributedStore::apply_operation_batch`). The tests below run them over
+//! SQLite.
 
-use std::collections::BTreeMap;
-
-use chrono::Utc;
-use uuid::Uuid;
-
-use crate::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
-use crate::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
-use crate::query::{ItemQuery, Predicate, SortDescriptor};
-use crate::schemas::task::{TASK_EVENT_SCHEMA, TASK_SCHEMA};
+use crate::item::ItemId;
 use crate::sqlite_store::SqliteItemStore;
-use crate::store::{ItemStore, StoreError};
-use crate::task::{transition_op, TaskState, TaskTransitionError};
+use crate::task::TaskState;
 
-/// How many events a job keeps. The surface ring's number: what a live
-/// reader needs to catch up, not an archive.
-pub const EVENT_RING_CAPACITY: usize = 200;
+pub use koine_tasks::job::{
+    cursor_after, event_row_id, field, inline_runner_name, job_row_of, EventRow, JobError, JobRow,
+    Result, EVENT_RING_CAPACITY,
+};
 
-/// Field names of the two kinds this module writes, spelled once.
-pub mod field {
-    pub mod task {
-        pub const STATE: &str = "state";
-        pub const TASK_KIND: &str = "task_kind";
-        pub const ASSIGNED_TO: &str = "assigned_to";
-        pub const ATTEMPTS: &str = "attempts";
-        pub const CANCEL_REQUESTED: &str = "cancel_requested";
-        pub const VERB: &str = "verb";
-        pub const ARGS: &str = "args";
-        pub const RESULT: &str = "result";
-        pub const RUNNER: &str = "runner";
-        pub const ERROR: &str = "error";
-        pub const TITLE: &str = "title";
-    }
-    pub mod event {
-        pub const TASK: &str = "task";
-        pub const SEQ: &str = "seq";
-        pub const NAME: &str = "name";
-        pub const PAYLOAD: &str = "payload";
-        pub const AT: &str = "at";
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum JobError {
-    #[error(transparent)]
-    Store(#[from] StoreError),
-    #[error(transparent)]
-    Transition(#[from] TaskTransitionError),
-    #[error("no task {0}")]
-    NotFound(ItemId),
-    #[error("{0} is a {1}, not a task")]
-    NotATask(ItemId, String),
-    #[error("append event '{0}': {1} writers took the next seq first")]
-    SeqContended(String, usize),
-    #[error("encode: {0}")]
-    Encode(String),
-}
-
-pub type Result<T> = std::result::Result<T, JobError>;
-
-/// A job as its row says it is.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct JobRow {
-    pub id: ItemId,
-    pub verb: String,
-    pub state: TaskState,
-    pub cancel_requested: bool,
-    /// The verb's result as JSON text, once the job finished.
-    pub result_json: Option<String>,
-    pub error: Option<String>,
-    pub runner: Option<String>,
-    pub created: chrono::DateTime<Utc>,
-    pub modified: chrono::DateTime<Utc>,
-}
-
-/// One `task-event@1.0.0` row.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EventRow {
-    pub seq: u64,
-    pub name: String,
-    /// JSON text — what was passed to [`append_event`].
-    pub payload_json: String,
-    pub at: String,
-}
-
-/// The name a job runs under in this process. Stamped as `assigned_to` and
-/// `runner`, so the scheduler (which resumes only rows assigned to its own
-/// actor) leaves it alone, and a reader can see where it ran.
-pub fn inline_runner_name() -> String {
-    let host = std::env::var("HOSTNAME")
-        .ok()
-        .filter(|h| !h.is_empty())
-        .unwrap_or_else(|| "local".into());
-    format!("inline:{}@{host}", std::process::id())
-}
-
-/// Create the job's task row: `running`, assigned to `runner`, carrying the
-/// verb and its arguments. Returns the handle.
-///
-/// Created `running` rather than `pending` + acquired: a `pending` row with
-/// a `task_kind` is exactly what `ready_tasks` selects, and a daemon pass
-/// between the two writes would acquire it and fail it for having no
-/// executor.
+/// See [`koine_tasks::job::create_job`].
 pub fn create_job(
     store: &SqliteItemStore,
     verb: &str,
@@ -133,137 +48,25 @@ pub fn create_job(
     runner: &str,
     author: &str,
 ) -> Result<ItemId> {
-    let args_text = serde_json::to_string(args).map_err(|e| JobError::Encode(e.to_string()))?;
-    let mut payload: BTreeMap<String, Value> = BTreeMap::new();
-    payload.insert(field::task::TITLE.into(), Value::String(verb.to_string()));
-    payload.insert(
-        field::task::STATE.into(),
-        Value::String(TaskState::Running.as_str().into()),
-    );
-    payload.insert(
-        field::task::TASK_KIND.into(),
-        Value::String(verb.to_string()),
-    );
-    payload.insert(
-        field::task::ASSIGNED_TO.into(),
-        Value::String(runner.to_string()),
-    );
-    payload.insert(
-        field::task::RUNNER.into(),
-        Value::String(runner.to_string()),
-    );
-    payload.insert(field::task::ATTEMPTS.into(), Value::Int(1));
-    payload.insert(field::task::VERB.into(), Value::String(verb.to_string()));
-    payload.insert(field::task::ARGS.into(), Value::String(args_text));
-    payload.insert(field::task::CANCEL_REQUESTED.into(), Value::Bool(false));
-    let now = Utc::now();
-    let item = Item {
-        id: Uuid::new_v4(),
-        schema: TASK_SCHEMA,
-        payload,
-        created: now,
-        modified: now,
-        author: author.into(),
-        author_kind: ActorKind::Agent,
-        logical_clock: 0,
-        origin: None,
-        canonical_id: None,
-        tags: vec![],
-        flag: None,
-        is_read: false,
-        is_starred: false,
-        priority: Priority::Normal,
-        visibility: Visibility::Private,
-        message_type: None,
-        produced_by: None,
-        version: None,
-        batch_id: None,
-        references: vec![],
-        parent: None,
-    };
-    Ok(store.insert(item)?)
+    koine_tasks::job::create_job(store, verb, args, runner, author)
 }
 
-/// The job's row, or `NotFound` / `NotATask`.
+/// See [`koine_tasks::job::get_job`].
 pub fn get_job(store: &SqliteItemStore, id: ItemId) -> Result<JobRow> {
-    let item = store.get(id)?.ok_or(JobError::NotFound(id))?;
-    if item.schema != TASK_SCHEMA {
-        return Err(JobError::NotATask(id, item.schema.to_string()));
-    }
-    Ok(job_row_of(&item))
+    koine_tasks::job::get_job(store, id)
 }
 
-/// Read a task item as a job row. Any task reads as one — a job is a task
-/// with `verb` set; a kernel task has no `verb` and answers `""`.
-pub fn job_row_of(item: &Item) -> JobRow {
-    JobRow {
-        id: item.id,
-        verb: string_field(item, field::task::VERB).unwrap_or_default(),
-        state: string_field(item, field::task::STATE)
-            .and_then(|s| TaskState::parse_compat(&s))
-            .unwrap_or(TaskState::Pending),
-        cancel_requested: matches!(
-            item.payload.get(field::task::CANCEL_REQUESTED),
-            Some(Value::Bool(true))
-        ),
-        result_json: string_field(item, field::task::RESULT),
-        error: string_field(item, field::task::ERROR),
-        runner: string_field(item, field::task::RUNNER),
-        created: item.created,
-        modified: item.modified,
-    }
-}
-
-/// Ask a running job to stop. Sets `cancel_requested`; the executor moves
-/// the row to `cancelled` when it next checks. Idempotent. A `pending` task
-/// is cancelled outright (nothing is running it), a terminal one is refused
-/// by the transition table. Returns the state the row is in afterwards.
+/// See [`koine_tasks::job::request_cancel`].
 pub fn request_cancel(store: &SqliteItemStore, id: ItemId, actor: &str) -> Result<TaskState> {
-    let item = store.get(id)?.ok_or(JobError::NotFound(id))?;
-    if item.schema != TASK_SCHEMA {
-        return Err(JobError::NotATask(id, item.schema.to_string()));
-    }
-    let row = job_row_of(&item);
-    match row.state {
-        TaskState::Pending => {
-            let op = transition_op(
-                &item,
-                TaskState::Cancelled,
-                actor.into(),
-                ActorKind::Agent,
-                None,
-            )?;
-            store.apply_operation(op)?;
-            Ok(TaskState::Cancelled)
-        }
-        TaskState::Running => {
-            if !row.cancel_requested {
-                store.apply_operation(set_payload(
-                    id,
-                    field::task::CANCEL_REQUESTED,
-                    Value::Bool(true),
-                    actor,
-                ))?;
-            }
-            Ok(TaskState::Running)
-        }
-        terminal => Err(JobError::Transition(TaskTransitionError::Illegal {
-            item: id,
-            from: terminal,
-            to: TaskState::Cancelled,
-        })),
-    }
+    koine_tasks::job::request_cancel(store, id, actor)
 }
 
-/// Has someone asked this job to stop? One store read — poll it between
-/// steps, not in a tight loop.
+/// See [`koine_tasks::job::cancel_requested`].
 pub fn cancel_requested(store: &SqliteItemStore, id: ItemId) -> Result<bool> {
-    Ok(get_job(store, id)?.cancel_requested)
+    koine_tasks::job::cancel_requested(store, id)
 }
 
-/// Finish the job: the terminal transition plus the result (and, for a
-/// failure, the error) in ONE batch, so a reader that sees `done` also sees
-/// the result. `to` must be terminal.
+/// See [`koine_tasks::job::finish_job`].
 pub fn finish_job(
     store: &SqliteItemStore,
     id: ItemId,
@@ -272,36 +75,10 @@ pub fn finish_job(
     error: Option<&str>,
     actor: &str,
 ) -> Result<()> {
-    debug_assert!(to.is_terminal(), "finish_job takes a terminal state");
-    let item = store.get(id)?.ok_or(JobError::NotFound(id))?;
-    let transition = transition_op(&item, to, actor.into(), ActorKind::Agent, None)?;
-    let result_text = serde_json::to_string(result).map_err(|e| JobError::Encode(e.to_string()))?;
-    let mut ops = vec![
-        transition,
-        set_payload(id, field::task::RESULT, Value::String(result_text), actor),
-    ];
-    if let Some(error) = error {
-        ops.push(set_payload(
-            id,
-            field::task::ERROR,
-            Value::String(error.to_string()),
-            actor,
-        ));
-    }
-    store.apply_operation_batch(ops)?;
-    Ok(())
+    koine_tasks::job::finish_job(store, id, to, result, error, actor)
 }
 
-// ---------------------------------------------------------------- events
-
-/// Append one event, assigning the next `seq` for the task, and prune the
-/// ring to [`EVENT_RING_CAPACITY`]. Returns the assigned `seq`.
-///
-/// Two writers cannot share a `seq`: the row id is DERIVED from `(task,
-/// seq)` ([`event_row_id`]) and the primary key refuses a second row under
-/// it — in this process or any other on the same file — so the loser reads
-/// the maximum again and takes the next number. `seq` stays unique and
-/// gap-free, which is what lets a reader treat a jump as pruning.
+/// See [`koine_tasks::job::append_event`].
 pub fn append_event(
     store: &SqliteItemStore,
     task: ItemId,
@@ -309,205 +86,38 @@ pub fn append_event(
     payload: &serde_json::Value,
     author: &str,
 ) -> Result<u64> {
-    let payload_text =
-        serde_json::to_string(payload).map_err(|e| JobError::Encode(e.to_string()))?;
-    const MAX_ATTEMPTS: usize = 64;
-    for _ in 0..MAX_ATTEMPTS {
-        let seq = max_seq(store, task)? + 1;
-        let mut fields: BTreeMap<String, Value> = BTreeMap::new();
-        fields.insert(field::event::TASK.into(), Value::String(task.to_string()));
-        fields.insert(field::event::SEQ.into(), Value::Int(seq as i64));
-        fields.insert(field::event::NAME.into(), Value::String(name.to_string()));
-        fields.insert(
-            field::event::PAYLOAD.into(),
-            Value::String(payload_text.clone()),
-        );
-        fields.insert(
-            field::event::AT.into(),
-            Value::String(Utc::now().to_rfc3339()),
-        );
-        let now = Utc::now();
-        let item = Item {
-            id: event_row_id(task, seq),
-            schema: TASK_EVENT_SCHEMA,
-            payload: fields,
-            created: now,
-            modified: now,
-            author: author.into(),
-            author_kind: ActorKind::Agent,
-            logical_clock: 0,
-            origin: None,
-            canonical_id: None,
-            tags: vec![],
-            flag: None,
-            is_read: false,
-            is_starred: false,
-            priority: Priority::None,
-            visibility: Visibility::Private,
-            message_type: None,
-            produced_by: None,
-            version: None,
-            batch_id: None,
-            references: vec![],
-            parent: None,
-        };
-        match store.insert(item) {
-            Ok(_) => {
-                prune(store, task, seq)?;
-                return Ok(seq);
-            }
-            Err(StoreError::AlreadyExists(_)) => continue,
-            Err(e) => return Err(e.into()),
-        }
-    }
-    Err(JobError::SeqContended(name.to_string(), MAX_ATTEMPTS))
+    koine_tasks::job::append_event(store, task, name, payload, author)
 }
 
-/// Events of `task` with `seq > after`, oldest first, capped at `limit` (0 =
-/// unbounded). ONE store read, filtered and ordered by the store — the
-/// cursor a caller hands back comes from these rows, never a second read.
+/// See [`koine_tasks::job::events_after`].
 pub fn events_after(
     store: &SqliteItemStore,
     task: ItemId,
     after: u64,
     limit: usize,
 ) -> Result<Vec<EventRow>> {
-    let mut query = ring_rows(task);
-    query.predicates.push(Predicate::Gt(
-        field::event::SEQ.into(),
-        Value::Int(after.min(i64::MAX as u64) as i64),
-    ));
-    query.sort = vec![SortDescriptor {
-        field: format!("payload.{}", field::event::SEQ),
-        ascending: true,
-    }];
-    if limit > 0 {
-        query.limit = Some(limit);
-    }
-    Ok(store.query(&query)?.iter().map(event_row_of).collect())
+    koine_tasks::job::events_after(store, task, after, limit)
 }
 
-/// The highest `seq` this task has emitted, 0 if none.
+/// See [`koine_tasks::job::max_seq`].
 pub fn max_seq(store: &SqliteItemStore, task: ItemId) -> Result<u64> {
-    let mut query = ring_rows(task);
-    query.sort = vec![SortDescriptor {
-        field: format!("payload.{}", field::event::SEQ),
-        ascending: false,
-    }];
-    query.limit = Some(1);
-    Ok(store
-        .query(&query)?
-        .first()
-        .and_then(|i| int_field(i, field::event::SEQ))
-        .unwrap_or(0))
+    koine_tasks::job::max_seq(store, task)
 }
 
-/// The cursor to hand back after reading `rows` past `after_seq`, and
-/// whether the ring was pruned past the caller's cursor (events between it
-/// and the first row are gone). From the rows read, never a second read.
-pub fn cursor_after(rows: &[EventRow], after_seq: u64) -> (u64, bool) {
-    match (rows.first(), rows.last()) {
-        (Some(first), Some(last)) => (last.seq, after_seq > 0 && first.seq > after_seq + 1),
-        _ => (after_seq, false),
-    }
-}
-
-/// Drop every row that fell out of the last [`EVENT_RING_CAPACITY`] once
-/// `newest` was written. Hard deletes: the ring exists so a live reader can
-/// catch up, not as a log.
-fn prune(store: &SqliteItemStore, task: ItemId, newest: u64) -> Result<()> {
-    let capacity = EVENT_RING_CAPACITY as u64;
-    if newest <= capacity {
-        return Ok(());
-    }
-    let mut query = ring_rows(task);
-    query.predicates.push(Predicate::Lte(
-        field::event::SEQ.into(),
-        Value::Int((newest - capacity) as i64),
-    ));
-    for item in store.query(&query)? {
-        store.delete(item.id)?;
-    }
-    Ok(())
-}
-
-/// Delete a job's whole ring (retention sweeps; tests).
+/// See [`koine_tasks::job::delete_events`].
 pub fn delete_events(store: &SqliteItemStore, task: ItemId) -> Result<usize> {
-    let rows = store.query(&ring_rows(task))?;
-    let n = rows.len();
-    for item in rows {
-        store.delete(item.id)?;
-    }
-    Ok(n)
-}
-
-/// Namespace for the derived event row ids. Fixed forever, like the surface
-/// ring's: changing it would let a new build allocate an id an older build
-/// already used.
-const ROW_ID_NAMESPACE: Uuid = Uuid::from_u128(0x2c9e_7b41_5f0a_4d83_9e6b_1a7f_3d52_c0e8);
-
-/// The one id event `seq` of `task` can be stored under.
-pub fn event_row_id(task: ItemId, seq: u64) -> ItemId {
-    Uuid::new_v5(
-        &ROW_ID_NAMESPACE,
-        format!("task-event|{task}|{seq}").as_bytes(),
-    )
-}
-
-fn ring_rows(task: ItemId) -> ItemQuery {
-    ItemQuery {
-        schema: Some(TASK_EVENT_SCHEMA),
-        predicates: vec![Predicate::Eq(
-            field::event::TASK.into(),
-            Value::String(task.to_string()),
-        )],
-        include_tags: false,
-        include_references: false,
-        assume_schema_rare: true,
-        ..Default::default()
-    }
-}
-
-fn set_payload(id: ItemId, field: &str, value: Value, actor: &str) -> OperationSpec {
-    OperationSpec {
-        target_id: id,
-        op_type: OperationType::SetPayload(field.into(), value),
-        intent: OperationIntent::Routine,
-        reason: None,
-        batch_id: None,
-        author: actor.into(),
-        author_kind: ActorKind::Agent,
-        retention: RetentionTier::Compactable,
-    }
-}
-
-fn event_row_of(item: &Item) -> EventRow {
-    EventRow {
-        seq: int_field(item, field::event::SEQ).unwrap_or(0),
-        name: string_field(item, field::event::NAME).unwrap_or_default(),
-        payload_json: string_field(item, field::event::PAYLOAD).unwrap_or_else(|| "{}".into()),
-        at: string_field(item, field::event::AT).unwrap_or_default(),
-    }
-}
-
-fn string_field(item: &Item, field: &str) -> Option<String> {
-    match item.payload.get(field) {
-        Some(Value::String(s)) => Some(s.clone()),
-        _ => None,
-    }
-}
-
-fn int_field(item: &Item, field: &str) -> Option<u64> {
-    match item.payload.get(field) {
-        Some(Value::Int(n)) if *n >= 0 => Some(*n as u64),
-        _ => None,
-    }
+    koine_tasks::job::delete_events(store, task)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::item::Value;
+    use crate::schemas::task::TASK_EVENT_SCHEMA;
+    use crate::store::ItemStore;
+    use crate::task::TaskTransitionError;
     use serde_json::json;
+    use uuid::Uuid;
 
     fn store() -> SqliteItemStore {
         SqliteItemStore::open_in_memory().unwrap()

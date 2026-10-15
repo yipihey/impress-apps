@@ -49,14 +49,25 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 477 verbs declared; 84 verified by example, 93 by a Tier A
-catalogue, 300 on the exception table.
+Counts today: 525 verbs declared; 350 verified by example, 7 by a Tier A
+catalogue, 168 on the exception table.
 
 ## Every verb
 
 <!-- verb-effects:begin -->
 | Verb | Reads | Writes | Reach | Verified |
 |---|---|---|---|---|
+| `agent-service_answer` | — | any("koine/agent-request@1.0.0") | — | — |
+| `agent-service_ask` | "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0", "impress/ui/surface@1.0.0" | "impress/ui/layout@1.0.0", any("koine/agent-request@1.0.0") | — | example ×1 |
+| `agent-service_claim` | — | any("koine/agent-request@1.0.0") | — | — |
+| `agent-service_context` | "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0" | "impress/ui/layout@1.0.0" | — | example ×1 |
+| `agent-service_decline` | — | any("koine/agent-request@1.0.0") | — | — |
+| `agent-service_diagnose` | "core/verb-call@1.0.0" | any("koine/agent-request@1.0.0") | — | — |
+| `agent-service_make-surface` | — | any("koine/agent-request@1.0.0") | — | example ×1 |
+| `agent-service_next` | any("koine/agent-request@1.0.0") | — | — | example ×1 |
+| `agent-service_requests` | any("koine/agent-request@1.0.0") | — | — | example ×2 |
+| `agent-service_show` | any("koine/agent-request@1.0.0") | "impress/ui/layout@1.0.0" | — | — |
+| `agent-service_skill` | any("koine/agent-request@1.0.0") | — | — | — |
 | `capabilities-service_catalogue-surface` | any("the linked inventory's own effect declarations and the stored impress/ui/surface rows") | — | — | — |
 | `capabilities-service_impact` | any("the linked inventory's own effect declarations and the stored impress/ui/surface rows") | — | — | example ×2 |
 | `capabilities-service_list-verbs` | any("the linked inventory's own effect declarations and the stored impress/ui/surface rows") | — | — | — |
@@ -94,7 +105,7 @@ catalogue, 300 on the exception table.
 | `imbib-annotations-service_create-annotation` | "imbib/linked-file" | "imbib/annotation" | — | example ×1 |
 | `imbib-annotations-service_create-comment` | "imbib/bibliography-entry" | "imbib/comment" | — | example ×1 |
 | `imbib-annotations-service_create-comment-on-item` | target(item_id) | "imbib/comment" | — | example ×1 |
-| `imbib-annotations-service_delete-comment` | "imbib/comment" | "imbib/comment" | — | example ×1 |
+| `imbib-annotations-service_delete-comment` | "imbib/comment", any("the comment's children, whatever their kind, for the undo snapshot") | "imbib/comment" | — | example ×1 |
 | `imbib-annotations-service_list-annotations` | "imbib/annotation" | — | — | example ×1 |
 | `imbib-annotations-service_list-comments` | "imbib/comment", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-annotations-service_list-comments-for-item` | "imbib/comment", target(item_id) | — | — | example ×1 |
@@ -538,9 +549,22 @@ catalogue, 300 on the exception table.
 | `store-query-service_related-items` | target(id), any("walks references across kinds") | — | — | — |
 | `store-query-service_search-all` | any("searches every kind") | — | — | — |
 | `surface-demo-service_histogram` | — | — | — | example ×1 |
+| `surface-demo-service_inventory` | "impress/ui/surface@1.0.0" | — | — | example ×1 |
+| `surface-demo-service_note-add` | — | any("the demo's `note` records (crate::notes), not a canonical ref") | — | example ×1 |
+| `surface-demo-service_note-delete` | — | any("the demo's `note` records (crate::notes), not a canonical ref") | — | — |
+| `surface-demo-service_note-get` | any("the demo's `note` records (crate::notes), not a canonical ref") | — | — | — |
+| `surface-demo-service_note-move` | — | any("the demo's `note` records (crate::notes), not a canonical ref") | — | — |
+| `surface-demo-service_note-rename` | — | any("the demo's `note` records (crate::notes), not a canonical ref") | — | — |
+| `surface-demo-service_note-write` | — | any("the demo's `note` records (crate::notes), not a canonical ref") | — | — |
+| `surface-demo-service_notes` | any("the demo's `note` records (crate::notes), not a canonical ref") | — | — | example ×1 |
 | `surface-demo-service_series` | — | — | — | example ×1 |
 | `surface-demo-service_tick` | — | — | — | example ×1 |
 | `surface-selftest-service_run-selftest` | any("runs the catalogue's capabilities") | any("runs the catalogue's capabilities") | app("impress") | — |
+| `task-service_cancel` | "task@1.0.0" | "task@1.0.0" | — | — |
+| `task-service_enqueue` | "task@1.0.0" | "task@1.0.0" | — | example ×1 |
+| `task-service_list` | "task@1.0.0" | — | — | example ×1 |
+| `task-service_retry` | "task@1.0.0" | "task@1.0.0" | — | — |
+| `task-service_show` | "task@1.0.0" | — | — | — |
 | `triage-service_add-tag` | target(id) | target(id) | — | — |
 | `triage-service_remove-tag` | target(id) | target(id) | — | — |
 | `triage-service_set-flag` | target(id) | target(id) | — | — |
@@ -573,6 +597,12 @@ when one lands).
 <!-- verb-effects-exceptions:begin -->
 | Verb | Reason |
 |---|---|
+| `agent-service_answer` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `agent-service_claim` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `agent-service_decline` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `agent-service_diagnose` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `agent-service_show` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `agent-service_skill` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `capabilities-service_catalogue-surface` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `capabilities-service_list-verbs` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `capabilities-service_verb-surface` | exercised, unobserved (example ran, spy saw no declared read or write) |
@@ -723,7 +753,15 @@ when one lands).
 | `store-query-service_get-item` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `store-query-service_related-items` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `store-query-service_search-all` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `surface-demo-service_note-delete` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `surface-demo-service_note-get` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `surface-demo-service_note-move` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `surface-demo-service_note-rename` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `surface-demo-service_note-write` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `surface-selftest-service_run-selftest` | needs a running app |
+| `task-service_cancel` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `task-service_retry` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `task-service_show` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `triage-service_add-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `triage-service_remove-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `triage-service_set-flag` | exercised, unobserved (example ran, spy saw no declared read or write) |

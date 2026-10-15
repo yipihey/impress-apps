@@ -32,10 +32,12 @@ tokio = { workspace = true }
 dirs = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
-# The agent desk bridge (src/desk.rs): this daemon's store is the process
-# store the desk's verbs read.
+# The desk agent (koine-ai's, through impress-ai): this daemon's store is the
+# process store the desk's verbs read.
 koine-store = { workspace = true }
 impress-item = { workspace = true }
+# The verb executor (koine docs/plan-koine-ai-tasks.md Q-D3).
+koine-tasks = { workspace = true, features = ["runtime"] }
 impress-workspace-hack.workspace = true
 
 [features]
@@ -49,10 +51,6 @@ required-features = ["examples"]
 [[example]]
 name = "review_cli"
 required-features = ["examples"]
-
-[dev-dependencies]
-# The desk bridge test (src/desk.rs): a real AiStore in a temporary directory.
-tempfile = "3"
 
 [lints]
 workspace = true

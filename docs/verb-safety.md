@@ -87,6 +87,17 @@ per-method overrides. Derived from the table below, recorded here for reading.
 <!-- verb-safety:begin -->
 | Tool | Class | Evidence |
 |---|---|---|
+| `agent-service_answer` | mutating | name/doc |
+| `agent-service_ask` | mutating | name/doc |
+| `agent-service_claim` | mutating | name/doc |
+| `agent-service_context` | mutating | reads the layout through `layout-service_get-layout`, which writes a device's default layout on first read (the store spy observed it); idempotent thereafter |
+| `agent-service_decline` | mutating | name/doc |
+| `agent-service_diagnose` | mutating | name/doc |
+| `agent-service_make-surface` | mutating | name/doc |
+| `agent-service_next` | read_only | name/doc |
+| `agent-service_requests` | read_only | name/doc |
+| `agent-service_show` | mutating | name/doc |
+| `agent-service_skill` | read_only | name/doc |
 | `capabilities-service_catalogue-surface` | read_only | name/doc |
 | `capabilities-service_impact` | read_only | name/doc |
 | `capabilities-service_list-verbs` | read_only | name/doc |
@@ -568,9 +579,22 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `store-query-service_related-items` | read_only | name/doc |
 | `store-query-service_search-all` | read_only | name/doc |
 | `surface-demo-service_histogram` | read_only | name/doc |
+| `surface-demo-service_inventory` | read_only | name/doc |
+| `surface-demo-service_note-add` | mutating | name/doc |
+| `surface-demo-service_note-delete` | destructive | name/doc |
+| `surface-demo-service_note-get` | read_only | name/doc |
+| `surface-demo-service_note-move` | mutating | name/doc |
+| `surface-demo-service_note-rename` | mutating | name/doc |
+| `surface-demo-service_note-write` | mutating | name/doc |
+| `surface-demo-service_notes` | read_only | name/doc |
 | `surface-demo-service_series` | read_only | name/doc |
 | `surface-demo-service_tick` | read_only | name/doc |
 | `surface-selftest-service_run-selftest` | external | E/M: crates/impress-surface-service/src/selftest.rs:48-56 tier a -> tier_a.rs:48 World::open() uses SqliteItemStore::open_in_memory() (private store, nothing durable); tier b/all -> tier_b.rs:108-118 reqwest client to IMPR… |
+| `task-service_cancel` | mutating | name/doc |
+| `task-service_enqueue` | mutating | name/doc |
+| `task-service_list` | read_only | name/doc |
+| `task-service_retry` | mutating | name/doc |
+| `task-service_show` | read_only | name/doc |
 | `triage-service_add-tag` | mutating | name/doc |
 | `triage-service_remove-tag` | mutating | name/doc |
 | `triage-service_set-flag` | mutating | name/doc |

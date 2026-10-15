@@ -32,6 +32,9 @@ native = ["uniffi", "sqlite"]
 [dependencies]
 # Workspace crates
 impress-core = { workspace = true, features = ["sqlite"] }
+# The task kernel (store port, executors, scheduler, spawn) is koine's; the
+# task_* modules re-export it (koine docs/plan-koine-ai-tasks.md Q-D1).
+koine-tasks = { workspace = true, features = ["runtime"] }
 
 # Serialization and error handling
 serde = { workspace = true }

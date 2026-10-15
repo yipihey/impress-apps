@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use impress_ai::registry::ResolveTarget;
-use impress_ai::{migrate_localmodels, AiRegistry, AiStore, FileBlobStore};
+use impress_ai::{migrate_localmodels, AiRegistry, AiStore, AiStoreSqlite, FileBlobStore};
 use impress_ai_http::{router, AiHttpState, MaintenanceState};
 use impress_core::item::ActorKind;
 use impress_core::maintenance::MaintenanceLease;
@@ -37,7 +37,7 @@ async fn main() {
             .unwrap_or_else(|error| panic!("open {}: {error}", blob_path.display())),
     );
     if let Some(source) = std::env::var_os("IMPRESS_LOCALMODELS_IMPORT").map(PathBuf::from) {
-        let report = migrate_localmodels(ai.shared_store(), blobs.as_ref(), &source, false)
+        let report = migrate_localmodels(ai.sqlite_store(), blobs.as_ref(), &source, false)
             .unwrap_or_else(|error| panic!("import {}: {error}", source.display()));
         eprintln!(
             "impress-ai-server: LocalModels import discovered={} imported={} unchanged={} changed={} failed={}",
@@ -81,7 +81,7 @@ async fn main() {
     // the whole file — the suite-wide silent hang. A truncating checkpoint
     // every five minutes keeps the file near zero; when readers are busy the
     // attempt reports incomplete and the next tick retries.
-    let maintenance_store = ai.shared_store();
+    let maintenance_store = ai.sqlite_store();
     let maintenance = MaintenanceState::new(store_path.clone());
     // Operation compaction window (days). Compactable routine ops older than
     // this fold into durable watermark snapshots (ADR-0006); the last window

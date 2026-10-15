@@ -1,50 +1,35 @@
 [package]
 name = "impress-ai"
-description = "Provenance-first AI conversations and oMLX inference for the Impress item graph"
+description = "Provenance-first AI conversations for the Impress item graph: koine-ai, over the suite's SQLite store, plus the LocalModels import"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
-async-trait.workspace = true
-base64 = "0.22"
+# The kernel (koine docs/plan-koine-ai-tasks.md AI-D1). `legacy-sqlite` is the
+# error variant the LocalModels import converts into.
+koine-ai = { workspace = true, features = ["legacy-sqlite"] }
 chrono.workspace = true
-dirs.workspace = true
-futures-util = "0.3"
-html-escape = "0.2"
-# Optional: only `executor` (the impel task executors) needs it. See [features].
-impel-core = { workspace = true, optional = true }
 impress-core = { workspace = true, features = ["sqlite"] }
-impress-fs-lock.workspace = true
-regex.workspace = true
-reqwest.workspace = true
 rusqlite.workspace = true
-# Optional: `schema` derives `JsonSchema` on the DTOs impress-ai-service returns.
-schemars = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
-thiserror.workspace = true
-tokio.workspace = true
-tokio-stream = "0.1"
 uuid = { workspace = true, features = ["v4", "v5", "serde"] }
-url.workspace = true
 impress-workspace-hack.workspace = true
 
 [features]
-# The impel TaskExecutor impls (`executor.rs`) and the only reason this crate
-# ever depended on impel-core. Opt-in, so the store FFI, which links impress-ai
-# for the conversation and registry bindings and never runs a task executor,
-# no longer reaches a domain core (ADR-0033 D7; decided by Tom 2026-09-24 in
-# wave 6's W6). impel-taskd, the executors' one user, turns it on.
-executor = ["dep:impel-core"]
-# Derive `schemars::JsonSchema` on the DTOs that cross a verb boundary, so
-# impress-ai-service's result types carry an output schema (ADR-0034 D1).
-schema = ["dep:schemars"]
+# The task executors (and the desk agent), over koine-tasks' scheduler, which
+# impel-core re-exports. Opt-in, so the store FFI, which links impress-ai for
+# the conversation and registry bindings and never runs a task executor,
+# links no scheduler (ADR-0033 D7; decided by Tom 2026-09-24 in wave 6's W6).
+# impel-taskd, the executors' one user, turns it on.
+executor = ["koine-ai/executor"]
+# `JsonSchema` on the DTOs that cross a verb boundary (ADR-0034 D1).
+schema = ["koine-ai/schema"]
 
 [dev-dependencies]
-mockito.workspace = true
 tempfile = "3"
 
 [lints]

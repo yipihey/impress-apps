@@ -70,6 +70,9 @@ pub mod sync;
 /// like `collection_migration`'s.
 #[cfg(feature = "sqlite")]
 pub mod task_schema_migration;
+/// The task store port (`koine_tasks::TaskStoreApi`) for SQLite.
+#[cfg(feature = "sqlite")]
+pub mod task_store;
 #[cfg(feature = "sqlite")]
 pub mod triage_ops;
 /// ADR-0023's watched-folder kernel: the file-level provenance bookkeeping both

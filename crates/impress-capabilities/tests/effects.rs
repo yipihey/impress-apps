@@ -102,7 +102,15 @@ use serde_json::Value;
 // sees no declared read or write. Their positive evidence is
 // `tests/outline_sidebar.rs`, which drives each through the linked
 // collection kernel over SQLite and reads the payload back.
-const EXCEPTION_CEILING: usize = 157;
+// koine research-os raises 157 → 171: fourteen koine verbs the kit links ship
+// examples that refuse a missing id before any row is read — agent-service
+// answer/claim/decline/diagnose/show/skill, surface-demo-service
+// note-{delete,get,move,rename,write} and task-service cancel/retry/show — so
+// the spy sees no declared read or write (a missing row has no kind to
+// record). Their positive evidence is koine's own suites: koine-agent
+// `tests/agent.rs`, surface-demo-service `tests/tour.rs` and koine-tasks
+// `tests/verbs.rs`, which file, run, cancel and retry real rows.
+const EXCEPTION_CEILING: usize = 171;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave

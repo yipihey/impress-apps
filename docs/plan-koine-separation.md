@@ -47,6 +47,25 @@ allows that reach from a store-tier crate, with features `sqlite`, `schema`,
 `impress-core` or the store tier. That scratch workspace is the grammar
 leaving on its own.
 
+### K1c — the AI and task kernels leave too
+
+Done on branch `koine-research-os` (koine docs/plan-koine-ai-tasks.md). The
+two store-tier crates whose only reason to stay was `Arc<SqliteItemStore>`
+now run over the port:
+
+- `koine-tasks` is the task state machine, the `TaskStoreApi` port,
+  executors, the scheduler, spawn rules and jobs. `impel-core`'s `task_*`
+  modules and `impress-core`'s `task`/`job` re-export it, and
+  `impress-core::task_store` keeps SQLite's single-statement ready queue as
+  its port implementation.
+- `koine-ai` is `impress-ai` without the LocalModels import, with the
+  verbs. `impress-ai` re-exports it and adds `AiStoreSqlite::open`.
+  `impress-ai-service` submits the suite's store and workspace as the verbs'
+  deployment.
+
+`impel-taskd` runs koine's desk agent as `impress-ai`, with the
+`impress-mcp` tools.
+
 ## K2 — every app hosts the kit
 
 Done for the window. imbib's `ContentView` is the chrome (sheets, search,

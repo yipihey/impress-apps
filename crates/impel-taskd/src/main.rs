@@ -65,8 +65,6 @@ use impress_sources::openalex::OpenAlexSource;
 use impress_workflow_service::WorkflowEngine;
 use tokio::sync::RwLock;
 
-mod desk;
-
 const ACTOR: &str = "impel-taskd";
 
 struct Args {
@@ -750,6 +748,12 @@ async fn main() {
             retry_base_ms: SchedulerConfig::default().retry_base_ms,
         },
     );
+    // A verb is a task (koine docs/plan-koine-ai-tasks.md Q-D3): work filed
+    // with `task-service_enqueue` (or any `koine.verb` row) runs here, as
+    // `agent:tasks`, never as the person, through the linked inventory.
+    scheduler.register(Arc::new(koine_tasks::VerbTaskExecutor::new(
+        koine_tasks::verb::DEFAULT_AGENT,
+    )));
     // Provider selection and endpoints come from the device-local preferences
     // file beside the store (ADR-0029). One registry serves the conversation
     // executors AND the background tiers below; the tiers resolve through
@@ -810,12 +814,23 @@ async fn main() {
                 Ok(resolved) => {
                     let port: Arc<dyn impress_item::AttributedStore> = store.clone();
                     koine_store::process::install(port);
-                    let bridge =
-                        desk::DeskBridge::new(ai_store.clone(), resolved.provider, resolved.model);
+                    // koine's desk agent, as impress: claimed as
+                    // `agent:impress-ai`, answered with impress's own tools.
+                    let bridge = impress_ai::desk::DeskBridge::new(
+                        ai_store.clone(),
+                        resolved.provider,
+                        resolved.model,
+                    )
+                    .as_agent("impress-ai")
+                    .with_tools(["impress-mcp"])
+                    .with_system_prompt(
+                        "You are the agent on an impress app's agent desk. Be precise, use the \
+                         app's tools rather than guessing, and say what you did.",
+                    );
                     tokio::spawn(async move {
                         loop {
                             match bridge.pass().await {
-                                Ok(pass) if pass != desk::Pass::default() => eprintln!(
+                                Ok(pass) if pass != impress_ai::desk::Pass::default() => eprintln!(
                                     "impel-taskd: desk: {} started, {} answered, {} declined",
                                     pass.started, pass.answered, pass.declined
                                 ),

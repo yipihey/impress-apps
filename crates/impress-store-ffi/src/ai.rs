@@ -8,9 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use impress_ai::{
-    migrate_localmodels, read_worker_status, tool_options_for_policy, AiStore, BlobDescriptor,
-    BlobStore, ConversationDraft, FileBlobStore, MessageDraft, ModelSummary, OmlxClient, Role,
-    ToolPolicy, WorkerLifecycleState, WorkerStatusSnapshot, WORKER_PROTOCOL_VERSION,
+    migrate_localmodels, read_worker_status, tool_options_for_policy, AiStore, AiStoreSqlite,
+    BlobDescriptor, BlobStore, ConversationDraft, FileBlobStore, MessageDraft, ModelSummary,
+    OmlxClient, Role, ToolPolicy, WorkerLifecycleState, WorkerStatusSnapshot,
+    WORKER_PROTOCOL_VERSION,
 };
 use impress_core::item::ActorKind;
 
@@ -549,7 +550,7 @@ impl SharedAiStore {
         dry_run: bool,
     ) -> Result<String, SharedStoreError> {
         let report = migrate_localmodels(
-            self.store.shared_store(),
+            self.store.sqlite_store(),
             &self.blobs,
             Path::new(&source_database_path),
             dry_run,

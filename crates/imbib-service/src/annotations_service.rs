@@ -226,7 +226,16 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     async fn update_comment(&self, id: String, text: String) -> MutationResult;
     /// Delete one comment and nothing else. A missing id or a row of another
     /// kind is refused and deletes nothing.
-    #[impress_method(safety = destructive, effects(reads = ["imbib/comment"], writes = ["imbib/comment"]))]
+    #[impress_method(
+        safety = destructive,
+        effects(
+            reads = [
+                "imbib/comment",
+                any("the comment's children, whatever their kind, for the undo snapshot")
+            ],
+            writes = ["imbib/comment"]
+        )
+    )]
     #[impress_example(
         name = "delete-scratch-comment",
         args = r#"{"id":"60000000-0000-4000-8000-000000000034"}"#,
