@@ -242,7 +242,8 @@ final class PaneLayoutCommandsTests: XCTestCase {
                 + "Chassis/Layout/ChassisViewKinds.swift")
         XCTAssertTrue(info.contains("beginSpawning"))
         XCTAssertTrue(info.contains("layout.detail.tab."))
-        XCTAssertTrue(info.contains("setTabOrder"))
+        // tab reordering is a layout verb (koine since 4d635553), not a setter
+        XCTAssertTrue(info.contains("KoineGesture.tabOrderVerb("))
         XCTAssertFalse(
             info.contains(".focusable("),
             "a detail tab handle must not become a focus target")
