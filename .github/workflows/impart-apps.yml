@@ -145,21 +145,20 @@ jobs:
           uname -m; xcodebuild -version
           [ "$(uname -m)" = "arm64" ]
 
-      # Hosted: arm64 only. The runner is Apple Silicon and the simulator it
-      # boots is arm64, so x86_64 slices would be built, cached and never
+      # arm64 only, on both runners. Both are Apple Silicon and the simulator
+      # each boots is arm64, so x86_64 slices would be built, stored and never
       # linked — two of every framework's five slices. IMPRESS_SKIP_X86=1 below
       # and ARCHS=arm64 in both xcodebuild calls are the same decision.
       #
-      # Self-hosted: every slice, because that is the variant every other lane
-      # on the Mac builds (impart-tests.yml's iOS job uses exactly this set).
-      # The runner's xcframework store is keyed by variant, so matching it
-      # means a PR's build is the entry main's lanes restore after the merge,
-      # and theirs is the one this lane restores. The two x86_64 slices cost a
-      # few minutes against a target dir that already holds them.
+      # On the build Mac the variant also has to match the other lanes': the
+      # runner's xcframework store is keyed by variant, so a PR's build is the
+      # entry main's lanes restore after the merge, and theirs is the one this
+      # lane restores. Every self-hosted lane builds IMPRESS_SKIP_X86=1 since
+      # #189; keep the env-extra strings below identical to theirs.
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ runner.environment == 'self-hosted' && 'aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim' || 'aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim' }}
+          targets: aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim
 
       # Hosted: no target/ cache. It used to be round-tripped here keyed on
       # Cargo.lock, which for five release builds is several GB of tarball
@@ -185,51 +184,48 @@ jobs:
       # ImpressStoreFfi, and was waved through as "base-red". The set matches
       # impart-tests.yml's; FULL iOS slices because the smoke below builds
       # impart-iOS.
-      #
-      # env-extra is written `hosted && X || Y`, never `self-hosted && '' || X`:
-      # '' is falsy in an expression, so the second form always yields X.
       - name: ImpressStoreFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impress-store-ffi
-          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1' || '' }}
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ImbibCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
-          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0' || 'MACOSX_DEPLOYMENT_TARGET=14.0' }}
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
 
       - name: ImbibVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-verbs-ffi
-          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0' || 'MACOSX_DEPLOYMENT_TARGET=14.0' }}
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
 
       # MessageManagerCore imports ImpartVerbsFFI on both platforms.
       - name: ImpartVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impart-verbs-ffi
-          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1' || '' }}
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ScixClientCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: scix-client-ffi
-          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1' || '' }}
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ImpressHelix.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impress-helix
-          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1' || '' }}
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ImprintCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-core
-          env-extra: ${{ runner.environment != 'self-hosted' && 'IMPRESS_SKIP_X86=1' || '' }}
+          env-extra: IMPRESS_SKIP_X86=1
 
       # Record the headroom so a space failure never has to be guessed at. The
       # first full build (run 36037604487) left target/ at 8.9 GB with 83 GiB

@@ -180,9 +180,14 @@ offline before blaming the lane.
 ### How the self-hosted path differs
 
 - It uses `scripts/ci-cargo-target.sh`, the runner's bounded target dir.
-- It builds every slice, not `IMPRESS_SKIP_X86=1`. That is the variant every
-  other lane on the Mac uses (the set matches impart-tests.yml's iOS job). The
-  store is keyed by variant, so the lanes share entries.
+- Its framework variants (`env-extra`) are the same strings the other lanes
+  on the Mac use: `IMPRESS_SKIP_X86=1`, plus `MACOSX_DEPLOYMENT_TARGET=14.0`
+  for imbib-core and imbib-verbs-ffi, which is the set impart-tests.yml's iOS
+  job builds. The store is keyed by variant, so the lanes share entries. Both
+  runners build arm64 only. A first version of #187 built all five slices on
+  the Mac to match the lanes as they were, and #189 then moved every lane to
+  arm64. If a lane changes its variant, change this one with it, or the
+  sharing stops without an error.
 - Its DerivedData is a per-runner dir outside the checkout
   (`scripts/ci-derived-data.sh`), shared by the macOS and iOS builds. With
   `IMPRESS_SKIP_INSTALL=1`, nothing touches the developer's DerivedData or
