@@ -52,6 +52,9 @@ impress-layout-service = { workspace = true, optional = true }
 impress-store-service = { workspace = true, optional = true }
 impress-surface-service = { workspace = true, optional = true }
 surface-demo-service = { workspace = true, optional = true }
+# The agent desk (koine plan-koine-research-os G-D): `agent-service_*`, so an
+# app's dispatch files a request and impel-taskd's bridge answers it.
+koine-agent = { workspace = true, optional = true }
 impress-workspace-hack.workspace = true
 
 # The pipeline tests (tests/pipeline.rs, policy.rs, pipeline_bench.rs) run
@@ -119,7 +122,7 @@ full = [
     "perf",
     "workflow",
 ]
-kit = ["dep:impress-layout-service", "dep:impress-store-service", "dep:impress-surface-service", "dep:surface-demo-service"]
+kit = ["dep:impress-layout-service", "dep:impress-store-service", "dep:impress-surface-service", "dep:surface-demo-service", "dep:koine-agent"]
 scenario = ["dep:impress-scenario-service"]
 
 imbib = ["dep:imbib-service"]

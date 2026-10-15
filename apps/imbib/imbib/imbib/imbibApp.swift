@@ -1106,6 +1106,11 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.command_palette"))
 
+            Button("Ask an Agent...") {
+                NotificationCenter.default.post(name: .showAskAgent, object: nil)
+            }
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.ask_agent"))
+
             Divider()
 
             Button("Show Library") {

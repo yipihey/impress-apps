@@ -226,6 +226,7 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .showCommandPalette)) { _ in
                 showCommandPalette = true
             }
+            .imbibAskAgentSheet()
             .onReceive(NotificationCenter.default.publisher(for: .performSearchAction)) { notification in
                 guard let action = ImbibSearchAction.from(notification) else { return }
                 presentSearch(action)

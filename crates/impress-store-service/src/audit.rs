@@ -269,6 +269,13 @@ mod tests {
             duration_ms: 0,
             arg_bytes: 0,
             result_bytes: 0,
+            duration_us: 0,
+            steps: Vec::new(),
+            steps_truncated: 0,
+            read_ids: Vec::new(),
+            reads_truncated: 0,
+            updated_ids: Vec::new(),
+            run: None,
             store_override: None,
         }
     }

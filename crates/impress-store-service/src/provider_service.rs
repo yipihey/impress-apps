@@ -183,6 +183,7 @@ mod tests {
             mutation_ids: MutationIds::default(),
             adverbs: Default::default(),
             inverse: Default::default(),
+            notes: Default::default(),
         })
     }
 

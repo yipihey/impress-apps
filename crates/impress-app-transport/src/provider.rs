@@ -507,6 +507,7 @@ mod tests {
             mutation_ids: context::MutationIds::default(),
             adverbs: Default::default(),
             inverse: Default::default(),
+            notes: Default::default(),
         });
         let answer = context::scope(current, async {
             call(

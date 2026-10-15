@@ -160,6 +160,7 @@ async fn the_paper_triage_loop_stars_the_selected_row_via_the_real_triage_verb()
         mutation_ids: Default::default(),
         adverbs: Default::default(),
         inverse: Default::default(),
+        notes: Default::default(),
     });
     impress_service_core::pipeline::context::scope(context, paper_triage_loop_body(world)).await;
 }

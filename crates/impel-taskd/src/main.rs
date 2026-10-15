@@ -65,6 +65,8 @@ use impress_sources::openalex::OpenAlexSource;
 use impress_workflow_service::WorkflowEngine;
 use tokio::sync::RwLock;
 
+mod desk;
+
 const ACTOR: &str = "impel-taskd";
 
 struct Args {
@@ -799,6 +801,38 @@ async fn main() {
             }
         });
         let title_executor = AiTitleTaskExecutor::with_registry(ai_store.clone(), registry.clone());
+        // The agent desk bridge (koine plan-koine-research-os G-D): a request
+        // a person leaves on the desk becomes a conversation this executor
+        // answers, and the answer goes back on the desk. Off with
+        // IMPRESS_DESK_AGENT=0.
+        if std::env::var("IMPRESS_DESK_AGENT").as_deref() != Ok("0") {
+            match registry.resolve(&impress_ai::ResolveTarget::default()) {
+                Ok(resolved) => {
+                    let port: Arc<dyn impress_item::AttributedStore> = store.clone();
+                    koine_store::process::install(port);
+                    let bridge =
+                        desk::DeskBridge::new(ai_store.clone(), resolved.provider, resolved.model);
+                    tokio::spawn(async move {
+                        loop {
+                            match bridge.pass().await {
+                                Ok(pass) if pass != desk::Pass::default() => eprintln!(
+                                    "impel-taskd: desk: {} started, {} answered, {} declined",
+                                    pass.started, pass.answered, pass.declined
+                                ),
+                                Ok(_) => {}
+                                Err(error) => eprintln!("impel-taskd: desk: {error}"),
+                            }
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                        }
+                    });
+                }
+                Err(error) => {
+                    eprintln!(
+                        "impel-taskd: agent desk bridge off: no AI provider resolved ({error})"
+                    )
+                }
+            }
+        }
         let mut executor = OmlxTaskExecutor::with_registry(ai_store, registry, blob_store);
         match ImpressToolAdapter::probe().await {
             Ok(adapter) => {

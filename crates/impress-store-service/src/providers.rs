@@ -769,6 +769,7 @@ mod tests {
             mutation_ids: context::MutationIds::default(),
             adverbs: Default::default(),
             inverse: Default::default(),
+            notes: Default::default(),
         });
         context::scope(context, async {
             registry.set_trusted("python-reference", true).unwrap();

@@ -6874,6 +6874,7 @@ mod tests {
             mutation_ids: MutationIds::default(),
             adverbs: Default::default(),
             inverse: Default::default(),
+            notes: Default::default(),
         });
         let outside = store.insert(make_item("task@1.0.0", "outside")).unwrap();
         let inside = sync_scope(context.clone(), || {

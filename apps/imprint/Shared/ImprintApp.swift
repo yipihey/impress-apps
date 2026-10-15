@@ -593,6 +593,9 @@ struct ImprintApp: App {
             // and the now-single-armed gate are gone; the standalone
             // `manuscript-editor` WindowGroup below is untouched and live.
             ImprintChassisRoot()
+                // Edit ▸ Ask an Agent… (⌃⌥⌘A): a request on the agent desk
+                // with imprint's layout as its context (ImpressAutomation).
+                .askAgentSheet(app: "imprint")
                 .onReceive(
                     NotificationCenter.default.publisher(for: .openManuscriptInEditor)
                 ) { notification in
@@ -899,6 +902,11 @@ struct ImprintApp: App {
                 NotificationCenter.default.post(name: .showAIContextMenu, object: nil)
             }
             .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.edit.ai_assistant"))
+
+            Button("Ask an Agent...") {
+                NotificationCenter.default.post(name: .impressAskAgent, object: nil)
+            }
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.edit.ask_agent"))
 
             Divider()
 

@@ -42,7 +42,7 @@ fn imprint_commands_join_the_same_covered_union() {
         .collect();
     assert_eq!(
         imprint.len(),
-        60,
+        61,
         "all current macOS imprint chords must be seeded"
     );
     let mut ids = BTreeSet::new();

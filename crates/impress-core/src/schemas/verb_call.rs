@@ -37,6 +37,15 @@ pub mod field {
     pub const ARG_BYTES: &str = "arg_bytes";
     pub const RESULT_BYTES: &str = "result_bytes";
     pub const WIRE_VERSION: &str = "wire_version";
+    // koine plan-koine-notebook N-D2..N-D5: written by the pipeline since
+    // koine 85ee01a, all optional (a row written before them has none).
+    pub const DURATION_US: &str = "duration_us";
+    pub const STEPS: &str = "steps";
+    pub const STEPS_TRUNCATED: &str = "steps_truncated";
+    pub const READ_IDS: &str = "read_ids";
+    pub const READS_TRUNCATED: &str = "reads_truncated";
+    pub const UPDATED_IDS: &str = "updated_ids";
+    pub const RUN: &str = "run";
 }
 
 fn described(mut def: FieldDef, description: &str) -> FieldDef {
@@ -107,6 +116,30 @@ pub fn verb_call_schema() -> Schema {
             field(field::ARG_BYTES, FieldType::Int, true),
             field(field::RESULT_BYTES, FieldType::Int, true),
             field(field::WIRE_VERSION, FieldType::Int, true),
+            described(
+                field(field::DURATION_US, FieldType::Int, false),
+                "The duration in microseconds, as the span carries it.",
+            ),
+            // `steps` is an array of step objects ({verb, call_id,
+            // duration_us, self_us, ok, code, steps}); the field types here
+            // have no array-of-objects, so it is documented, not declared.
+            described(
+                field(field::STEPS_TRUNCATED, FieldType::Int, false),
+                "Nested calls cut from `steps` by its bounds (64 per level, 8 levels).",
+            ),
+            described(
+                field(field::READ_IDS, FieldType::StringArray, false),
+                "Record ids the call read, at most 256.",
+            ),
+            field(field::READS_TRUNCATED, FieldType::Int, false),
+            described(
+                field(field::UPDATED_IDS, FieldType::StringArray, false),
+                "Record ids the call changed in place.",
+            ),
+            described(
+                field(field::RUN, FieldType::String, false),
+                "The lab-notebook run open when the call finished.",
+            ),
         ],
         expected_edges: vec![],
         inherits: None,

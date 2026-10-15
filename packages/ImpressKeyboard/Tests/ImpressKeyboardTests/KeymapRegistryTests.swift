@@ -43,6 +43,7 @@ final class KeymapRegistryTests: XCTestCase {
         Expected(id: "imbib.edit.smart_search", key: "s", modifiers: .command),
         Expected(id: "imbib.edit.undo_history", key: "z", modifiers: [.command, .option]),
         Expected(id: "imbib.view.command_palette", key: "p", modifiers: [.command, .shift]),
+        Expected(id: "imbib.view.ask_agent", key: "a", modifiers: [.control, .option, .command]),
         Expected(id: "imbib.view.show_library", key: "1", modifiers: .command),
         Expected(id: "imbib.view.show_search", key: "2", modifiers: .command),
         Expected(id: "imbib.view.show_inbox", key: "3", modifiers: .command),
@@ -160,7 +161,7 @@ final class KeymapRegistryTests: XCTestCase {
                 XCTAssertEqual(shortcut.modifiers, [.control, .command])
             }
         }
-        XCTAssertEqual(registry.entries(forApp: "imprint").count, 60)
+        XCTAssertEqual(registry.entries(forApp: "imprint").count, 61)
     }
 
     func testEntriesForAppUseAnExactScopeBoundary() {

@@ -153,6 +153,7 @@ public final class CommandRegistry: @unchecked Sendable {
         register(Command(id: "focusDetail", title: "Focus Detail", category: .view, shortcut: "⌥⌘3", notificationName: .focusDetail))
         register(Command(id: "increaseFontSize", title: "Increase Text Size", category: .view, shortcut: "⇧⌘+", notificationName: .increaseFontSize))
         register(Command(id: "decreaseFontSize", title: "Decrease Text Size", category: .view, shortcut: "⇧⌘-", notificationName: .decreaseFontSize))
+        register(Command(id: "askAgent", title: "Ask an Agent...", category: .view, shortcut: "⌃⌥⌘A", notificationName: .showAskAgent))
 
         // Paper Actions
         register(Command(id: "openPaper", title: "Open Paper", category: .paper, shortcut: "↩", notificationName: .openSelectedPaper))

@@ -69,6 +69,7 @@ async fn check() -> Result<(), Box<dyn std::error::Error>> {
         mutation_ids: context::MutationIds::default(),
         adverbs: Default::default(),
         inverse: Default::default(),
+        notes: Default::default(),
     });
     for (trusted, expected) in [
         (true, SafetyClass::ReadOnly),

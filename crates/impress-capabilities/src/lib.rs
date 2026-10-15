@@ -142,6 +142,10 @@ pub fn force_link() {
                 .cast(),
         ];
         std::hint::black_box(anchors);
+        // The agent desk's verbs (koine plan-koine-research-os G-D).
+        std::hint::black_box(std::ptr::addr_of!(
+            koine_agent::service::__IMPRESS_VERB_AgentService_ask
+        ));
     }
 }
 
