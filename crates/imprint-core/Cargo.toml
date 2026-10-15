@@ -152,6 +152,8 @@ tempfile = "3"
 # `plot_ffi::FfiPlotSpec`. The demo crate builds that JSON without this
 # dependency; the assertion stays on the type the suite renders through.
 surface-demo-service = { workspace = true }
+# `tests/plot_shape.rs` drives the demo verb through the service pipeline.
+impress-service-core = { workspace = true }
 
 
 # One integration-test binary, tests/main.rs, with a `mod` per file in tests/
