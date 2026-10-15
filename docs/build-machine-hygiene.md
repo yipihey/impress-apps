@@ -97,8 +97,8 @@ Rules:
 the one Swift lane with a `pull_request` trigger, so it gates PRs. Until
 2026-10-14 it ran on GitHub's hosted `xcode-27` image for every event and took
 **1h45–2h on almost every run**. It now runs on the self-hosted runners for
-pushes to main and for PRs from branches of this repository, and on the hosted
-image only for PRs from forks.
+PRs from branches of this repository, and on the hosted image only for PRs from
+forks. It does not run on pushes to main at all (see "PR gate only" below).
 
 ### What was measured
 
@@ -213,7 +213,50 @@ offline before blaming the lane.
 - Xcode is `latest-stable`, as on every lane on the Mac. The hosted path keeps
   its 27.0 pin.
 - `concurrency` cancels a PR's superseded run, which would otherwise hold one
-  of the four runners. Runs on main are never cancelled.
+  of the four runners.
+
+### PR gate only: main's signal is impart-tests.yml
+
+Once the lane moved to the Mac, its push-to-main run was a second copy of
+`impart - Swift Tests` (`.github/workflows/impart-tests.yml`), which also runs
+on every main push:
+
+| | impart-apps.yml on main (removed) | impart-tests.yml on main |
+|---|---|---|
+| impart macOS | `build` | `build-for-testing` (app + `impartTests`) |
+| impart-iOS | `build` for a booted device, then install + launch | `build-for-testing` (app + both iOS test bundles), generic simulator |
+| MessageManagerCore | — | `swift build` + `swift test` |
+| Frameworks | the seven above, arm64 only | the same seven; with #189, the same `env-extra`, so the same store keys |
+| Paths | all of `crates/`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, the xcframework action | an enumerated crate list; none of the root Rust files |
+
+Every merge that touched impart paths therefore built impart twice on main,
+about 10 runner-minutes on one of four runners, and the next PR's impart run
+queued 11–12 minutes behind those lanes. On 2026-10-14 the `push` trigger was
+removed from impart-apps.yml, which is now the PR gate only.
+
+What main gives up, and why that is acceptable:
+
+- **The iOS install smoke** (install + launch on a booted simulator) no longer
+  runs post-merge. It still runs on every PR that touches impart's graph, on
+  that PR's merge ref. The break it catches (an Info.plist or extension that
+  `simctl install` rejects) comes from files under `apps/impart/`, which a PR
+  gates. Moving the smoke into impart-tests.yml's iOS job would add a
+  simulator boot to every main push and buy back only merge skew between two
+  PRs.
+- **Root-only Rust merges** (`Cargo.lock`, `rust-toolchain.toml`, `.cargo/`,
+  crates outside impart-tests.yml's list) get no impart build on main. The PR
+  ran this lane on its merge ref, and `workspace-rust.yml` still covers the
+  Rust side on main. Widening impart-tests.yml's paths to match would turn
+  every koine bump into three main jobs where there used to be one, so it was
+  left alone.
+- **Store seeding** does not depend on main. The PR's run already wrote its
+  merge ref's keys to `~/ci-xcframework-store`, and impart-tests.yml restores
+  and writes the same variants. That holds once #189 has moved impart-tests.yml
+  to `IMPRESS_SKIP_X86=1` too. Until then, the two lanes build different
+  variants and share nothing, with or without this change.
+
+Nothing else reads this lane's main runs: no `workflow_run` trigger names it,
+and `main` has no branch protection or ruleset requiring it.
 
 ### Fork PRs
 
