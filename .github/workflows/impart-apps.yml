@@ -152,7 +152,8 @@ jobs:
       # Self-hosted: the runner's own bounded target dir, as in every lane there.
       - name: Use a persistent cargo target directory
         if: runner.environment == 'self-hosted'
-        run: ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
+        run: |
+          "$GITHUB_WORKSPACE/scripts/ci-cargo-target.sh" >> "$GITHUB_ENV"   # one bounded dir per runner
 
       - name: Install xcodegen
         run: brew install xcodegen

@@ -6,14 +6,15 @@
     "macro_lines_per_verb": 2000,
     "total_lines_per_verb": 6000,
     "cold_ms_per_verb": 150,
-    "incr_service_ms_per_verb": 12,
-    "incr_core_ms_per_verb": 20
+    "incr_service_ms_per_verb": 45,
+    "incr_core_ms_per_verb": 90
   },
   "measured_baseline": {
     "macro_lines_per_verb": 1713,
     "total_lines_per_verb": 5123,
     "cold_ms_per_verb": 112,
-    "incr_service_ms_per_verb": 7,
-    "incr_core_ms_per_verb": 13
-  }
+    "incr_service_ms_per_verb": 29,
+    "incr_core_ms_per_verb": 60
+  },
+  "rebaseline_2026_10_15": "Measured halves re-baselined from CI's own run on a1349182 (four runners sharing one M5 Max; a quiet run measures about half: service 14, core 31). incr_service doubled since 3222f573 because imbib-service grew from 5.8k to 10.2k lines and now holds 164 of 447 verbs in one crate (522k LLVM IR lines, ~40% macro-generated arg plumbing, ~38% serde), and this probe is a non-incremental rebuild divided by ALL verbs. A developer's incremental rebuild of impress-mcp after an imbib-service edit is 3.4-3.7 s. The core probe is crates/impress-core/src/lib.rs since impress-service-core moved to koine (7ff63500)."
 }

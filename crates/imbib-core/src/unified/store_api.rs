@@ -455,10 +455,27 @@ impl ImbibStore {
 
     /// Snapshot all child items of a parent item as JSON strings.
     fn snapshot_children(&self, parent_id: uuid::Uuid) -> Result<Vec<String>, StoreApiError> {
-        let q = ItemQuery {
+        self.snapshot_children_query(ItemQuery {
             predicates: vec![Predicate::HasParent(parent_id)],
             ..Default::default()
-        };
+        })
+    }
+
+    /// [`Self::snapshot_children`] restricted to one kind, for a verb whose
+    /// declared effects name the kinds it reads.
+    fn snapshot_children_of_kind(
+        &self,
+        parent_id: uuid::Uuid,
+        schema: impress_core::schema::SchemaRef,
+    ) -> Result<Vec<String>, StoreApiError> {
+        self.snapshot_children_query(ItemQuery {
+            schema: Some(schema),
+            predicates: vec![Predicate::HasParent(parent_id)],
+            ..Default::default()
+        })
+    }
+
+    fn snapshot_children_query(&self, q: ItemQuery) -> Result<Vec<String>, StoreApiError> {
         let children = self.store.query(&q)?;
         children
             .iter()
@@ -1793,7 +1810,12 @@ impl ImbibStore {
                 item.schema
             )));
         }
-        let children = self.snapshot_children(uuid)?;
+        // A comment's envelope children can only be comments (a reply names its
+        // parent comment in the payload; its envelope parent is the paper). A
+        // kind-less HasParent query that finds nothing is recorded as a read of
+        // every kind, which the verb's declared effects rightly refuse.
+        let children =
+            self.snapshot_children_of_kind(uuid, impress_core::schema::refs::IMBIB_COMMENT)?;
         let item_json = serde_json::to_string(&item)
             .map_err(|e| StoreApiError::Storage(format!("serialize item: {}", e)))?;
         self.store.delete(uuid)?;

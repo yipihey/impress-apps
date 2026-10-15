@@ -42,6 +42,15 @@ ALL_CRATES=(
     "impress-helix"
     "scix-client-ffi"
     "impel-tools"
+    # The three app verb bridges. impress.xcworkspace resolves every app's
+    # packages at once, so building ANY scheme needs these binaryTargets to
+    # exist; without them a clean checkout failed package resolution
+    # ("local binary target ... does not contain a binary artifact"). They
+    # were missing from this list until 2026-10-15 and only worked because
+    # old copies were lying around (docs/plan-build-storage.md § Cold build).
+    "implore-verbs-ffi"
+    "imprint-verbs-ffi"
+    "impart-verbs-ffi"
 )
 
 # Parse arguments

@@ -5346,6 +5346,7 @@ dependencies = [
  "impress-core",
  "impress-domain",
  "impress-plot",
+ "impress-service-core",
  "impress-workspace-hack",
  "pulldown-cmark",
  "regex",

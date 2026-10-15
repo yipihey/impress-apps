@@ -135,7 +135,14 @@ let package = Package(
             resources: [
                 .copy("Fixtures")
             ],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            // libimbib_core.a and libImbibVerbsFfi.a each carry their own
+            // compilation of imbib-core, UniFFI exports included. The app
+            // links both with -dead_strip and only the copy it reaches
+            // survives; this bundle linked without it and failed on ~1,700
+            // duplicate `uniffi_imbib_core_*` symbols on every main push from
+            // late September to 2026-10-15. Link the way the app does.
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-dead_strip"])]
         )
     ]
 )

@@ -221,17 +221,36 @@ final class AutomaticWorkUndoTests: XCTestCase {
         XCTAssertFalse(body.contains("performAutomatic"), "Send to Inbox is user-initiated")
     }
 
-    /// Both FFI libraries must see the domain inventory after final Swift linking.
-    /// A Rust-only engine test cannot catch a missing archive in the app.
-    func testWorkflowHostLinksImbibVerbsIntoTheSharedDispatcher() throws {
+    /// imbib's verbs must answer through the imbib FFI after final Swift
+    /// linking — a Rust-only engine test cannot catch a missing archive in the
+    /// app. Since 97ef46c7 ("Keep native Rust state inside its owning image")
+    /// they are reachable ONLY there: the domain FFI is bound to an exact
+    /// database first (`initializeVerbStore`, as `ImbibNativeVerbs.install`
+    /// and `RustStoreAdapter` do), and hosts reach it through
+    /// `VerbAutomationRoutes.registerDomainDispatcher`. (Until 2026-10-15
+    /// this test required the shared Rust inventory to answer too; the bundle
+    /// failed to link from late September, so it never ran against 97ef46c7.)
+    /// Whether the SHARED inventory also sees them depends on link topology,
+    /// not on code: one SwiftPM test binary (`swift test`) is one image and it
+    /// does; Xcode's separate package frameworks keep them apart and it does
+    /// not. So this pins only the domain FFI.
+    func testImbibVerbsAnswerThroughTheirOwnFFIOnly() throws {
         let name = "imbib-text-service_decode-latex"
         let args = #"{"input":"hello"}"#
         let caller = #"{"kind":"system","name":"w3-link-test"}"#
+
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("imbib-verb-store-\(ProcessInfo.processInfo.processIdentifier)")
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        do {
+            try ImbibVerbsFFI.initializeVerbStore(path: scratch.appendingPathComponent("impress.sqlite").path)
+        } catch ImbibVerbStoreError.DifferentPath {
+            // Bound once per process; another test in this run got there first.
+        }
+
         let domain = ImbibVerbsFFI.dispatchVerb(name: name, argsJson: args, callerJson: caller)
-        let shared = ImpressRustCore.dispatchVerb(name: name, argsJson: args, callerJson: caller)
-        XCTAssertEqual(domain.status, 200)
-        XCTAssertEqual(shared.status, 200, "the workflow host lost imbib's inventory at link time")
-        XCTAssertEqual(domain.bodyJson, shared.bodyJson)
+        XCTAssertEqual(domain.status, 200, domain.bodyJson)
+        XCTAssertTrue(domain.bodyJson.contains("hello"), domain.bodyJson)
     }
 
     // MARK: - Retention (plan W3, D-R10 — migrated off `RetentionCleanupService`)
