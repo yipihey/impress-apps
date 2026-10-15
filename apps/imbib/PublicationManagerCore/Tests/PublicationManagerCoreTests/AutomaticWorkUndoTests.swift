@@ -14,7 +14,6 @@
 
 import XCTest
 import ImbibVerbsFFI
-import ImpressRustCore
 
 @testable import PublicationManagerCore
 
@@ -227,10 +226,13 @@ final class AutomaticWorkUndoTests: XCTestCase {
     /// they are reachable ONLY there: the domain FFI is bound to an exact
     /// database first (`initializeVerbStore`, as `ImbibNativeVerbs.install`
     /// and `RustStoreAdapter` do), and hosts reach it through
-    /// `VerbAutomationRoutes.registerDomainDispatcher`, never through the
-    /// shared Rust inventory, which must not carry a second copy of imbib's
-    /// verbs. (This test asserted the opposite until 2026-10-15; the bundle
+    /// `VerbAutomationRoutes.registerDomainDispatcher`. (Until 2026-10-15
+    /// this test required the shared Rust inventory to answer too; the bundle
     /// failed to link from late September, so it never ran against 97ef46c7.)
+    /// Whether the SHARED inventory also sees them depends on link topology,
+    /// not on code: one SwiftPM test binary (`swift test`) is one image and it
+    /// does; Xcode's separate package frameworks keep them apart and it does
+    /// not. So this pins only the domain FFI.
     func testImbibVerbsAnswerThroughTheirOwnFFIOnly() throws {
         let name = "imbib-text-service_decode-latex"
         let args = #"{"input":"hello"}"#
@@ -247,9 +249,7 @@ final class AutomaticWorkUndoTests: XCTestCase {
 
         let domain = ImbibVerbsFFI.dispatchVerb(name: name, argsJson: args, callerJson: caller)
         XCTAssertEqual(domain.status, 200, domain.bodyJson)
-        let shared = ImpressRustCore.dispatchVerb(name: name, argsJson: args, callerJson: caller)
-        XCTAssertEqual(shared.status, 404,
-                       "the shared inventory must not carry imbib's verbs: \(shared.bodyJson)")
+        XCTAssertTrue(domain.bodyJson.contains("hello"), domain.bodyJson)
     }
 
     // MARK: - Retention (plan W3, D-R10 — migrated off `RetentionCleanupService`)
