@@ -63,17 +63,23 @@ jobs:
       - name: Use a persistent cargo target directory
         run: |
           ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
+
+      # IMPRESS_SKIP_X86=1 on every xcframework step: this runner is arm64 and
+      # nothing here links x86_64 (Debug macOS builds are ONLY_ACTIVE_ARCH, every
+      # xcodebuild passes ARCHS=arm64), so the two x86_64 slices were pure cost.
+      # env-extra is part of the runner store key: keep each crate's string the
+      # same in every lane. docs/build-machine-hygiene.md § Where builds go.
       - name: ImbibCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
-          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
 
       - name: ImbibVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-verbs-ffi
-          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
 
       # PublicationManagerCore / the imbib app also link these sibling Rust
       # cores; their xcframeworks are gitignored artifacts and must be
@@ -82,21 +88,24 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: impress-store-ffi
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ScixClientCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: scix-client-ffi
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ImpressHelix.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impress-helix
+          env-extra: IMPRESS_SKIP_X86=1
 
       # PMC took over the Typst compile/edit stack, so it now depends on the
       # ImprintCore package -> ImprintRustCore -> imprint_coreFFI, whose
       # xcframework the imprint build script drops in apps/imprint/Frameworks.
-      # This lane only builds/tests for macOS, so skip the three iOS slices —
+      # This lane only builds/tests for macOS, so skip the iOS slices —
       # imprint-core links Typst and is the most expensive crate in the graph.
       # IMPRINT_SKIP_IOS is part of the cache key: the macOS-only artifact must
       # never be handed to the iOS job below.
@@ -104,7 +113,7 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-core
-          env-extra: IMPRINT_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_X86=1 IMPRINT_SKIP_IOS=1
 
       # ImpressAI is the GUI projection over the Rust AI registry (ADR-0029)
       # and every app links it; no other lane runs its tests.
@@ -176,13 +185,13 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
-          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
 
       - name: ImbibVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-verbs-ffi
-          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
 
       # PublicationManagerCore / the imbib app also link these sibling Rust
       # cores; their xcframeworks are gitignored artifacts and must be
@@ -191,24 +200,28 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: impress-store-ffi
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ScixClientCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: scix-client-ffi
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ImpressHelix.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impress-helix
+          env-extra: IMPRESS_SKIP_X86=1
 
-      # PMC -> ImprintCore -> imprint_coreFFI. Full slice set here: the
+      # PMC -> ImprintCore -> imprint_coreFFI. iOS slices too here: the
       # generated project carries an iOS target alongside the macOS one, so
       # resolution sees the whole graph even though only macOS is built.
       - name: ImprintCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-core
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: Generate Xcode project
         working-directory: apps/imbib/imbib
@@ -225,6 +238,7 @@ jobs:
             -scheme imbib \
             -only-testing:imbibTests \
             -destination 'platform=macOS' \
+            ARCHS=arm64 \
             -resultBundlePath ${{ runner.temp }}/TestResults-macOS.xcresult \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
@@ -286,13 +300,13 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
-          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
 
       - name: ImbibVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-verbs-ffi
-          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
 
       # PublicationManagerCore / the imbib app also link these sibling Rust
       # cores; their xcframeworks are gitignored artifacts and must be
@@ -301,16 +315,19 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: impress-store-ffi
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ScixClientCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: scix-client-ffi
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ImpressHelix.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impress-helix
+          env-extra: IMPRESS_SKIP_X86=1
 
       # PMC -> ImprintCore -> imprint_coreFFI. iOS slices are required here,
       # so this one runs with the script's default (multi-platform) slice set.
@@ -318,6 +335,7 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-core
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: Generate Xcode project
         working-directory: apps/imbib/imbib
@@ -355,6 +373,7 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
           xcodebuild -derivedDataPath "$PWD/.ci-derived" -scheme imbib-iOS -configuration Debug \
             -destination "id=$UDID" \
+            ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO build | tail -30
           APP=$(find .ci-derived/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'imbib.app' | head -1)
           echo "installing $APP"

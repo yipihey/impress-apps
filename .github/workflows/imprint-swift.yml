@@ -71,6 +71,13 @@ jobs:
       - name: Use a persistent cargo target directory
         run: |
           ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
+
+      # IMPRESS_SKIP_X86=1 on every xcframework step: this runner is arm64 and
+      # nothing here links x86_64 (Debug macOS builds are ONLY_ACTIVE_ARCH, every
+      # xcodebuild passes ARCHS=arm64), so the two x86_64 slices were pure cost.
+      # env-extra is part of the runner store key: keep each crate's string the
+      # same in every lane. docs/build-machine-hygiene.md § Where builds go.
+
       # No SwiftPM cache: ~/Library/Caches/org.swift.swiftpm is the developer's
       # own directory on this self-hosted Mac and already persists between jobs.
       # The step cost 8-9 minutes of upload per job, and its key hashed
@@ -85,12 +92,14 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-core
+          env-extra: IMPRESS_SKIP_X86=1
 
       # ImprintCore -> ImpressRustCore -> ImpressStoreFfi.xcframework.
       - name: ImpressStoreFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impress-store-ffi
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: Test ImprintCore
         working-directory: apps/imprint/Packages/ImprintCore

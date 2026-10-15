@@ -70,6 +70,13 @@ jobs:
       - name: Use a persistent cargo target directory
         run: |
           ./scripts/ci-cargo-target.sh >> "$GITHUB_ENV"   # one bounded dir per runner
+
+      # IMPRESS_SKIP_X86=1 on every xcframework step: this runner is arm64 and
+      # nothing here links x86_64 (Debug macOS builds are ONLY_ACTIVE_ARCH, every
+      # xcodebuild passes ARCHS=arm64), so the two x86_64 slices were pure cost.
+      # env-extra is part of the runner store key: keep each crate's string the
+      # same in every lane. docs/build-machine-hygiene.md § Where builds go.
+
       # No SwiftPM cache: ~/Library/Caches/org.swift.swiftpm is the developer's
       # own directory on this self-hosted Mac and already persists between jobs.
       # The step cost 8-9 minutes of upload per job, and its key hashed
@@ -81,6 +88,7 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: implore-core
+          env-extra: IMPRESS_SKIP_X86=1
 
       # ImploreCore -> ImpressRustCore -> ImpressStoreFfi.xcframework.
       - name: ImpressStoreFfi.xcframework
@@ -89,7 +97,7 @@ jobs:
           crate: impress-store-ffi
           # macOS-only project: no iOS slices needed (the same reasoning the
           # imprint-core step below already applies).
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       - name: Test ImploreCore
         working-directory: apps/implore/Packages/ImploreCore
@@ -127,12 +135,13 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: implore-core
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ImploreVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: implore-verbs-ffi
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       - name: ImpressStoreFfi.xcframework
         uses: ./.github/actions/xcframework
@@ -140,7 +149,7 @@ jobs:
           crate: impress-store-ffi
           # macOS-only project: no iOS slices needed (the same reasoning the
           # imprint-core step below already applies).
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       # The app links ImpressHelixCore for its editor surfaces.
       - name: ImpressHelix.xcframework
@@ -149,7 +158,7 @@ jobs:
           crate: impress-helix
           # macOS-only project: no iOS slices needed (the same reasoning the
           # imprint-core step below already applies).
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       # The app also links the PublicationManagerCore chassis, which brings the
       # SciX client and imbib cores with it. Gitignored artifacts, so a clean
@@ -160,28 +169,28 @@ jobs:
           crate: scix-client-ffi
           # macOS-only project: no iOS slices needed (the same reasoning the
           # imprint-core step below already applies).
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       - name: ImbibCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       - name: ImbibVerbsFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-verbs-ffi
-          env-extra: IMPRESS_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_IOS=1 IMPRESS_SKIP_X86=1
 
       # PMC -> ImprintCore -> imprint_coreFFI. implore is a macOS-only project,
-      # so skip the three iOS slices — imprint-core links Typst and is by far
+      # so skip the iOS slices — imprint-core links Typst and is by far
       # the most expensive crate in this graph.
       - name: ImprintCore.xcframework (macOS slices only)
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-core
-          env-extra: IMPRINT_SKIP_IOS=1
+          env-extra: IMPRESS_SKIP_X86=1 IMPRINT_SKIP_IOS=1
 
       # implore ships .metal shaders (Sources/Metal/Shaders/). Xcode 26
       # no longer bundles the Metal compiler — without this the build dies
@@ -208,5 +217,6 @@ jobs:
             -scheme implore \
             -configuration Debug \
             -destination 'platform=macOS' \
+            ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO \
             build | tail -50

@@ -64,7 +64,8 @@ MACOS_TARGET="aarch64-apple-darwin"
 MACOS_X86_TARGET="x86_64-apple-darwin"
 
 # IMPRESS_SKIP_X86=1 builds arm64-only (local dev loop on Apple Silicon —
-# roughly halves the macOS Rust compile). CI and release keep universal.
+# roughly halves the macOS Rust compile). The self-hosted CI lanes set it
+# too (the runner is arm64); release keeps universal.
 # (No IMPRESS_SKIP_IOS gate here: implore-core builds no iOS slices yet.)
 BUILD_X86=$([ "${IMPRESS_SKIP_X86:-0}" = "1" ] && echo 0 || echo 1)
 
