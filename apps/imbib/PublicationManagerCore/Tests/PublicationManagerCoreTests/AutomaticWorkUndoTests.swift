@@ -14,6 +14,7 @@
 
 import XCTest
 import ImbibVerbsFFI
+import ImpressRustCore
 
 @testable import PublicationManagerCore
 
