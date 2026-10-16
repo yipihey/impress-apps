@@ -38,6 +38,11 @@ impl From<impress_core::StoreError> for StoreApiError {
             impress_core::StoreError::SchemaNotFound(s) => StoreApiError::NotFound(s.to_string()),
             impress_core::StoreError::Validation(msg) => StoreApiError::InvalidInput(msg),
             impress_core::StoreError::Storage(msg) => StoreApiError::Storage(msg),
+            // Not a UniFFI variant: adding one would move the committed Swift
+            // binding. No imbib call reaches an optional port extension.
+            impress_core::StoreError::Unsupported(what) => {
+                StoreApiError::Storage(format!("unsupported: {what}"))
+            }
         }
     }
 }

@@ -155,6 +155,11 @@ impl From<StoreError> for SharedStoreError {
                 message: format!("schema not found: {s}"),
             },
             StoreError::Validation(msg) => SharedStoreError::InvalidArgument { message: msg },
+            // Not a UniFFI variant: adding one would move the committed Swift
+            // binding, and no FFI call reaches an optional port extension.
+            StoreError::Unsupported(what) => SharedStoreError::Storage {
+                message: format!("unsupported: {what}"),
+            },
         }
     }
 }

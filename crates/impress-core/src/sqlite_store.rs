@@ -1891,12 +1891,32 @@ impl SqliteItemStore {
         after_rowid: i64,
         limit: usize,
     ) -> Result<Vec<(i64, Item)>, StoreError> {
+        self.arrival_page(Some(schema), after_rowid, limit, false)
+    }
+
+    /// [`items_arrived_after`](Self::items_arrived_after) for one schema or
+    /// every row (`None`), optionally with tags and references loaded: the
+    /// page behind the port's `arrivals_after`. A schema scan keeps the
+    /// `schema_ref` predicate in the SQL so its index serves the runner's
+    /// per-kind polls; the schemaless form is a plain rowid walk.
+    pub fn arrival_page(
+        &self,
+        schema: Option<&str>,
+        after_rowid: i64,
+        limit: usize,
+        hydrate: bool,
+    ) -> Result<Vec<(i64, Item)>, StoreError> {
         self.with_read(|conn| {
             // rowid rides LAST (and by name) so `row_to_item_partial`'s
             // positional reads stay untouched.
+            let filter = if schema.is_some() {
+                "schema_ref = ?1 AND rowid > ?2"
+            } else {
+                "?1 IS NULL AND rowid > ?2"
+            };
             let sql = format!(
                 "SELECT {ITEM_COLUMNS}, rowid AS arrival_rowid FROM items
-                 WHERE schema_ref = ?1 AND rowid > ?2
+                 WHERE {filter}
                  ORDER BY rowid ASC
                  LIMIT ?3"
             );
@@ -1914,6 +1934,19 @@ impl SqliteItemStore {
                 let (rowid, item_result) =
                     row_result.map_err(|e| StoreError::Storage(format!("row: {}", e)))?;
                 out.push((rowid, item_result?));
+            }
+            if hydrate && !out.is_empty() {
+                let ids: Vec<String> = out.iter().map(|(_, item)| item.id.to_string()).collect();
+                let mut tags = Self::batch_load_tags(conn, &ids)?;
+                let mut refs = Self::batch_load_references(conn, &ids)?;
+                for ((_, item), id) in out.iter_mut().zip(&ids) {
+                    if let Some(t) = tags.remove(id) {
+                        item.tags = t;
+                    }
+                    if let Some(r) = refs.remove(id) {
+                        item.references = r;
+                    }
+                }
             }
             Ok(out)
         })
@@ -5316,7 +5349,76 @@ impl ItemStore for SqliteItemStore {
             durable: file_backed,
             shared: file_backed,
             blobs: false,
+            text_search_indexed: true,
+            arrival_feed: true,
         }
+    }
+
+    /// Ranked FTS: every token of `text` as a prefix term, OR'd, ordered by
+    /// `bm25` over `items_fts` (the same index `Contains` and `search_all`
+    /// use, so the same fields). The score is the negated bm25, higher is
+    /// better. Tokenizing follows the port (`impress_item::text_tokens`), which
+    /// also keeps every character the MATCH grammar treats as syntax out of
+    /// the expression.
+    fn search_text(
+        &self,
+        schema: Option<&str>,
+        text: &str,
+        limit: usize,
+    ) -> Result<Vec<impress_item::TextHit>, StoreError> {
+        let tokens = impress_item::text_tokens(text);
+        if tokens.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+        let expr = tokens
+            .iter()
+            .map(|t| format!("\"{t}\"*"))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        let sql = "WITH hits AS (
+                       SELECT item_id AS hit_id, bm25(items_fts) AS rank
+                       FROM items_fts
+                       WHERE items_fts MATCH ?1
+                   )
+                   SELECT i.id, h.rank
+                   FROM hits h
+                   JOIN items i ON i.id = h.hit_id
+                   WHERE (?2 IS NULL OR i.schema_ref = ?2)
+                   ORDER BY h.rank ASC, i.created DESC, i.id ASC
+                   LIMIT ?3";
+        let rows = self.query_raw(
+            sql,
+            &[&expr, &schema, &(limit as i64)],
+            |row| -> Result<(String, f64), rusqlite::Error> { Ok((row.get(0)?, row.get(1)?)) },
+        )?;
+        rows.into_iter()
+            .map(|(id, rank)| {
+                Ok(impress_item::TextHit {
+                    id: id
+                        .parse()
+                        .map_err(|e| StoreError::Storage(format!("search_text id {id}: {e}")))?,
+                    score: (-rank) as f32,
+                })
+            })
+            .collect()
+    }
+
+    /// The `rowid` keyset [`items_arrived_after`](SqliteItemStore::items_arrived_after)
+    /// pages: assigned at local INSERT, so rows applied by sync with old
+    /// timestamps are simply the next rows. The cursor is the last rowid
+    /// returned. Tags and references are loaded, as `query` loads them.
+    fn arrivals_after(
+        &self,
+        cursor: impress_item::ArrivalCursor,
+        schema: Option<&str>,
+        limit: usize,
+    ) -> Result<(Vec<Item>, impress_item::ArrivalCursor), StoreError> {
+        let after = i64::try_from(cursor.to_u64()).unwrap_or(i64::MAX);
+        let page = self.arrival_page(schema, after, limit, true)?;
+        let next = page.last().map_or(cursor, |(rowid, _)| {
+            impress_item::ArrivalCursor::from_u64(*rowid as u64)
+        });
+        Ok((page.into_iter().map(|(_, item)| item).collect(), next))
     }
 
     fn insert(&self, item: Item) -> Result<ItemId, StoreError> {
