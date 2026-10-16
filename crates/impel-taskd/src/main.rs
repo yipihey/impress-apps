@@ -1354,7 +1354,16 @@ async fn main() {
         // trigger needs.
         if !args.dry_run {
             let pass_now_ms = chrono::Utc::now().timestamp_millis();
-            for outcome in workflow_engine.run_once(&store, pass_now_ms, &workspace) {
+            // `run_once` is synchronous and runs each step's verb through
+            // `impress_service_core::runtime::block_on`, which panics on a
+            // thread already driving this runtime ("Cannot start a runtime
+            // from within a runtime"): the daemon died the first time a
+            // workflow had a call to make. `block_in_place` hands this
+            // worker's async tasks to another thread for the pass.
+            let outcomes = tokio::task::block_in_place(|| {
+                workflow_engine.run_once(&store, pass_now_ms, &workspace)
+            });
+            for outcome in outcomes {
                 match outcome.error {
                     Some(e) => eprintln!(
                         "impel-taskd: workflow '{}' ({}) ran {} call(s), then failed: {e}",

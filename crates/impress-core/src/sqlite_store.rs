@@ -20,6 +20,17 @@ use crate::reference::{EdgeType, TypedReference};
 use crate::sql_query::compile_query;
 use crate::store::{AttributedStore, FieldMutation, ItemStore, StoreError};
 
+/// Begin a write transaction that takes the write lock before its first
+/// statement (`BEGIN IMMEDIATE`). A DEFERRED transaction that reads before it
+/// writes (every insert reads the clock first) pins a snapshot, and when
+/// another connection commits while it waits for the lock SQLite refuses the
+/// upgrade at once with `database is locked`, never consulting the busy
+/// timeout. Every write transaction in this file starts here
+/// (`batch_writes_wait_for_another_connections_commit`).
+fn immediate_transaction(conn: &Connection) -> rusqlite::Result<rusqlite::Transaction<'_>> {
+    rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)
+}
+
 /// Number of reader connections in the pool for file-backed stores.
 /// In-memory stores fall back to using the writer connection directly
 /// because `:memory:` databases are private to a single connection.
@@ -1428,8 +1439,7 @@ impl SqliteItemStore {
             .conn
             .lock()
             .map_err(|e| StoreError::Storage(e.to_string()))?;
-        let tx = conn
-            .unchecked_transaction()
+        let tx = immediate_transaction(&conn)
             .map_err(|e| StoreError::Storage(format!("begin tx: {}", e)))?;
         for schema in schemas {
             tx.execute(
@@ -2409,8 +2419,7 @@ impl SqliteItemStore {
             .conn
             .lock()
             .map_err(|e| StoreError::Storage(e.to_string()))?;
-        let tx = conn
-            .unchecked_transaction()
+        let tx = immediate_transaction(&conn)
             .map_err(|e| StoreError::Storage(format!("begin tx: {}", e)))?;
 
         let batch_id = Uuid::new_v4().to_string();
@@ -4874,8 +4883,7 @@ impl SqliteItemStore {
             return Ok(0);
         }
 
-        let tx = conn
-            .unchecked_transaction()
+        let tx = immediate_transaction(&conn)
             .map_err(|e| StoreError::Storage(format!("retention sweep begin: {e}")))?;
         let mut removed = 0_u64;
         for task_id in &task_ids {
@@ -5033,8 +5041,7 @@ impl SqliteItemStore {
             .conn
             .lock()
             .map_err(|e| StoreError::Storage(e.to_string()))?;
-        let tx = conn
-            .unchecked_transaction()
+        let tx = immediate_transaction(&conn)
             .map_err(|e| StoreError::Storage(format!("compact begin tx: {}", e)))?;
 
         let mut total_deleted: u64 = 0;
@@ -5335,8 +5342,7 @@ impl ItemStore for SqliteItemStore {
             .conn
             .lock()
             .map_err(|e| StoreError::Storage(e.to_string()))?;
-        let tx = conn
-            .unchecked_transaction()
+        let tx = immediate_transaction(&conn)
             .map_err(|e| StoreError::Storage(format!("begin tx: {}", e)))?;
 
         let mut ids = Vec::with_capacity(items.len());
@@ -6125,8 +6131,7 @@ impl SqliteItemStore {
         // The doomed range: non-durable ops below the cutoff clock. Everything
         // that follows (snapshot emission + delete) runs in one transaction so
         // replay never sees a deleted range without its covering snapshot.
-        let tx = conn
-            .unchecked_transaction()
+        let tx = immediate_transaction(&conn)
             .map_err(|e| crate::store::StoreError::Storage(format!("compact begin tx: {}", e)))?;
 
         // Per-target watermark (newest clock + wall time) among the ops about to
@@ -8960,6 +8965,68 @@ mod tests {
 
         blocker.execute_batch("ROLLBACK").unwrap();
         drop(blocker);
+        drop(store);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A write transaction must wait for another connection's write, not fail.
+    ///
+    /// `insert_batch` and `apply_operation_batch` opened DEFERRED transactions,
+    /// and an insert reads (the clock) before it writes. When another
+    /// connection committed while this one waited for the write lock, SQLite
+    /// refused the upgrade at once — `database is locked`, whatever the
+    /// busy timeout — because the read had pinned an older snapshot. On
+    /// 2026-10-15 that declined an agent-desk request: impel-taskd's first
+    /// write for the conversation lost to imbib's own writes ("update
+    /// hlc_last_wall_ms: database is locked"). `BEGIN IMMEDIATE` takes the
+    /// lock before the first read, so the wait is the busy timeout's.
+    #[test]
+    fn batch_writes_wait_for_another_connections_commit() {
+        let path = tmp_db_path("batch_waits");
+        let store = std::sync::Arc::new(SqliteItemStore::open(&path).unwrap());
+        let seed = make_item("note", "seed");
+        let seed_id = seed.id;
+        store.insert(seed).unwrap();
+
+        for case in ["insert_batch", "apply_operation_batch"] {
+            let blocker = rusqlite::Connection::open(&path).unwrap();
+            blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
+            blocker
+                .execute(
+                    "INSERT OR REPLACE INTO store_metadata (key, value) VALUES ('test_bump', ?1)",
+                    params![case],
+                )
+                .unwrap();
+
+            let writer = store.clone();
+            let handle = std::thread::spawn(move || match case {
+                "insert_batch" => writer
+                    .insert_batch(vec![make_item("note", "behind a writer")])
+                    .map(|_| ()),
+                _ => writer
+                    .apply_operation_batch(vec![OperationSpec {
+                        target_id: seed_id,
+                        op_type: OperationType::SetRead(true),
+                        intent: OperationIntent::Routine,
+                        reason: None,
+                        batch_id: None,
+                        author: "test".into(),
+                        author_kind: ActorKind::Human,
+                        retention: RetentionTier::Durable,
+                    }])
+                    .map(|_| ()),
+            });
+            // Let the writer begin and queue for the lock, then commit the
+            // other connection's write underneath it.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            blocker.execute_batch("COMMIT").unwrap();
+            let result = handle.join().unwrap();
+            assert!(
+                result.is_ok(),
+                "{case} behind another connection's commit: {:?}",
+                result.err()
+            );
+        }
         drop(store);
         let _ = std::fs::remove_file(&path);
     }
