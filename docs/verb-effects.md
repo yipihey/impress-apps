@@ -315,6 +315,7 @@ catalogue, 168 on the exception table.
 | `implore-service_update-figure` | target(figure_id) | "figure" | app("implore") | — |
 | `impress-ai-service_ai-health` | — | — | network | — |
 | `impress-ai-service_ai-preferences` | — | — | fs | example ×1 |
+| `impress-ai-service_apply-routing-preset` | — | — | provider | — |
 | `impress-ai-service_create-conversation` | "conversation@1.0.0" | "conversation@1.0.0" | — | example ×1 |
 | `impress-ai-service_get-conversation` | "conversation@1.0.0", "chat-message", "task@1.0.0" | — | — | example ×1 |
 | `impress-ai-service_list-conversations` | "conversation@1.0.0" | — | — | example ×1 |
@@ -699,6 +700,7 @@ when one lands).
 | `implore-service_status` | needs a running app |
 | `implore-service_update-figure` | needs a running app |
 | `impress-ai-service_ai-health` | leaves the process (network) |
+| `impress-ai-service_apply-routing-preset` | leaves the process (provider) |
 | `impress-ai-service_list-models` | leaves the process (provider) |
 | `impress-ai-service_list-providers` | leaves the process (provider, fs) |
 | `impress-ai-service_mint-pairing-link` | leaves the process (network) |

@@ -345,6 +345,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `implore-service_update-figure` | external | name/doc |
 | `impress-ai-service_ai-health` | external | crates/impress-ai-service/src/lib.rs:660 reqwest GET http://127.0.0.1:8787/api/health with 3 s timeout against the impress-ai daemon; returns daemon_reachable:false rather than an error when it is down; no store acces… |
 | `impress-ai-service_ai-preferences` | read_only | name/doc |
+| `impress-ai-service_apply-routing-preset` | mutating | name/doc |
 | `impress-ai-service_create-conversation` | mutating | name/doc |
 | `impress-ai-service_get-conversation` | read_only | name/doc |
 | `impress-ai-service_list-conversations` | read_only | name/doc |

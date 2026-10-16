@@ -723,6 +723,7 @@ fn chat_request(request: AiChatRequest) -> Result<(ResolveTarget, ChatRequest), 
                 name: tool.name,
                 description: tool.description,
                 input_schema: parse_json(&tool.input_schema_json, "tool schema")?,
+                ..Default::default()
             })
         })
         .collect::<Result<Vec<_>, AiError>>()?;
@@ -1206,7 +1207,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let shared = registry(&directory);
         let providers = shared.list_providers();
-        assert_eq!(providers.len(), 8);
+        assert_eq!(providers.len(), 9);
         assert_eq!(providers[0].id, "omlx");
         assert!(providers[0].can_auto_start);
         assert_eq!(providers[0].host, "rust");

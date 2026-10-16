@@ -32,7 +32,7 @@ read.
 <!-- verb-coverage-services:begin -->
 | Service | Crate | Verbs | Real description | Args (required) | Args described | Strict |
 |---|---|---:|---:|---:|---:|---:|
-| `agent-service` | koine-agent | 12 | 12 | 21 (11) | 21 | 12 |
+| `agent-service` | koine-agent | 12 | 12 | 23 (11) | 23 | 12 |
 | `capabilities-service` | capabilities-service | 4 | 4 | 5 (1) | 5 | 4 |
 | `collection-service` | impress-store-service | 12 | 12 | 25 (22) | 25 | 12 |
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 38 | 10 |
@@ -53,7 +53,7 @@ read.
 | `impart-service` | impart-service | 10 | 10 | 24 (14) | 24 | 10 |
 | `impel-service` | impel-service | 11 | 11 | 15 (12) | 15 | 11 |
 | `implore-service` | implore-service | 23 | 23 | 51 (17) | 51 | 23 |
-| `impress-ai-service` | koine-ai | 16 | 16 | 25 (19) | 25 | 16 |
+| `impress-ai-service` | koine-ai | 17 | 17 | 28 (20) | 28 | 17 |
 | `impress-bridges-service` | impress-bridges-service | 18 | 18 | 30 (29) | 30 | 18 |
 | `impress-scenario-service` | impress-scenario-service | 6 | 6 | 11 (4) | 11 | 6 |
 | `impress-surface-service` | impress-surface-service | 15 | 15 | 33 (18) | 33 | 15 |

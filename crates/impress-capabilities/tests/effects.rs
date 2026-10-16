@@ -116,7 +116,11 @@ use serde_json::Value;
 // so the spy sees nothing. Its positive evidence is koine-agent
 // `tests/agent.rs` (`a_claimed_request_can_be_given_back_by_its_claimant`)
 // and koine-ai's desk tests, which release real claimed rows.
-const EXCEPTION_CEILING: usize = 172;
+// 172 → 173: koine adds `impress-ai-service_apply-routing-preset`, which
+// probes provider health to pick each tier's provider, so its reach leaves the
+// process like `list-providers` and `provider-health`. Its positive evidence is
+// koine-ai `service.rs` tests of `apply_routing_preset`.
+const EXCEPTION_CEILING: usize = 173;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave
@@ -151,6 +155,10 @@ const REACH_ALLOWLIST: &[(&str, &str)] = &[
     (
         "imbib-library-service_delete-libraries",
         "batch library deletion is destructive; optional file-container cleanup uses the native imbib host",
+    ),
+    (
+        "impress-ai-service_apply-routing-preset",
+        "writes routing preferences only; the provider reach is the health probe that picks which ready provider each tier gets (koine-ai `apply_routing_preset`)",
     ),
 ];
 

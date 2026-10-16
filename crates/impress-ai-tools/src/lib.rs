@@ -195,6 +195,7 @@ impl ImpressToolAdapter {
                     }
                 }
             }),
+            ..Default::default()
         }
     }
 
@@ -222,6 +223,7 @@ impl ImpressToolAdapter {
                 },
                 "required": ["action"]
             }),
+            ..Default::default()
         })
     }
 
