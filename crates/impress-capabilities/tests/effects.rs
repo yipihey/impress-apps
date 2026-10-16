@@ -110,7 +110,13 @@ use serde_json::Value;
 // record). Their positive evidence is koine's own suites: koine-agent
 // `tests/agent.rs`, surface-demo-service `tests/tour.rs` and koine-tasks
 // `tests/verbs.rs`, which file, run, cancel and retry real rows.
-const EXCEPTION_CEILING: usize = 171;
+// 171 → 172: koine adds `agent-service_release` (give a claimed desk request
+// back after a start that may pass). Like decline, its only possible example
+// releases a missing id — the format cannot seed a claimed request first —
+// so the spy sees nothing. Its positive evidence is koine-agent
+// `tests/agent.rs` (`a_claimed_request_can_be_given_back_by_its_claimant`)
+// and koine-ai's desk tests, which release real claimed rows.
+const EXCEPTION_CEILING: usize = 172;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave

@@ -92,6 +92,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `agent-service_claim` | mutating | name/doc |
 | `agent-service_context` | mutating | reads the layout through `layout-service_get-layout`, which writes a device's default layout on first read (the store spy observed it); idempotent thereafter |
 | `agent-service_decline` | mutating | name/doc |
+| `agent-service_release` | mutating | name/doc |
 | `agent-service_diagnose` | mutating | name/doc |
 | `agent-service_make-surface` | mutating | name/doc |
 | `agent-service_next` | read_only | name/doc |

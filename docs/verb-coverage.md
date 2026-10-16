@@ -32,7 +32,7 @@ read.
 <!-- verb-coverage-services:begin -->
 | Service | Crate | Verbs | Real description | Args (required) | Args described | Strict |
 |---|---|---:|---:|---:|---:|---:|
-| `agent-service` | koine-agent | 11 | 11 | 19 (9) | 19 | 11 |
+| `agent-service` | koine-agent | 12 | 12 | 21 (11) | 21 | 12 |
 | `capabilities-service` | capabilities-service | 4 | 4 | 5 (1) | 5 | 4 |
 | `collection-service` | impress-store-service | 12 | 12 | 25 (22) | 25 | 12 |
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 38 | 10 |

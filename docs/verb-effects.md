@@ -62,6 +62,7 @@ catalogue, 168 on the exception table.
 | `agent-service_claim` | — | any("koine/agent-request@1.0.0") | — | — |
 | `agent-service_context` | "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0" | "impress/ui/layout@1.0.0" | — | example ×1 |
 | `agent-service_decline` | — | any("koine/agent-request@1.0.0") | — | — |
+| `agent-service_release` | — | any("koine/agent-request@1.0.0") | — | — |
 | `agent-service_diagnose` | "core/verb-call@1.0.0" | any("koine/agent-request@1.0.0") | — | — |
 | `agent-service_make-surface` | — | any("koine/agent-request@1.0.0") | — | example ×1 |
 | `agent-service_next` | any("koine/agent-request@1.0.0") | — | — | example ×1 |
@@ -600,6 +601,7 @@ when one lands).
 | `agent-service_answer` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `agent-service_claim` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `agent-service_decline` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `agent-service_release` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `agent-service_diagnose` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `agent-service_show` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `agent-service_skill` | exercised, unobserved (example ran, spy saw no declared read or write) |

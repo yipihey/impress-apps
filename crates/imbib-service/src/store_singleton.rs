@@ -14,13 +14,27 @@ use imbib_core::unified::store_api::ImbibStore;
 // the first service dispatch.
 static STORE: OnceLock<(Arc<ImbibStore>, PathBuf)> = OnceLock::new();
 
-/// Path used when the singleton auto-initializes. Override with the
-/// `IMBIB_STORE_PATH` environment variable.
+/// Path used when the singleton auto-initializes: `IMBIB_STORE_PATH`, else
+/// the suite's `IMPRESS_STORE_PATH`, else the app group under `HOME`.
 fn default_store_path() -> PathBuf {
-    if let Ok(p) = std::env::var("IMBIB_STORE_PATH") {
+    store_path_from(|name| std::env::var(name).ok())
+}
+
+/// [`default_store_path`] over any environment.
+///
+/// `IMPRESS_STORE_PATH` is the suite store a host names for itself, as
+/// impel-taskd's LaunchAgent does. It must come before `HOME`: in a
+/// sandboxed process `HOME` is the process's own container, so the app-group
+/// path under it does not exist. On 2026-10-15 that made this singleton fall
+/// back to an in-memory store inside impel-taskd, and the
+/// `imbib.retention-cleanup` workflow ran against an empty scratch store
+/// while the daemon itself had the real one open.
+fn store_path_from(env: impl Fn(&str) -> Option<String>) -> PathBuf {
+    let named = |name| env(name).filter(|p: &String| !p.trim().is_empty());
+    if let Some(p) = named("IMBIB_STORE_PATH").or_else(|| named("IMPRESS_STORE_PATH")) {
         return PathBuf::from(p);
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let home = env("HOME").unwrap_or_else(|| ".".into());
     PathBuf::from(home)
         .join("Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite")
 }
@@ -90,4 +104,43 @@ pub fn store_instance() -> Arc<ImbibStore> {
         })
         .0
         .clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |name| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| v.to_string())
+        }
+    }
+
+    #[test]
+    fn the_store_path_prefers_imbib_then_the_suite_store_then_home() {
+        let sandboxed = "/Users/x/Library/Containers/com.imbib.impart/Data";
+        assert_eq!(
+            store_path_from(env(&[
+                ("HOME", sandboxed),
+                ("IMPRESS_STORE_PATH", "/suite/impress.sqlite")
+            ])),
+            PathBuf::from("/suite/impress.sqlite")
+        );
+        assert_eq!(
+            store_path_from(env(&[
+                ("IMBIB_STORE_PATH", "/imbib.sqlite"),
+                ("IMPRESS_STORE_PATH", "/suite/impress.sqlite")
+            ])),
+            PathBuf::from("/imbib.sqlite")
+        );
+        assert_eq!(
+            store_path_from(env(&[("HOME", "/Users/x"), ("IMPRESS_STORE_PATH", " ")])),
+            PathBuf::from(
+                "/Users/x/Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite"
+            )
+        );
+    }
 }
