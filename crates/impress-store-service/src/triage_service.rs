@@ -1,241 +1,25 @@
-//! `TriageService` — star, flag, tag and status over any item (ADR-0022 D5).
+//! `TriageService` moved to koine (`koine_triage::service`,
+//! docs/plan-koine-kit-moves.md KM2): star, flag, tag and status over any item
+//! (ADR-0022 D5), over the store port. This module keeps the old path.
 //!
-//! The GUI triage menu is available on publications, manuscripts, figures,
-//! messages, tasks and runs alike; before this, an agent had none of it. These
-//! are thin wrappers over `impress_core::triage_ops`, which is itself a thin
-//! wrapper over the store's `FieldMutation`s — no schema knowledge in either
-//! layer, which is what lets one tool serve every record kind.
-//!
-//! ## Dismissal is not universal
-//!
-//! `set_status` writes the payload `status` string, the chassis-wide
-//! status-change convention (`dismissed`, `archived` — see
-//! `docs/status-lifecycle.md`). **Publications do not work that way.** imbib
-//! dismisses a paper by moving it to the Dismissed *library*, guarded by the
-//! "dismissed papers must never re-enter the inbox" invariant; writing
-//! `status: "dismissed"` on a publication sets a field nothing reads and
-//! dismisses nothing. Use imbib-core's own dismissal ops for papers.
+//! The verbs (`triage-service_set-starred`, `_set-flag`, `_add-tag`,
+//! `_remove-tag`, `_set-status`) register from koine-triage's inventory.
+//! Its default deployment reads the process store
+//! (`koine_store::process::acquire_or_stand_in`), which a host that has
+//! called [`crate::register_process_ports`] (every `set_store_path` /
+//! `install_store` does) answers with the suite's SQLite store.
 
-use std::sync::Arc;
+pub use koine_triage::service::*;
 
-use impress_core::sqlite_store::SqliteItemStore;
-use impress_core::store::StoreError;
-use impress_core::triage_ops;
-use impress_service_core::async_trait;
-use impress_service_macros::{impress_service, impress_service_impl};
-use serde::{Deserialize, Serialize};
-
-#[allow(unused_imports)]
-use impress_service_macros::impress_method;
-
-use crate::store::store_instance;
-
-/// What a triage mutation did.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct TriageResult {
-    pub ok: bool,
-    /// The item that was triaged, echoed back.
-    pub id: String,
-    pub message: String,
-}
-
-/// Star / flag / tag / status on any item in the shared store.
-///
-/// Every method takes an item id (a lowercase UUID string) of ANY record kind:
-/// publication, manuscript, figure, message, task, agent run. The store's
-/// envelope carries star, flag and tags for all of them.
-#[impress_service]
-pub trait TriageService: Send + Sync + 'static {
-    /// Star or unstar an item.
-    #[impress_method]
-    #[impress_example(
-        name = "missing-item",
-        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "starred": true}"#,
-        expect = r#"{"ok":false}"#
-    )]
-    async fn set_starred(&self, id: String, starred: bool) -> TriageResult;
-
-    /// Set an item's flag colour ("red", "orange", "blue", … — free-form), or
-    /// clear the flag by passing null.
-    #[impress_method]
-    #[impress_example(
-        name = "missing-item",
-        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "color": "red"}"#,
-        expect = r#"{"ok":false}"#
-    )]
-    async fn set_flag(&self, id: String, color: Option<String>) -> TriageResult;
-
-    /// Add a tag to an item. Tag paths are hierarchical and slash-separated
-    /// ("reading/queue"). Idempotent.
-    #[impress_method]
-    #[impress_example(
-        name = "missing-item",
-        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "tag": "reading/queue"}"#,
-        expect = r#"{"ok":false}"#
-    )]
-    async fn add_tag(&self, id: String, tag: String) -> TriageResult;
-
-    /// Remove a tag from an item. A tag the item does not carry is a no-op.
-    #[impress_method]
-    #[impress_example(
-        name = "missing-item",
-        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "tag": "reading/queue"}"#,
-        expect = r#"{"ok":false}"#
-    )]
-    async fn remove_tag(&self, id: String, tag: String) -> TriageResult;
-
-    /// Set the item's lifecycle `status`, or clear it with null.
-    ///
-    /// Two values are reserved suite-wide: `dismissed` (swept out of the
-    /// working set — hidden everywhere but the Dismissed section, never
-    /// destructive) and `archived` (a deliberate end-state for finished work).
-    /// Everything else is schema-owned free text, e.g. a manuscript's
-    /// `draft` | `internal-review` | `submitted` | `in-revision` | `published`.
-    ///
-    /// This only works for kinds that use status-change semantics.
-    /// **Publications do NOT** — imbib dismisses a paper by moving it to the
-    /// Dismissed library, and that path is imbib-core's own ops, not this one.
-    /// impel tasks do not either: their state moves only through the kernel's
-    /// `transition`.
-    #[impress_method]
-    #[impress_example(
-        name = "missing-item",
-        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "status": "archived"}"#,
-        expect = r#"{"ok":false}"#
-    )]
-    async fn set_status(&self, id: String, status: Option<String>) -> TriageResult;
-}
-
-// ---------------------------------------------------------------------------
-// Implementation
-// ---------------------------------------------------------------------------
-
-/// Store-backed `TriageService`. `new()` uses the shared store (opened
-/// lazily); `with_store` takes an explicit one, as the tests do.
-#[derive(Clone, Default)]
-pub struct DefaultTriageService {
-    store: Option<Arc<SqliteItemStore>>,
-}
-
-impl DefaultTriageService {
-    pub fn new() -> Self {
-        Self { store: None }
-    }
-
-    pub fn with_store(store: Arc<SqliteItemStore>) -> Self {
-        Self { store: Some(store) }
-    }
-
-    fn store(&self) -> Arc<SqliteItemStore> {
-        self.store.clone().unwrap_or_else(store_instance)
-    }
-}
-
-fn result(id: String, outcome: Result<(), StoreError>, done: String) -> TriageResult {
-    match outcome {
-        Ok(()) => TriageResult {
-            ok: true,
-            id,
-            message: done,
-        },
-        Err(e) => TriageResult {
-            ok: false,
-            id,
-            message: e.to_string(),
-        },
-    }
-}
-
-#[async_trait::async_trait]
-impl TriageService for DefaultTriageService {
-    async fn set_starred(&self, id: String, starred: bool) -> TriageResult {
-        let outcome = triage_ops::set_starred(&self.store(), &id, starred);
-        let done = if starred { "Starred" } else { "Unstarred" };
-        result(id.clone(), outcome, format!("{done} {id}."))
-    }
-
-    async fn set_flag(&self, id: String, color: Option<String>) -> TriageResult {
-        let outcome = triage_ops::set_flag(&self.store(), &id, color.as_deref());
-        let done = match color.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
-            Some(c) => format!("Flagged {id} {c}."),
-            None => format!("Cleared the flag on {id}."),
-        };
-        result(id, outcome, done)
-    }
-
-    async fn add_tag(&self, id: String, tag: String) -> TriageResult {
-        let outcome = triage_ops::add_tag(&self.store(), &id, &tag);
-        result(id.clone(), outcome, format!("Tagged {id} '{tag}'."))
-    }
-
-    async fn remove_tag(&self, id: String, tag: String) -> TriageResult {
-        let outcome = triage_ops::remove_tag(&self.store(), &id, &tag);
-        result(id.clone(), outcome, format!("Removed '{tag}' from {id}."))
-    }
-
-    async fn set_status(&self, id: String, status: Option<String>) -> TriageResult {
-        let outcome = triage_ops::set_status(&self.store(), &id, status.as_deref());
-        let done = match status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            Some(s) => format!("Status of {id} is now '{s}'."),
-            None => format!("Cleared the status of {id}."),
-        };
-        result(id, outcome, done)
-    }
-}
-
-impress_service_impl! {
-    service = TriageService,
-    safety = mutating,
-    since = "0.1.0",
-    effects = {
-        reads: [target(id)],
-        writes: [target(id)],
-        reach: [],
-    },
-    impl = DefaultTriageService,
-    instance = DefaultTriageService::new,
-    methods = [
-        set_starred(
-            /// The item's id, a lowercase UUID string, of any record kind.
-            id: String,
-            /// True to star it, false to unstar.
-            starred: bool,
-        ) -> TriageResult,
-        set_flag(
-            /// The item's id, a lowercase UUID string, of any record kind.
-            id: String,
-            /// A free-form color name ("red", "orange", "blue", …); `None`
-            /// clears the flag.
-            color: Option<String>,
-        ) -> TriageResult,
-        add_tag(
-            /// The item's id, a lowercase UUID string, of any record kind.
-            id: String,
-            /// A hierarchical, slash-separated tag path ("reading/queue").
-            tag: String,
-        ) -> TriageResult,
-        remove_tag(
-            /// The item's id, a lowercase UUID string, of any record kind.
-            id: String,
-            /// The tag path to remove; a no-op if the item does not carry it.
-            tag: String,
-        ) -> TriageResult,
-        set_status(
-            /// The item's id, a lowercase UUID string, of any record kind.
-            id: String,
-            /// The lifecycle status string ("dismissed", "archived", or a
-            /// schema-owned value); `None` clears it. Does not work for
-            /// publications — see the trait doc.
-            status: Option<String>,
-        ) -> TriageResult,
-    ],
-}
-
+/// The service over the suite's SQLite store (the kernel and the service are
+/// tested over the memory and directory stores in koine-triage).
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_support::{make_item, test_store};
+    use impress_core::sqlite_store::SqliteItemStore;
     use impress_core::store::ItemStore;
+    use impress_core::triage_ops;
 
     fn item(store: &SqliteItemStore, id: &str) -> impress_core::item::Item {
         store
@@ -310,14 +94,14 @@ mod tests {
             let set = s.set_status(id.clone(), Some(value.into())).await;
             assert!(set.ok, "{}", set.message);
             assert_eq!(
-                triage_ops::status(&store, &id).unwrap().as_deref(),
+                triage_ops::status(&*store, &id).unwrap().as_deref(),
                 Some(value)
             );
         }
 
         let cleared = s.set_status(id.clone(), None).await;
         assert!(cleared.ok);
-        assert_eq!(triage_ops::status(&store, &id).unwrap(), None);
+        assert_eq!(triage_ops::status(&*store, &id).unwrap(), None);
     }
 
     /// The whole point of a generic triage service: one tool, every kind.

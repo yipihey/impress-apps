@@ -22,6 +22,9 @@ impress-settings = { workspace = true }
 # surface runtimes read (`src/store.rs` keeps them answering this crate's one
 # `SqliteItemStore`).
 koine-store = { workspace = true }
+# `TriageService` and its kernel moved to koine (KM2); `triage_service` here
+# re-exports it.
+koine-triage = { workspace = true, features = ["service"] }
 impress-pane-query = { workspace = true }
 impress-surface = { workspace = true }
 # W4: `propose_workflows`' n-gram miner validates each proposal against the

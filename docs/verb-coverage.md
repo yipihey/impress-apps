@@ -78,7 +78,7 @@ read.
 | `surface-demo-service` | surface-demo-service | 11 | 11 | 16 (14) | 16 | 11 |
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 1 | 1 |
 | `task-service` | koine-tasks | 5 | 5 | 11 (4) | 11 | 5 |
-| `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 5 |
+| `triage-service` | koine-triage | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 24 | 15 |
 | **Total** | 21 crates, 46 services | **491** | **491** | **1126 (728)** | **1126** | **491** |
 <!-- verb-coverage-services:end -->
@@ -178,7 +178,6 @@ and the implore owner decides between verbs and deletion.
 | `impress-core` | library | covered-through | the store every service crate persists into; `sync` (CloudKit-style outbox) is Swift-only and correctly so; `maintenance` and `task_schema_migration` have no verb |
 | `impress-domain` | library | should-be-verb | `citation_reference::{create_citation_reference, citation_to_typst, citation_to_latex, create_citation_batch}` are Swift-only |
 | `impress-embeddings` | library | should-be-verb | `ChunkIndex::{search, search_scoped}` reach agents only through `impress-mcp`'s hand-written `search_papers` / `get_paper_chunks` |
-| `impress-flags` | library | should-be-verb | `query::{parse_flag_query, FlagQuery::matches}` and `parse::parse_flag_command` have no verb |
 | `impress-git` | library | should-be-verb | `commands::{status_cmd, commit_cmd, log_cmd, diff_cmd, push_cmd, pull_cmd, clone_cmd}` and the porcelain parsers have no verb |
 | `impress-helix` | library | internal | `HelixState` / `FfiHelixEditor::handle_key` is a keystroke state machine, UI only |
 | `impress-identifiers` | ffi | internal | Swift-only `*_ffi` shims over `im-identifiers` (the gap is `im-identifiers`' row) |
@@ -194,7 +193,6 @@ and the implore owner decides between verbs and deletion.
 | `impress-sources` | library | should-be-verb | `SourcePlugin::{search, fetch_by_doi}` for arXiv, Crossref, ADS, OpenAlex, PubMed, Semantic Scholar have no Rust verb; `search_sources` refuses when the app is down |
 | `impress-store-ffi` | ffi | internal | `SharedStore::{upsert_item, upsert_items, add_reference, set_parent, delete_item}` are Swift-only generic writes; `store-service` has the per-kind verbs |
 | `impress-store-service` | verb-crate | verb-crate | |
-| `impress-tags` | library | should-be-verb | `query::{parse_tag_query, TagQuery::matches}` and `TagHierarchy::{from_tags, children_of, descendants_of}` have no verb; nothing browses by tag expression |
 | `impress-toolbox` | binary | internal | `execute::{handle_execute, handle_execute_file}` run a local command — deliberately unsandboxed, deliberately no verb |
 | `impress-workflow-service` | verb-crate | verb-crate | |
 | `impress-workspace-hack` | tooling | internal | the generated cargo-hakari crate: dependency glue, no code (plan-verb-pipeline-and-transport § Build cost, B4) |

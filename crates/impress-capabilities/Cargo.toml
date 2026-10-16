@@ -55,6 +55,8 @@ surface-demo-service = { workspace = true, optional = true }
 # The agent desk (koine plan-koine-research-os G-D): `agent-service_*`, so an
 # app's dispatch files a request and impel-taskd's bridge answers it.
 koine-agent = { workspace = true, optional = true }
+# The triage verbs live in koine-triage (KM2); `kit` anchors them like koine-agent.
+koine-triage = { workspace = true, features = ["service"], optional = true }
 impress-workspace-hack.workspace = true
 
 # The pipeline tests (tests/pipeline.rs, policy.rs, pipeline_bench.rs) run
@@ -122,7 +124,7 @@ full = [
     "perf",
     "workflow",
 ]
-kit = ["dep:impress-layout-service", "dep:impress-store-service", "dep:impress-surface-service", "dep:surface-demo-service", "dep:koine-agent"]
+kit = ["dep:impress-layout-service", "dep:impress-store-service", "dep:impress-surface-service", "dep:surface-demo-service", "dep:koine-agent", "dep:koine-triage"]
 scenario = ["dep:impress-scenario-service"]
 
 imbib = ["dep:imbib-service"]

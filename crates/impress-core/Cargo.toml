@@ -27,6 +27,8 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 # The item protocol (K1b). This crate keeps SqliteItemStore and re-exports it.
 impress-item = { workspace = true }
+# The triage kernel only: no verbs, no package manager (KM2).
+koine-triage = { workspace = true }
 # The task state machine, the task store port and jobs (koine
 # docs/plan-koine-ai-tasks.md Q-D1, Q-D4); `runtime` stays off here.
 koine-tasks = { workspace = true }

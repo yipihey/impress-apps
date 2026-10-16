@@ -4509,6 +4509,7 @@ dependencies = [
  "imprint-service",
  "jsonschema",
  "koine-agent",
+ "koine-triage",
  "perf-service",
  "serde",
  "serde_json",
@@ -4564,6 +4565,7 @@ dependencies = [
  "koine-store",
  "koine-store-conformance",
  "koine-tasks",
+ "koine-triage",
  "proptest",
  "rusqlite",
  "schemars 0.8.22",
@@ -4608,11 +4610,9 @@ dependencies = [
 name = "impress-flags"
 version = "0.1.0"
 dependencies = [
- "impress-workspace-hack",
- "rstest",
+ "koine-workspace-hack",
  "serde",
  "serde_json",
- "uniffi",
 ]
 
 [[package]]
@@ -5034,6 +5034,7 @@ dependencies = [
  "impress-workflow",
  "impress-workspace-hack",
  "koine-store",
+ "koine-triage",
  "log",
  "schemars 0.8.22",
  "serde",
@@ -5089,12 +5090,9 @@ name = "impress-tags"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "impress-workspace-hack",
- "proptest",
- "rstest",
+ "koine-workspace-hack",
  "serde",
  "serde_json",
- "uniffi",
  "uuid",
 ]
 
@@ -5971,6 +5969,21 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "koine-triage"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "koine-store",
+ "koine-workspace-hack",
+ "schemars 0.8.22",
+ "serde",
  "uuid",
 ]
 

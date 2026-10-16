@@ -11,7 +11,7 @@
 //!   `impress_store_ffi::SharedStore::collection_*` verb for verb so Swift,
 //!   the CLI and an agent share one vocabulary.
 //! * [`TriageService`] — star / flag / tag / status over any item, over
-//!   `impress_core::triage_ops`.
+//!   `impress_core::triage_ops` (both now koine's, `koine-triage`).
 //! * [`StoreQueryService`] — the mixed-kind reads: grouped global search
 //!   (D6, `impress_core::search_ops`), cross-kind relations (D8,
 //!   `impress_core::related_ops`), and the generic get/browse pair (G6) that

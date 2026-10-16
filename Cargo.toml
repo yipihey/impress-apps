@@ -13,8 +13,6 @@ members = [
     "crates/impress-bibtex",
     "crates/impress-identifiers",
     "crates/impress-collab",
-    "crates/impress-flags",
-    "crates/impress-tags",
     "crates/imprint-core",
     "crates/imbib-core",
     # P3c step 1: the three legacy semantic-search MCP tools as a real
@@ -191,8 +189,6 @@ impress-identifiers = { path = "crates/impress-identifiers" }
 im-bibtex = { path = "crates/im-bibtex" }
 im-identifiers = { path = "crates/im-identifiers" }
 impress-collab = { path = "crates/impress-collab" }
-impress-flags = { path = "crates/impress-flags" }
-impress-tags = { path = "crates/impress-tags" }
 impress-keymap = { path = "../koine/crates/impress-keymap" }
 imprint-core = { path = "crates/imprint-core" }
 imprint-service = { path = "crates/imprint-service" }
@@ -251,6 +247,13 @@ perf-service = { path = "../koine/crates/perf-service" }
 impress-app-transport = { path = "../koine/crates/impress-app-transport" }
 capabilities-service = { path = "../koine/crates/capabilities-service" }
 koine-py = { path = "../koine/crates/koine-py" }
+# KM2: the tag and flag models, and the triage kernel, verbs and package.
+# Features are opt-in per member: impress-core takes only the kernel, the
+# service crates add `service`; `package` (the builtin:triage package, which
+# links koine-packages and so the notebook and agent verbs) is KM7/KM8's.
+impress-tags = { path = "../koine/crates/impress-tags" }
+impress-flags = { path = "../koine/crates/impress-flags" }
+koine-triage = { path = "../koine/crates/koine-triage", default-features = false }
 # default-features = false HERE, not at the call site: a member inheriting a
 # workspace dependency can only add features, never remove them, so a member
 # writing `default-features = false` is silently ignored (cargo warns, and

@@ -14,6 +14,7 @@ mod schema_ref_construction;
 mod schema_ref_manifest;
 mod store_conformance;
 mod sync_convergence;
+mod triage_ops;
 
 #[path = "support/schema_fixture.rs"]
 mod schema_fixture;

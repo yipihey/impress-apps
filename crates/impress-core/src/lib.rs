@@ -73,8 +73,9 @@ pub mod task_schema_migration;
 /// The task store port (`koine_tasks::TaskStoreApi`) for SQLite.
 #[cfg(feature = "sqlite")]
 pub mod task_store;
-#[cfg(feature = "sqlite")]
-pub mod triage_ops;
+/// Star / flag / tag / status over any item. Moved to koine
+/// (docs/plan-koine-kit-moves.md KM2); this is the same module.
+pub use koine_triage::ops as triage_ops;
 /// ADR-0023's watched-folder kernel: the file-level provenance bookkeeping both
 /// `DocsImportService`'s eight verbs and `SharedStore`'s eight Swift methods
 /// front. See its module docs for why it lives here rather than in the service.

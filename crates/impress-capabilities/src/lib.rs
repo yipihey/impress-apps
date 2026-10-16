@@ -157,6 +157,10 @@ pub fn force_link() {
         std::hint::black_box(std::ptr::addr_of!(
             koine_agent::service::__IMPRESS_VERB_AgentService_ask
         ));
+        // The triage verbs (koine-triage, KM2), formerly impress-store-service's.
+        std::hint::black_box(std::ptr::addr_of!(
+            koine_triage::service::__IMPRESS_VERB_TriageService_set_starred
+        ));
     }
 }
 
