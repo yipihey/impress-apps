@@ -128,7 +128,14 @@ pub fn force_link() {
     #[cfg(feature = "ai")]
     impress_ai_service::ensure_linked();
     #[cfg(feature = "impact")]
-    std::hint::black_box(capabilities_service::DefaultCapabilitiesService::new as *const ());
+    {
+        std::hint::black_box(capabilities_service::DefaultCapabilitiesService::new as *const ());
+        // `capabilities-service` (koine) reads surfaces off the process store
+        // (`koine_store::process`), not `store_instance()`; register the lazy
+        // SQLite opener so a host that never touched the store still gets the
+        // suite's store instead of an empty stand-in. Idempotent.
+        impress_store_service::register_process_ports();
+    }
     #[cfg(feature = "kit")]
     {
         // Real relocations retain kit registrations even when no caller

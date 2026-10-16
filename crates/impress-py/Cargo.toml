@@ -15,11 +15,12 @@ default = []
 # Behind a feature, same gating pattern as `im-bibtex`'s and
 # `im-identifiers`' `python` feature: a plain workspace build never needs
 # the Python interpreter headers.
-python = ["dep:pyo3", "dep:pythonize"]
+python = ["dep:pyo3", "koine-py/python"]
 
 [dependencies]
-impress-service-core = { workspace = true }
 impress-app-transport = { workspace = true }
+# The module builder, in koine; `python` turns on its pyo3 side.
+koine-py = { workspace = true }
 impress-store-service = { workspace = true }
 # The one linked inventory (ADR-0033 D4). `default-features = false` +
 # explicit `full` mirrors impress-cli/impress-mcp: this module wants every
@@ -27,7 +28,6 @@ impress-store-service = { workspace = true }
 impress-capabilities = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
 pyo3 = { workspace = true, optional = true }
-pythonize = { workspace = true, optional = true }
 impress-workspace-hack.workspace = true
 
 [dev-dependencies]

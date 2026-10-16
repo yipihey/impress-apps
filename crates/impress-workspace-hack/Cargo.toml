@@ -89,6 +89,8 @@ phf = { version = "0.11", default-features = false, features = ["macros"] }
 phf_shared-594e8ee84c453af0 = { package = "phf_shared", version = "0.13", default-features = false, features = ["std"] }
 phf_shared-a6292c17cd707f01 = { package = "phf_shared", version = "0.11" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
+pyo3 = { version = "0.23", features = ["extension-module"] }
+pyo3-ffi = { version = "0.23", features = ["extension-module"] }
 quick-xml = { version = "0.38", features = ["overlapped-lists", "serialize"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", features = ["small_rng"] }
@@ -172,6 +174,7 @@ phf_shared-594e8ee84c453af0 = { package = "phf_shared", version = "0.13", defaul
 phf_shared-a6292c17cd707f01 = { package = "phf_shared", version = "0.11" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
 proc-macro2 = { version = "1" }
+pyo3-build-config = { version = "0.23", features = ["extension-module", "resolve-config"] }
 quote = { version = "1" }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", features = ["small_rng"] }
 rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }

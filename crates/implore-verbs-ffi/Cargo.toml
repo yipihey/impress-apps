@@ -32,8 +32,14 @@ impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 implore-core = { workspace = true, features = ["uniffi"] }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
 tempfile = "3"
+# The transport's client (koine) against a stub of `POST /api/verb/<name>`
+# that calls `dispatch_verb` (tests/transport_parity.rs), and the pin of its
+# port table to Swift's (tests/transport_ports.rs): both need things koine
+# does not have, implore's verbs and the Swift sources.
+impress-app-transport = { workspace = true }
+axum = { workspace = true }
 
 [lints]
 workspace = true

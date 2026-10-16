@@ -141,7 +141,6 @@ and the implore owner decides between verbs and deletion.
 <!-- verb-coverage-crates:begin -->
 | Crate | Role | Verdict | Reason / uncovered capabilities |
 |---|---|---|---|
-| `capabilities-service` | verb-crate | verb-crate | |
 | `im-bibtex` | library | should-be-verb | `parser::{parse, parse_with_options, parse_entry}` and `formatter::{format_entry, format_entries}` have no verb; `import_bibtex` ingests but does not return parsed entries; ships its own MCP server (`src/mcp.rs`) and Python bindings outside the inventory |
 | `im-identifiers` | library | should-be-verb | `validators::{is_valid_doi, is_valid_arxiv_id, is_valid_isbn, normalize_doi, normalize_arxiv_id}` and `resolver::{identifier_url, identifier_display_name}` have no verb; own MCP server and Python bindings outside the inventory |
 | `imbib-cli` | binary | internal | the CLI binary over the inventory |
@@ -171,7 +170,6 @@ and the implore owner decides between verbs and deletion.
 | `impress-ai-http` | binary | internal | HTTP transport for impress-ai chat |
 | `impress-ai-service` | glue | internal | deploys koine-ai's `impress-ai-service_*` verbs over the suite's store (`koine_ai::service::Deployment`); the verbs' block is koine-ai's (koine docs/plan-koine-ai-tasks.md AI-D1) |
 | `impress-ai-tools` | glue/inventory | internal | a third force-link list beside `impress-capabilities` (recorded in the pipeline plan) |
-| `impress-app-transport` | library | internal | the P5 transport's client side (`call(app, verb, args)`); no capability of its own, it reaches a verb another crate already holds |
 | `impress-bibtex` | ffi | internal | Swift-only `*_ffi` shims over `im-bibtex` (the gap is `im-bibtex`'s row) |
 | `impress-bridges-service` | verb-crate | verb-crate | |
 | `impress-capabilities` | glue/inventory | internal | the one linked inventory |
@@ -205,7 +203,6 @@ and the implore owner decides between verbs and deletion.
 | `imprint-selftest` | verb-crate | verb-crate | |
 | `imprint-service` | verb-crate | verb-crate | |
 | `imprint-verbs-ffi` | ffi | internal | imprint's native app dispatcher over its service inventory; no independent capability |
-| `perf-service` | verb-crate | verb-crate | |
 | `scix-client-ffi` | ffi | should-be-verb | `scix_search`, `scix_count`, `scix_fetch_{references, citations, similar, coreads}` — the ADS citation graph, 19 exports, all Swift-only |
 | `uniffi-bindgen` | tooling | internal | the bindgen binary |
 | `vw-domain` | library | covered-through | `vw-diagnostic-service` exposes it |

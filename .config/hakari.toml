@@ -86,6 +86,10 @@ third-party = [
     # koine, koine-style-file and koine-tui are workspace dependencies with
     # no member using them yet, so they are not in this graph. Add them here
     # once a member depends on them.
+    { name = "perf-service", path = "../koine/crates/perf-service" },
+    { name = "impress-app-transport", path = "../koine/crates/impress-app-transport" },
+    { name = "capabilities-service", path = "../koine/crates/capabilities-service" },
+    { name = "koine-py", path = "../koine/crates/koine-py" },
     { name = "koine-plot", path = "../koine/crates/koine-plot" },
     { name = "koine-mcp-host", path = "../koine/crates/koine-mcp-host" },
     { name = "koine-agent", path = "../koine/crates/koine-agent" },
