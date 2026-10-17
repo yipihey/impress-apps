@@ -358,7 +358,22 @@ pub fn render_plot_svg(spec: FfiPlotSpec) -> FfiRenderedPlot {
     // Raster if the auto-strategy chose it OR the render produced an image
     // asset (contour plots with a heatmap underlay).
     let rasterized = matches!(plot.chosen(), Chosen::Raster) || !out.assets.is_empty();
+    compile_figure(out, rasterized)
+}
 
+/// A koine `plot-spec@1.0.0` (what surface plots, the demo histogram and
+/// agents write) drawn through koine-plot's Typst backend and compiled to
+/// SVG by this crate's engine (docs/plan-koine-kit-moves.md KM13).
+pub fn render_koine_plot_svg(spec: &koine_plot::PlotSpec) -> FfiRenderedPlot {
+    let (w, h) = (spec.width.max(32.0), spec.height.max(32.0));
+    let plot = impress_plot::plot_of(spec);
+    let out = plot.render(PlotSize::new(w, h));
+    let rasterized = matches!(plot.chosen(), Chosen::Raster) || !out.assets.is_empty();
+    compile_figure(out, rasterized)
+}
+
+/// Compile a figure's Typst (with its raster assets) to one SVG page.
+fn compile_figure(out: impress_plot::PlotOutput, rasterized: bool) -> FfiRenderedPlot {
     // Render on a page sized to the figure, not an A4 sheet: the trailing
     // `#set page(width: auto, ...)` overrides the renderer's A4 preamble so the
     // SVG viewBox hugs the plot box (right for an inline panel preview). The

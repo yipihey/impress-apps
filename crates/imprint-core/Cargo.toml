@@ -48,7 +48,7 @@ uniffi = ["dep:uniffi"]
 # verb, so they carry an output schema (ADR-0034 D1).
 schema = ["dep:schemars"]
 # Enable Typst rendering support (requires typst dependencies)
-typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:impress-plot", "dep:implore-io", "dep:implore-core"]
+typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:impress-plot", "dep:koine-plot", "dep:implore-io", "dep:implore-core"]
 # Full native build with both UniFFI and Typst
 native = ["uniffi", "typst-render"]
 # Enable the self-contained Tectonic LaTeX engine (heavy C dependency tree:
@@ -117,7 +117,9 @@ typst-as-lib = { version = "0.15", optional = true, features = ["typst-kit-fonts
 
 # Native Typst-first plotting (declarative spec → Typst + raster). Optional,
 # enabled with the Typst renderer since render_plot_svg compiles through it.
-impress-plot = { path = "../impress-plot", optional = true }
+# The Typst plot backend (koine-plot-typst, KM13) and the spec it draws.
+impress-plot = { workspace = true, optional = true }
+koine-plot = { workspace = true, optional = true }
 
 # Columnar data loading for the plot panel's real-dataset binding. CSV + NPZ
 # (numpy) + Parquet — all pure Rust, no C deps, cross-compile for iOS.

@@ -76,8 +76,6 @@ members = [
     # the ADR-0033 D7 standalone-kit slice of the inventory (store, layout,
     # surface, surface-demo) split out so impress-store-ffi can depend on it
     # without the impress-capabilities package cycle (plan-agent-surfaces.md S6)
-    # impress-plot - native Typst-first plotting (declarative spec → Typst + raster)
-    "crates/impress-plot",
     # impress-store-ffi - UniFFI bindings for the shared impress-core store
     "crates/impress-store-ffi",
     # scix-client-ffi - UniFFI bindings for scix-client (NASA ADS/SciX API)
@@ -265,6 +263,8 @@ koine-store-query = { path = "../koine/crates/koine-store-query", default-featur
 koine-store-spy = { path = "../koine/crates/koine-store-spy" }
 # KM12: runtime-provider persistence and the provider-service verbs.
 koine-providers = { path = "../koine/crates/koine-providers" }
+# KM13: the Typst plot backend is koine's; the old name stays as an alias.
+impress-plot = { package = "koine-plot-typst", path = "../koine/crates/koine-plot-typst" }
 impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }

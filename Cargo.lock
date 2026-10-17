@@ -4760,14 +4760,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "impress-plot"
-version = "0.1.0"
-dependencies = [
- "impress-workspace-hack",
- "png 0.17.16",
-]
-
-[[package]]
 name = "impress-py"
 version = "0.1.0"
 dependencies = [
@@ -5291,9 +5283,10 @@ dependencies = [
  "impress-bibtex",
  "impress-core",
  "impress-domain",
- "impress-plot",
  "impress-service-core",
  "impress-workspace-hack",
+ "koine-plot",
+ "koine-plot-typst",
  "pulldown-cmark",
  "regex",
  "schemars 0.8.22",
@@ -5908,6 +5901,15 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "koine-plot-typst"
+version = "0.1.0"
+dependencies = [
+ "koine-plot",
+ "koine-workspace-hack",
+ "png 0.17.16",
 ]
 
 [[package]]

@@ -132,7 +132,8 @@ pub fn plot_spec_to_typst(spec: &PlotSpec) -> String {
                 args.extend(label);
                 plot_calls.push(format!("  lq.plot({})", args.join(", ")));
             }
-            SeriesStyle::Scatter => {
+            // A density-contour series is drawn as its point cloud here.
+            SeriesStyle::Scatter | SeriesStyle::Contour => {
                 args.push(format!("color: {color}"));
                 args.push(format!(
                     "size: {}pt",

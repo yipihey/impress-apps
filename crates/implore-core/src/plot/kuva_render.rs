@@ -44,7 +44,8 @@ pub fn render_kuva_svg(spec: &PlotSpec) -> Option<String> {
                     plots.push(scatter.into());
                 }
             }
-            SeriesStyle::Scatter => {
+            // A density-contour series is drawn as its point cloud here.
+            SeriesStyle::Scatter | SeriesStyle::Contour => {
                 let data: Vec<(f64, f64)> = (0..n)
                     .filter(|&i| series.x[i].is_finite() && series.y[i].is_finite())
                     .map(|i| (series.x[i], series.y[i]))
