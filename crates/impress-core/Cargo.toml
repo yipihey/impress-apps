@@ -20,7 +20,7 @@ collab = ["dep:automerge", "dep:base64", "sqlite"]
 # kinds each call reads and writes to a process-wide recorder so
 # `crates/impress-capabilities/tests/effects.rs` can verify every verb's
 # declared effects against what it did. Tests only; nothing ships with it.
-effects-spy = ["sqlite"]
+effects-spy = ["sqlite", "dep:koine-store-spy"]
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
@@ -35,6 +35,8 @@ koine-collections = { workspace = true }
 koine-memory = { workspace = true }
 # The grouped-search and relations kernels (KM9).
 koine-store-query = { workspace = true }
+# The effects spy's types, under `effects-spy` (KM14).
+koine-store-spy = { workspace = true, optional = true }
 # The task state machine, the task store port and jobs (koine
 # docs/plan-koine-ai-tasks.md Q-D1, Q-D4); `runtime` stays off here.
 koine-tasks = { workspace = true }

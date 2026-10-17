@@ -4551,6 +4551,7 @@ dependencies = [
  "koine-store",
  "koine-store-conformance",
  "koine-store-query",
+ "koine-store-spy",
  "koine-tasks",
  "koine-triage",
  "proptest",
@@ -5999,6 +6000,14 @@ dependencies = [
  "schemars 0.8.22",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "koine-store-spy"
+version = "0.1.0"
+dependencies = [
+ "impress-item",
+ "koine-workspace-hack",
 ]
 
 [[package]]

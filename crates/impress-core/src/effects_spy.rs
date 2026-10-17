@@ -25,25 +25,16 @@
 //! wrapper into. That is fine for a test that runs one verb at a time; it is
 //! not a per-call attribution mechanism — the call log (L1) is.
 
-use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use crate::item::ItemId;
 
 /// The kind recorded when the store touched rows whose kind it could not
-/// name: a schemaless `count`, an empty schemaless `query`, a mutation whose
-/// row was already gone. A declaration covers it only with `any(…)`.
-pub const ANY: &str = "*";
-
-/// What one recording window saw.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Observed {
-    pub reads: BTreeSet<String>,
-    pub writes: BTreeSet<String>,
-    pub inserted: Vec<ItemId>,
-    pub deleted: Vec<ItemId>,
-}
+/// name, and what one recording window saw: koine's (`koine-store-spy`,
+/// whose `SpyStore` records the same over any backend; docs/plan-koine-kit-moves.md
+/// KM14). This hook is SQLite's own, reachable through the singletons.
+pub use koine_store_spy::{Observed, ANY};
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static RECORDER: Mutex<Option<Observed>> = Mutex::new(None);

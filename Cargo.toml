@@ -261,6 +261,8 @@ impress-memory-service = { package = "koine-memory", path = "../koine/crates/koi
 koine-memory = { path = "../koine/crates/koine-memory", default-features = false }
 # KM9: grouped search, relations, get and browse (kernels; the verbs behind `service`).
 koine-store-query = { path = "../koine/crates/koine-store-query", default-features = false }
+# KM14: the effects spy's shared types (and SpyStore for any backend).
+koine-store-spy = { path = "../koine/crates/koine-store-spy" }
 impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }
