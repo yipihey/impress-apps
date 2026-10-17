@@ -549,7 +549,7 @@ catalogue, 168 on the exception table.
 | `store-query-service_get-item` | target(id) | — | — | — |
 | `store-query-service_list-items` | any("the schema_ref argument names the kind") | — | — | example ×1 |
 | `store-query-service_related-items` | target(id), any("walks references across kinds") | — | — | — |
-| `store-query-service_search-all` | any("searches every kind") | — | — | — |
+| `store-query-service_search-all` | any("searches every kind") | — | — | example ×1 |
 | `surface-demo-service_histogram` | — | — | — | example ×1 |
 | `surface-demo-service_inventory` | "impress/ui/surface@1.0.0" | — | — | example ×1 |
 | `surface-demo-service_note-add` | — | any("the demo's `note` records (crate::notes), not a canonical ref") | — | example ×1 |
@@ -755,7 +755,6 @@ when one lands).
 | `source-service_get-page-image` | leaves the process (subprocess, fs) |
 | `store-query-service_get-item` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `store-query-service_related-items` | exercised, unobserved (example ran, spy saw no declared read or write) |
-| `store-query-service_search-all` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `surface-demo-service_note-delete` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `surface-demo-service_note-get` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `surface-demo-service_note-move` | exercised, unobserved (example ran, spy saw no declared read or write) |

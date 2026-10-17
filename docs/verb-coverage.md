@@ -74,7 +74,7 @@ read.
 | `settings-service` | koine-settings-service | 6 | 6 | 6 (5) | 6 | 6 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 28 | 10 |
 | `source-service` | impress-store-service | 9 | 9 | 21 (10) | 21 | 9 |
-| `store-query-service` | impress-store-service | 4 | 4 | 8 (8) | 8 | 4 |
+| `store-query-service` | koine-store-query | 4 | 4 | 8 (8) | 8 | 4 |
 | `surface-demo-service` | surface-demo-service | 11 | 11 | 16 (14) | 16 | 11 |
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 1 | 1 |
 | `task-service` | koine-tasks | 5 | 5 | 11 (4) | 11 | 5 |

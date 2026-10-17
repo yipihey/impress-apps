@@ -12,146 +12,26 @@
 //! every kind: papers a manuscript cites, messages that produced a task,
 //! figures embedded in a draft, and each of those seen from the other end.
 
-use uuid::Uuid;
-
-use crate::item::ItemId;
-use crate::reference::EdgeType;
-use crate::sqlite_store::SqliteItemStore;
-use crate::store::{ItemStore, StoreError};
-
-/// Row cap used when the caller passes `0`.
-pub const DEFAULT_LIMIT: u32 = 50;
-
-/// Hard ceiling on the row cap. A Related section is a list a human reads.
-pub const MAX_LIMIT: u32 = 500;
-
-/// `direction` value for edges where the subject item is the edge SOURCE.
-pub const DIRECTION_OUTGOING: &str = "outgoing";
-
-/// `direction` value for edges where the subject item is the edge TARGET.
-pub const DIRECTION_INCOMING: &str = "incoming";
-
-/// Display title, mirroring [`crate::search_ops`]'s chain so a Related row and
-/// a search row name the same item the same way. Expects `items` aliased `i`.
-const TITLE_EXPR: &str = "COALESCE(
-        NULLIF(json_extract(i.payload, '$.title'), ''),
-        NULLIF(json_extract(i.payload, '$.subject'), ''),
-        NULLIF(json_extract(i.payload, '$.name'), ''),
-        '')";
-
-/// One item related to the subject by a typed edge.
-#[derive(Debug, Clone, PartialEq)]
-pub struct RelatedItem {
-    /// Lowercase UUID of the *other* item — never the subject.
-    pub id: String,
-    /// The other item's `schema_ref`, so a mixed-kind list can pick a row
-    /// renderer per entry.
-    pub schema_ref: String,
-    /// Display title (title / subject / name, in that order).
-    pub title: String,
-    /// Edge type name (`"Cites"`, `"Contains"`, …). A
-    /// [`EdgeType::Custom`] edge reports its bare custom name.
-    pub edge_type: String,
-    /// [`DIRECTION_OUTGOING`] when the subject is the edge source (this
-    /// manuscript *contains* that figure), [`DIRECTION_INCOMING`] when it is
-    /// the target (that manuscript contains this figure).
-    pub direction: String,
-}
-
-/// Every item related to `id`, both directions, all edge types.
-///
-/// Ordered by edge type, then title, then direction and id — deterministic, and
-/// grouped so a section can render one heading per edge type by walking once.
-///
-/// Edges whose other end no longer resolves to an item are skipped rather than
-/// reported as blank rows: the join does the filtering, so a half-deleted graph
-/// degrades to a shorter list instead of a broken one.
-///
-/// `limit` is clamped to `1..=`[`MAX_LIMIT`]; `0` means [`DEFAULT_LIMIT`].
-/// Returns [`StoreError::NotFound`] when the subject item does not exist —
-/// "this item has no relations" and "this item does not exist" are different
-/// answers and a caller should be able to tell them apart.
-pub fn related_items(
-    store: &SqliteItemStore,
-    id: &str,
-    limit: u32,
-) -> Result<Vec<RelatedItem>, StoreError> {
-    let subject = parse_id(id)?;
-    if store.get(subject)?.is_none() {
-        return Err(StoreError::NotFound(subject));
-    }
-    let limit = match limit {
-        0 => DEFAULT_LIMIT,
-        n => n.min(MAX_LIMIT),
-    };
-    let subject = subject.to_string();
-
-    // One UNION ALL rather than two round trips, so the cap applies to the
-    // merged, ordered list — otherwise a heavily-cited item would spend its
-    // whole budget on outgoing edges before any incoming edge was considered.
-    // The JOIN is what drops dangling edges.
-    let sql = format!(
-        "SELECT other_id, schema_ref, title, edge_type, direction FROM (
-             SELECT r.target_id AS other_id,
-                    i.schema_ref AS schema_ref,
-                    {TITLE_EXPR} AS title,
-                    r.edge_type AS edge_type,
-                    '{DIRECTION_OUTGOING}' AS direction
-             FROM item_references r
-             JOIN items i ON i.id = r.target_id
-             WHERE r.source_id = ?1
-             UNION ALL
-             SELECT r.source_id AS other_id,
-                    i.schema_ref AS schema_ref,
-                    {TITLE_EXPR} AS title,
-                    r.edge_type AS edge_type,
-                    '{DIRECTION_INCOMING}' AS direction
-             FROM item_references r
-             JOIN items i ON i.id = r.source_id
-             WHERE r.target_id = ?1
-         )
-         ORDER BY edge_type ASC, title ASC, direction ASC, other_id ASC
-         LIMIT ?2"
-    );
-
-    store.query_raw(
-        &sql,
-        &[&subject, &limit],
-        |row| -> Result<RelatedItem, rusqlite::Error> {
-            let stored_edge: String = row.get(3)?;
-            Ok(RelatedItem {
-                id: row.get(0)?,
-                schema_ref: row.get(1)?,
-                title: row.get(2)?,
-                edge_type: edge_label(&stored_edge),
-                direction: row.get(4)?,
-            })
-        },
-    )
-}
-
-fn parse_id(id: &str) -> Result<ItemId, StoreError> {
-    Uuid::parse_str(id).map_err(|_| StoreError::Validation(format!("invalid UUID: {id}")))
-}
-
-/// Edge types are stored as serde JSON (`"Cites"`, `{"Custom":"reviewed-by"}`).
-/// Unit variants become their bare name; a custom edge reports the name its
-/// author chose, because that is the string a UI should show.
-fn edge_label(stored: &str) -> String {
-    match serde_json::from_str::<EdgeType>(stored) {
-        Ok(EdgeType::Custom(name)) => name,
-        _ => stored.trim_matches('"').to_string(),
-    }
-}
+// The walk is koine's (`koine_store_query::ops`, docs/plan-koine-kit-moves.md
+// KM9), over the store port; SQLite answers its incoming half from
+// `item_references`. The tests below keep proving it over SQLite.
+pub use koine_store_query::ops::{
+    related_items, RelatedItem, DEFAULT_RELATED_LIMIT as DEFAULT_LIMIT, DIRECTION_INCOMING,
+    DIRECTION_OUTGOING, MAX_RELATED_LIMIT as MAX_LIMIT,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::item::{Item, Priority, Value, Visibility};
+    use crate::reference::EdgeType;
     use crate::reference::TypedReference;
+    use crate::sqlite_store::SqliteItemStore;
     use crate::store::FieldMutation;
+    use crate::store::{ItemStore, StoreError};
     use chrono::Utc;
     use std::collections::BTreeMap;
+    use uuid::Uuid;
 
     fn open() -> SqliteItemStore {
         SqliteItemStore::open_in_memory().expect("open in-memory store")

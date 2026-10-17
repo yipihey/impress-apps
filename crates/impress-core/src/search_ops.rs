@@ -32,121 +32,12 @@
 //! findable, because "I know I wrote it somewhere" is exactly when a user
 //! reaches for global search.
 
-use crate::sqlite_store::SqliteItemStore;
-use crate::store::StoreError;
-use crate::triage_ops::STATUS_DISMISSED;
-
-/// Per-kind cap used when the caller passes `0`.
-pub const DEFAULT_LIMIT_PER_SCHEMA: u32 = 20;
-
-/// Hard ceiling on the per-kind cap. A search surface renders tens of rows per
-/// bucket, not thousands, and an unbounded cap turns a typo into a full scan.
-pub const MAX_LIMIT_PER_SCHEMA: u32 = 200;
-
-/// Number of tokens of context in a generated snippet.
-const SNIPPET_TOKENS: i64 = 12;
-
-/// Display title for an item, mirroring the COALESCE chain `items_fts` uses
-/// for its `title` column, plus `name` so collections and folders read right.
-/// Expects the `items` table to be aliased `i`.
-const TITLE_EXPR: &str = "COALESCE(
-        NULLIF(json_extract(i.payload, '$.title'), ''),
-        NULLIF(json_extract(i.payload, '$.subject'), ''),
-        NULLIF(json_extract(i.payload, '$.name'), ''),
-        '')";
-
-/// One search result, kind-tagged so the caller can bucket by record kind.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SearchHit {
-    /// Lowercase UUID string.
-    pub id: String,
-    /// The item's `schema_ref` — the bucket key ("manuscript", "figure",
-    /// "email-message", …).
-    pub schema_ref: String,
-    /// Display title (title / subject / name, in that order).
-    pub title: String,
-    /// FTS5 snippet from the best-matching column, unmarked. Falls back to the
-    /// title when the match was in a column with nothing quotable.
-    pub snippet: String,
-    /// BM25 relevance. **Lower is better** (bm25 returns negative scores);
-    /// hits arrive already sorted, so callers rarely need to look at this.
-    pub rank: f64,
-}
-
-/// Full-text search across every record kind, capped per kind.
-///
-/// Results are ordered by `schema_ref`, then relevance, then id — so buckets
-/// are contiguous and the order is stable across runs. `limit_per_schema` is
-/// clamped to `1..=`[`MAX_LIMIT_PER_SCHEMA`]; `0` means
-/// [`DEFAULT_LIMIT_PER_SCHEMA`].
-///
-/// A query with no searchable characters (empty, whitespace, `"((("`) returns
-/// an empty result rather than an error: there is nothing to search for, and a
-/// half-typed query is not a mistake worth an error dialog.
-pub fn search_all(
-    store: &SqliteItemStore,
-    query: &str,
-    limit_per_schema: u32,
-) -> Result<Vec<SearchHit>, StoreError> {
-    let Some(match_expr) = fts_match_expression(query) else {
-        return Ok(vec![]);
-    };
-    let limit = match limit_per_schema {
-        0 => DEFAULT_LIMIT_PER_SCHEMA,
-        n => n.min(MAX_LIMIT_PER_SCHEMA),
-    };
-
-    // The per-kind cap is a window function over the joined rows, not a
-    // `LIMIT`: a plain limit would let the noisiest schema fill the whole
-    // budget, which is the failure this surface exists to avoid.
-    let sql = format!(
-        "WITH hits AS (
-             SELECT item_id AS hit_id,
-                    bm25(items_fts) AS rank,
-                    snippet(items_fts, -1, '', '', '…', {SNIPPET_TOKENS}) AS snip
-             FROM items_fts
-             WHERE items_fts MATCH ?1
-         ),
-         ranked AS (
-             SELECT i.id AS id,
-                    i.schema_ref AS schema_ref,
-                    {TITLE_EXPR} AS title,
-                    h.snip AS snip,
-                    h.rank AS rank,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY i.schema_ref ORDER BY h.rank ASC, i.id ASC
-                    ) AS kind_rank
-             FROM hits h
-             JOIN items i ON i.id = h.hit_id
-             WHERE json_extract(i.payload, '$.status') IS NOT ?2
-         )
-         SELECT id, schema_ref, title, snip, rank
-         FROM ranked
-         WHERE kind_rank <= ?3
-         ORDER BY schema_ref ASC, rank ASC, id ASC"
-    );
-
-    store.query_raw(
-        &sql,
-        &[&match_expr, &STATUS_DISMISSED, &limit],
-        |row| -> Result<SearchHit, rusqlite::Error> {
-            let title: String = row.get(2)?;
-            let snippet: String = row.get(3)?;
-            let snippet = if snippet.trim().is_empty() {
-                title.clone()
-            } else {
-                snippet
-            };
-            Ok(SearchHit {
-                id: row.get(0)?,
-                schema_ref: row.get(1)?,
-                title,
-                snippet,
-                rank: row.get(4)?,
-            })
-        },
-    )
-}
+// Grouped search is koine's (`koine_store_query::ops`, docs/plan-koine-kit-moves.md
+// KM9), over the store port: SQLite answers its retrieval from `items_fts`.
+// The hybrid publication ranking below is imbib's and stays.
+pub use koine_store_query::ops::{
+    search_all, SearchHit, DEFAULT_LIMIT_PER_SCHEMA, MAX_LIMIT_PER_SCHEMA,
+};
 
 /// Turn arbitrary user input into an FTS5 MATCH expression, or `None` when
 /// there is nothing to search for.
@@ -450,8 +341,10 @@ mod ranking_tests {
 mod tests {
     use super::*;
     use crate::item::{Item, Priority, Value, Visibility};
+    use crate::sqlite_store::SqliteItemStore;
     use crate::store::ItemStore;
     use crate::triage_ops;
+    use crate::triage_ops::STATUS_DISMISSED;
     use chrono::Utc;
     use std::collections::BTreeMap;
 

@@ -5364,6 +5364,38 @@ impl ItemStore for SqliteItemStore {
     /// better. Tokenizing follows the port (`impress_item::text_tokens`), which
     /// also keeps every character the MATCH grammar treats as syntax out of
     /// the expression.
+    /// The sources of every edge into `target`, from `item_references`
+    /// (indexed on `target_id, edge_type`), ordered as the port promises.
+    fn references_to(
+        &self,
+        target: ItemId,
+        edge_types: &[EdgeType],
+    ) -> Result<Vec<(ItemId, EdgeType)>, StoreError> {
+        let rows: Vec<(String, String)> = self.query_raw(
+            "SELECT source_id, edge_type FROM item_references WHERE target_id = ?1",
+            &[&target.to_string()],
+            |row| -> Result<(String, String), rusqlite::Error> { Ok((row.get(0)?, row.get(1)?)) },
+        )?;
+        let mut found: Vec<(ItemId, EdgeType)> = Vec::with_capacity(rows.len());
+        for (source, stored) in rows {
+            let edge: EdgeType = serde_json::from_str(&stored)
+                .map_err(|e| StoreError::Storage(format!("edge type {stored}: {e}")))?;
+            if !edge_types.is_empty() && !edge_types.contains(&edge) {
+                continue;
+            }
+            let source = source
+                .parse()
+                .map_err(|e| StoreError::Storage(format!("edge source {source}: {e}")))?;
+            found.push((source, edge));
+        }
+        found.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| format!("{:?}", a.1).cmp(&format!("{:?}", b.1)))
+        });
+        found.dedup();
+        Ok(found)
+    }
+
     fn search_text(
         &self,
         schema: Option<&str>,

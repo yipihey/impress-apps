@@ -4364,7 +4364,7 @@ impl SharedStore {
         query: String,
         limit_per_schema: u32,
     ) -> Result<Vec<SharedSearchHit>, SharedStoreError> {
-        let hits = impress_core::search_ops::search_all(&self.inner, &query, limit_per_schema)?;
+        let hits = impress_core::search_ops::search_all(&*self.inner, &query, limit_per_schema)?;
         Ok(hits
             .into_iter()
             .map(|h| SharedSearchHit {
@@ -4389,7 +4389,7 @@ impl SharedStore {
         id: String,
         limit: u32,
     ) -> Result<Vec<SharedRelatedItem>, SharedStoreError> {
-        let rows = impress_core::related_ops::related_items(&self.inner, &id, limit)?;
+        let rows = impress_core::related_ops::related_items(&*self.inner, &id, limit)?;
         Ok(rows
             .into_iter()
             .map(|r| SharedRelatedItem {
