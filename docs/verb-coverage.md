@@ -67,7 +67,7 @@ read.
 | `layout-selftest-service` | impress-layout-service | 1 | 1 | 1 (1) | 1 | 1 |
 | `layout-service` | impress-layout-service | 42 | 42 | 205 (94) | 205 | 42 |
 | `manuscript-collab-service` | impress-store-service | 4 | 4 | 8 (8) | 8 | 4 |
-| `memory-service` | impress-memory-service | 7 | 7 | 20 (20) | 20 | 7 |
+| `memory-service` | koine-memory | 7 | 7 | 20 (20) | 20 | 7 |
 | `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 9 | 6 |
 | `perf-service` | perf-service | 4 | 4 | 4 (3) | 4 | 4 |
 | `provider-service` | impress-store-service | 2 | 2 | 2 (2) | 2 | 2 |
@@ -153,7 +153,6 @@ and the implore owner decides between verbs and deletion.
 | `impart-verbs-ffi` | ffi | internal | impart's native app dispatcher over its service inventory; no independent capability |
 | `impel-core` | domain-core | should-be-verb | `escalation::{acknowledge, resolve, dismiss}` and `coordination::{available_threads, threads_by_state, open_escalations}` reach agents only over `impel-server`'s HTTP |
 | `impel-enrichment` | library | internal | task executors (`HeuristicClassifier`, `LlmClassifier`, `MetadataResolveExecutor`) that run only as scheduled impel tasks |
-| `impel-memory` | library | internal | `claim_distill` and `spawn::plan_memory_tasks` are internal to the daemon's consolidation |
 | `impel-server` | binary | should-be-verb | an agent HTTP API (escalations, threads, claims, reviews) that bypasses the inventory entirely |
 | `impel-service` | verb-crate | verb-crate | |
 | `impel-taskd` | binary | internal | the task scheduler daemon |
@@ -177,12 +176,10 @@ and the implore owner decides between verbs and deletion.
 | `impress-collab` | library | internal | `Permissions::{can_view, can_comment, can_edit, can_share}` and `PresenceInfo` are per-session state, not agent capability |
 | `impress-core` | library | covered-through | the store every service crate persists into; `sync` (CloudKit-style outbox) is Swift-only and correctly so; `maintenance` and `task_schema_migration` have no verb |
 | `impress-domain` | library | should-be-verb | `citation_reference::{create_citation_reference, citation_to_typst, citation_to_latex, create_citation_batch}` are Swift-only |
-| `impress-embeddings` | library | should-be-verb | `ChunkIndex::{search, search_scoped}` reach agents only through `impress-mcp`'s hand-written `search_papers` / `get_paper_chunks` |
 | `impress-git` | library | should-be-verb | `commands::{status_cmd, commit_cmd, log_cmd, diff_cmd, push_cmd, pull_cmd, clone_cmd}` and the porcelain parsers have no verb |
 | `impress-helix` | library | internal | `HelixState` / `FfiHelixEditor::handle_key` is a keystroke state machine, UI only |
 | `impress-identifiers` | ffi | internal | Swift-only `*_ffi` shims over `im-identifiers` (the gap is `im-identifiers`' row) |
 | `impress-mcp` | binary | should-be-verb | `tools::{tool_search_papers, tool_get_paper_chunks, tool_list_indexed_papers}` and `render_pdf_page` are hand-written MCP tools outside the inventory (ADR-0024 D7) |
-| `impress-memory-service` | verb-crate | verb-crate | |
 | `impress-parsers-service` | verb-crate | verb-crate | |
 | `impress-plot` | library | should-be-verb | `render::{LinePlot::render, Hist2DFigure::render, ContourFigure::render}` are reached only through a project figure build; no spec-to-SVG/Typst verb |
 | `impress-py` | library | internal | the P6 Python binding: `list_verbs()`/`call(verb, args)`; no capability of its own, it reaches a verb another crate already holds |

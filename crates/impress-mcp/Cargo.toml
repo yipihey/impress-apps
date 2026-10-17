@@ -70,10 +70,10 @@ impress-store-service = { workspace = true }
 # recall/brief/confirm/supersede/forget, FTS tier + the opt-in vector tier).
 # `server.rs` also constructs `DefaultMemoryService` directly. Kept as a
 # direct dependency (impress-capabilities' `memory` feature deliberately does
-# NOT enable `vector-embedder` — it would drag ort-sys/ONNX into every `full`
+# NOT enable `embedder` — it would drag ort-sys/ONNX into every `full`
 # build, including ones that never wanted it) so this binary keeps the vector
 # tier it always had.
-impress-memory-service = { workspace = true, features = ["vector-embedder"] }
+impress-memory-service = { workspace = true, features = ["embedder"] }
 impress-workspace-hack.workspace = true
 
 [dev-dependencies]

@@ -37,9 +37,6 @@ members = [
     "crates/impel-enrichment",
     # impel-throughline - ADR-0016 throughline sync (spawn rule + executor)
     "crates/impel-throughline",
-    # impel-memory - ADR-0028 D7 memory-kernel executors (embed backfill,
-    # consolidation) + their spawner, registered in impel-taskd behind env gates
-    "crates/impel-memory",
     # impel-taskd - live task scheduler daemon over the shared store
     "crates/impel-taskd",
     # impel-tools - projects the #[impress_service] inventory into impel's agent loop
@@ -81,10 +78,6 @@ members = [
     # without the impress-capabilities package cycle (plan-agent-surfaces.md S6)
     # impress-plot - native Typst-first plotting (declarative spec → Typst + raster)
     "crates/impress-plot",
-    # impress-embeddings - the suite's embedding stack (sidecar vector/chunk
-    # store, HNSW index, text embedder). Owns the maths; the UniFFI shims that
-    # Swift binds against stay in the app cores that ship frameworks.
-    "crates/impress-embeddings",
     # impress-store-ffi - UniFFI bindings for the shared impress-core store
     "crates/impress-store-ffi",
     # scix-client-ffi - UniFFI bindings for scix-client (NASA ADS/SciX API)
@@ -99,10 +92,6 @@ members = [
     "crates/impel-service",
     "crates/impress-parsers-service",
     "crates/impress-smart-search-service",
-    # impress-memory-service - ADR-0028 memory kernel P2: remember/recall/brief
-    # over impress-core::memory_ops, exposed as MCP tools, CLI subcommands and
-    # impel agent tools. FTS tier only.
-    "crates/impress-memory-service",
     # imprint-service - Phase 2D/2E: manuscript persistence + search + stateless HTTP handlers
     "crates/imprint-service",
     # imbib-service - Phase 3: ImbibTextService trait exposed via #[impress_service]
@@ -260,13 +249,16 @@ koine-settings-service = { path = "../koine/crates/koine-settings-service" }
 # workspace dependency can only add features, never remove them, so a member
 # writing `default-features = false` is silently ignored (cargo warns, and
 # says it may become a hard error). Consumers opt in to store/index/embedder.
-impress-embeddings = { path = "crates/impress-embeddings", default-features = false }
+# KM5: the embedding stack, memory kernel/verbs and executors are koine's;
+# the old names stay as aliases so no `use` changes.
+impress-embeddings = { package = "koine-embeddings", path = "../koine/crates/koine-embeddings", default-features = false }
 impress-sources = { path = "crates/impress-sources" }
 impress-smart-search = { path = "crates/impress-smart-search" }
 impel-service = { path = "crates/impel-service" }
 impress-parsers-service = { path = "crates/impress-parsers-service" }
 impress-smart-search-service = { path = "crates/impress-smart-search-service" }
-impress-memory-service = { path = "crates/impress-memory-service" }
+impress-memory-service = { package = "koine-memory", path = "../koine/crates/koine-memory" }
+koine-memory = { path = "../koine/crates/koine-memory", default-features = false }
 impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }
@@ -327,7 +319,7 @@ typst-as-lib = { version = "0.15", features = ["typst-kit-fonts", "typst-kit-emb
 
 # impel crates
 impel-core = { path = "crates/impel-core" }
-impel-memory = { path = "crates/impel-memory" }
+impel-memory = { package = "koine-memory", path = "../koine/crates/koine-memory", features = ["executors"] }
 impress-helix = { path = "crates/impress-helix" }
 impel-tui = { path = "apps/impel-tui" }
 impel-server = { path = "crates/impel-server" }

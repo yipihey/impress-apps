@@ -3930,7 +3930,6 @@ dependencies = [
  "encoding_rs",
  "impress-bibtex",
  "impress-core",
- "impress-embeddings",
  "impress-flags",
  "impress-identifiers",
  "impress-remarkable",
@@ -3940,6 +3939,7 @@ dependencies = [
  "impress-workspace-hack",
  "insta",
  "js-sys",
+ "koine-embeddings",
  "lazy_static",
  "pdfium-render",
  "percent-encoding",
@@ -3977,11 +3977,11 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "imbib-core",
- "impress-embeddings",
  "impress-service-core",
  "impress-service-macros",
  "impress-workspace-hack",
  "jsonschema",
+ "koine-embeddings",
  "rusqlite",
  "schemars 0.8.22",
  "serde",
@@ -4134,25 +4134,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "impel-memory"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "dirs",
- "impel-core",
- "impress-ai",
- "impress-core",
- "impress-embeddings",
- "impress-workspace-hack",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "impel-server"
 version = "0.1.0"
 dependencies = [
@@ -4199,7 +4180,6 @@ dependencies = [
  "imbib-core",
  "impel-core",
  "impel-enrichment",
- "impel-memory",
  "impel-throughline",
  "impress-ai",
  "impress-ai-tools",
@@ -4212,6 +4192,7 @@ dependencies = [
  "impress-workflow-service",
  "impress-workspace-hack",
  "imprint-service",
+ "koine-memory",
  "koine-store",
  "koine-tasks",
  "tokio",
@@ -4243,11 +4224,11 @@ dependencies = [
  "imbib-service",
  "impress-app-transport",
  "impress-capabilities",
- "impress-memory-service",
  "impress-service-core",
  "impress-store-service",
  "impress-workspace-hack",
  "imprint-service",
+ "koine-memory",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
@@ -4493,7 +4474,6 @@ dependencies = [
  "impress-item",
  "impress-keymap",
  "impress-layout-service",
- "impress-memory-service",
  "impress-parsers-service",
  "impress-scenario",
  "impress-scenario-service",
@@ -4511,6 +4491,7 @@ dependencies = [
  "jsonschema",
  "koine-agent",
  "koine-collections",
+ "koine-memory",
  "koine-settings-service",
  "koine-triage",
  "perf-service",
@@ -4532,10 +4513,10 @@ dependencies = [
  "clap",
  "impress-app-transport",
  "impress-capabilities",
- "impress-memory-service",
  "impress-service-core",
  "impress-store-service",
  "impress-workspace-hack",
+ "koine-memory",
  "serde_json",
  "tracing",
  "tracing-subscriber",
@@ -4566,6 +4547,7 @@ dependencies = [
  "impress-service-core",
  "impress-workspace-hack",
  "koine-collections",
+ "koine-memory",
  "koine-store",
  "koine-store-conformance",
  "koine-tasks",
@@ -4593,21 +4575,6 @@ dependencies = [
  "unicode-normalization",
  "uniffi",
  "uuid",
-]
-
-[[package]]
-name = "impress-embeddings"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "chrono",
- "fastembed",
- "hnsw_rs",
- "impress-workspace-hack",
- "rusqlite",
- "serde",
- "tempfile",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -4728,12 +4695,12 @@ dependencies = [
  "dirs",
  "impress-app-transport",
  "impress-capabilities",
- "impress-memory-service",
  "impress-service-core",
  "impress-store-service",
  "impress-workspace-hack",
  "imprint-service",
  "koine-mcp-host",
+ "koine-memory",
  "mockito",
  "serde",
  "serde_json",
@@ -4741,27 +4708,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "impress-memory-service"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "dirs",
- "impress-core",
- "impress-embeddings",
- "impress-service-core",
- "impress-service-macros",
- "impress-store-service",
- "impress-workspace-hack",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -5872,6 +5818,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine-embeddings"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "chrono",
+ "fastembed",
+ "hnsw_rs",
+ "koine-workspace-hack",
+ "rusqlite",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "koine-mcp-host"
 version = "0.1.0"
 dependencies = [
@@ -5881,6 +5841,29 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "koine-memory"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dirs",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "koine-ai",
+ "koine-embeddings",
+ "koine-store",
+ "koine-tasks",
+ "koine-workspace-hack",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

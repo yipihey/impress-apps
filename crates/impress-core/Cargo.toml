@@ -31,6 +31,8 @@ impress-item = { workspace = true }
 koine-triage = { workspace = true }
 # The collection kernel only (KM4): no verbs, no package manager.
 koine-collections = { workspace = true }
+# The memory kernel only (KM5): no verbs, no embeddings.
+koine-memory = { workspace = true }
 # The task state machine, the task store port and jobs (koine
 # docs/plan-koine-ai-tasks.md Q-D1, Q-D4); `runtime` stays off here.
 koine-tasks = { workspace = true }

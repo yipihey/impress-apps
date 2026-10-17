@@ -136,6 +136,11 @@ pub fn force_link() {
         // suite's store instead of an empty stand-in. Idempotent.
         impress_store_service::register_process_ports();
     }
+    // The memory verbs are koine's (KM5) and read the process store; this
+    // registers the lazy SQLite opener so they get the suite's store, not a
+    // stand-in that forgets.
+    #[cfg(feature = "memory")]
+    impress_store_service::register_process_ports();
     #[cfg(feature = "scenario")]
     {
         // The scenario verbs are koine's (KM4): a Tier A run gets an

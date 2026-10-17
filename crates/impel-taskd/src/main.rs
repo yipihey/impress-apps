@@ -7,7 +7,7 @@
 //!
 //! It also runs the ADR-0028 D7 memory sweeps — embedding backfill and
 //! agent-run consolidation — which are unlike the rules above in that they have
-//! no trigger item: `impel_memory::plan_memory_tasks` reads its own watermark
+//! no trigger item: `impel_memory::executors::plan_memory_tasks` reads its own watermark
 //! off the chain of completed tasks. Both are OFF unless `IMPRESS_MEMORY_EMBED`
 //! / `IMPRESS_MEMORY_CONSOLIDATE` say otherwise, so a deploy carrying them
 //! changes no behavior until switched on.
@@ -40,7 +40,7 @@ use impel_enrichment::metadata_resolve::ConfiguredSource;
 use impel_enrichment::{
     EnrichmentSpawnRule, KeywordTagExecutor, MetadataResolveExecutor, BIBLIOGRAPHY_ENTRY_SCHEMA,
 };
-use impel_memory::{
+use impel_memory::executors::{
     plan_memory_tasks, EmbedBackfillExecutor, MemoryConsolidationExecutor, MemoryPlanConfig,
 };
 use impel_throughline::{
@@ -974,13 +974,13 @@ async fn main() {
     } else {
         eprintln!(
             "impel-taskd: memory embed backfill off (set {}=1)",
-            impel_memory::spawn::EMBED_ENV
+            impel_memory::executors::spawn::EMBED_ENV
         );
     }
     if memory_plan.consolidate_enabled {
-        use impel_memory::ClaimDistiller as _;
-        let distiller: Option<Arc<dyn impel_memory::ClaimDistiller>> =
-            match impel_memory::LlmDistiller::from_registry(ai_registry.clone()) {
+        use impel_memory::executors::ClaimDistiller as _;
+        let distiller: Option<Arc<dyn impel_memory::executors::ClaimDistiller>> =
+            match impel_memory::executors::LlmDistiller::from_registry(ai_registry.clone()) {
                 Some(distiller) => {
                     eprintln!(
                         "impel-taskd: memory consolidation ON (deterministic + LLM claim tier: {})",
@@ -1001,7 +1001,7 @@ async fn main() {
     } else {
         eprintln!(
             "impel-taskd: memory consolidation off (set {}=1)",
-            impel_memory::spawn::CONSOLIDATE_ENV
+            impel_memory::executors::spawn::CONSOLIDATE_ENV
         );
     }
     if args.dry_run && (memory_plan.embed_enabled || memory_plan.consolidate_enabled) {
@@ -1334,8 +1334,11 @@ async fn main() {
             // planning failure must not take down a pass that still has
             // enrichment and throughline work to do.
             if !args.dry_run {
-                match plan_memory_tasks(&store, chrono::Utc::now().timestamp_millis(), &memory_plan)
-                {
+                match plan_memory_tasks(
+                    &*store,
+                    chrono::Utc::now().timestamp_millis(),
+                    &memory_plan,
+                ) {
                     Ok(ids) if !ids.is_empty() => {
                         eprintln!("impel-taskd: spawned {} memory task(s): {ids:?}", ids.len())
                     }

@@ -34,9 +34,9 @@ impress-store-service = { workspace = true }
 # ADR-0028 memory kernel P2: remember/recall/brief/confirm/supersede/forget.
 # Kept as a direct dependency for the same reason `impress-mcp` keeps it:
 # `impress-capabilities`'s `memory` feature deliberately does NOT enable
-# `vector-embedder` (it would drag ort-sys/ONNX into every `full` build), so
+# `embedder` (it would drag ort-sys/ONNX into every `full` build), so
 # this binary enables it itself to keep the vector tier it always had.
-impress-memory-service = { workspace = true, features = ["vector-embedder"] }
+impress-memory-service = { workspace = true, features = ["embedder"] }
 impress-service-core = { workspace = true, features = ["cli"] }
 clap = { workspace = true }
 serde_json = { workspace = true }

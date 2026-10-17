@@ -505,7 +505,7 @@ catalogue, 168 on the exception table.
 | `memory-service_confirm-claim` | "memory/claim@1.0.0" | "memory/claim@1.0.0" | — | example ×1 |
 | `memory-service_forget` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | example ×1 |
 | `memory-service_memory-brief` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | — | example ×1 |
-| `memory-service_memory-status` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | — | — |
+| `memory-service_memory-status` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | — | example ×1 |
 | `memory-service_recall` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | — | example ×1 |
 | `memory-service_remember` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | example ×1 |
 | `memory-service_supersede-claim` | "memory/claim@1.0.0" | "memory/claim@1.0.0" | — | example ×1 |
@@ -745,7 +745,6 @@ when one lands).
 | `layout-service_outline-delete` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `layout-service_outline-move` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `layout-service_outline-rename` | exercised, unobserved (example ran, spy saw no declared read or write) |
-| `memory-service_memory-status` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `parsers-service_resolve-publisher-pdf` | leaves the process (network) |
 | `settings-service_get` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `settings-service_list` | exercised, unobserved (example ran, spy saw no declared read or write) |

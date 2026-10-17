@@ -300,6 +300,8 @@ const MEMORY_BRIEF_MAX_ENTRIES: i64 = 12;
 /// a status rather than as the brief itself.
 fn memory_brief_markdown() -> String {
     let outcome = with_deadline(MEMORY_BRIEF_URI, || {
+        // The memory verbs read the process store (koine, KM5).
+        impress_store_service::register_process_ports();
         let service = impress_memory_service::DefaultMemoryService::new();
         Ok(impress_service_core::runtime::block_on(
             service.memory_brief(String::new(), String::new(), MEMORY_BRIEF_MAX_ENTRIES),
