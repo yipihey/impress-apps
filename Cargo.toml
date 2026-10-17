@@ -176,96 +176,96 @@ impress-identifiers = { path = "crates/impress-identifiers" }
 im-bibtex = { path = "crates/im-bibtex" }
 im-identifiers = { path = "crates/im-identifiers" }
 impress-collab = { path = "crates/impress-collab" }
-impress-keymap = { path = "../koine/crates/impress-keymap" }
+impress-keymap = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 imprint-core = { path = "crates/imprint-core" }
 imprint-service = { path = "crates/imprint-service" }
 imprint-selftest = { path = "crates/imprint-selftest" }
 imbib-service = { path = "crates/imbib-service" }
 imbib-semantic-service = { path = "crates/imbib-semantic-service" }
 imbib-core = { path = "crates/imbib-core" }
-impress-item = { path = "../koine/crates/impress-item" }
+impress-item = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 # The store conformance suite (koine docs/plan-koine-store.md D6): impress-core
 # runs it against SqliteItemStore as a dev-dependency, so the three backends
 # can only drift into a failing test.
-koine-store-conformance = { path = "../koine/crates/koine-store-conformance" }
+koine-store-conformance = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 # The store port by name: `koine_store::process` is the process-wide store,
 # manifest-free registry the layout and surface runtimes read (plan K3a).
-koine-store = { path = "../koine/crates/koine-store" }
-koine-store-memory = { path = "../koine/crates/koine-store-memory" }
-impress-schema-ref-codegen = { path = "../koine/crates/impress-schema-ref-codegen" }
+koine-store = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+koine-store-memory = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+impress-schema-ref-codegen = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 impress-core = { path = "crates/impress-core" }
-impress-layout = { path = "../koine/crates/impress-layout" }
+impress-layout = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 # The ADR-0031 D8 layout verbs and the ADR-0033 surface verbs, runtimes over the
 # store port (docs/plan-koine-host.md H-D3, K3b).
-impress-layout-service = { path = "../koine/crates/impress-layout-service" }
-impress-pane-query = { path = "../koine/crates/impress-pane-query" }
-impress-pane-query-compile = { path = "../koine/crates/impress-pane-query-compile" }
-impress-surface = { path = "../koine/crates/impress-surface" }
-impress-workflow = { path = "../koine/crates/impress-workflow" }
-impress-workflow-service = { path = "../koine/crates/impress-workflow-service" }
-impress-verb-surface = { path = "../koine/crates/impress-verb-surface" }
-koine = { path = "../koine/crates/koine" }
-koine-style-file = { path = "../koine/crates/koine-style-file" }
-koine-tui = { path = "../koine/crates/koine-tui" }
+impress-layout-service = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+impress-pane-query = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+impress-pane-query-compile = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+impress-surface = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+impress-workflow = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+impress-workflow-service = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+impress-verb-surface = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+koine = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+koine-style-file = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+koine-tui = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 # The plot spec and its SVG renderer and tick calculator (koine docs/plan-koine-followups.md
 # F-D3): implore-core re-exports them, so a plot has one definition.
-koine-plot = { path = "../koine/crates/koine-plot" }
+koine-plot = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 # The inventory-backed MCP host (stdio and HTTP) impress-mcp and vw-mcp mount
 # (docs/plan-koine-host.md H-D5): moved from crates/impress-mcp-host.
-koine-mcp-host = { path = "../koine/crates/koine-mcp-host" }
+koine-mcp-host = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 # The agent desk (koine docs/plan-koine-research-os.md G-D): requests a person
 # leaves for an agent, and the skill an agent reads. `koine-notebook` is its
 # dependency (a `diagnose` request carries the call's notebook record).
-koine-agent = { path = "../koine/crates/koine-agent" }
-koine-notebook = { path = "../koine/crates/koine-notebook" }
+koine-agent = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+koine-notebook = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 # The task kernel and the AI kernel (koine docs/plan-koine-ai-tasks.md):
 # impel-core, impress-core's task/job and impress-ai re-export them.
 # Features are opt-in per member (a workspace dependency cannot turn one off).
-koine-tasks = { path = "../koine/crates/koine-tasks", default-features = false }
-koine-ai = { path = "../koine/crates/koine-ai", default-features = false }
-impress-scenario = { path = "../koine/crates/impress-scenario" }
-impress-scenario-service = { path = "../koine/crates/impress-scenario-service" }
+koine-tasks = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48", default-features = false }
+koine-ai = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48", default-features = false }
+impress-scenario = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+impress-scenario-service = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 impress-capabilities = { path = "crates/impress-capabilities", default-features = false }
-impress-surface-service = { path = "../koine/crates/impress-surface-service" }
-surface-demo-service = { path = "../koine/crates/surface-demo-service" }
+impress-surface-service = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+surface-demo-service = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 # Moved to koine (docs/plan-koine-kit-moves.md KM1): the performance verbs,
 # the verb transport's client, the impact verbs and the Python module builder.
-perf-service = { path = "../koine/crates/perf-service" }
-impress-app-transport = { path = "../koine/crates/impress-app-transport" }
-capabilities-service = { path = "../koine/crates/capabilities-service" }
-koine-py = { path = "../koine/crates/koine-py" }
+perf-service = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+impress-app-transport = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+capabilities-service = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+koine-py = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 # KM2: the tag and flag models, and the triage kernel, verbs and package.
 # Features are opt-in per member: impress-core takes only the kernel, the
 # service crates add `service`; `package` (the builtin:triage package, which
 # links koine-packages and so the notebook and agent verbs) is KM7/KM8's.
-impress-tags = { path = "../koine/crates/impress-tags" }
-impress-flags = { path = "../koine/crates/impress-flags" }
-koine-triage = { path = "../koine/crates/koine-triage", default-features = false }
+impress-tags = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+impress-flags = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+koine-triage = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48", default-features = false }
 # KM4: the collection kernel and verbs (impress-core takes the kernel only;
 # the service crate adds `service`) and the settings verbs.
-koine-collections = { path = "../koine/crates/koine-collections", default-features = false }
-koine-settings-service = { path = "../koine/crates/koine-settings-service" }
+koine-collections = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48", default-features = false }
+koine-settings-service = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 # default-features = false HERE, not at the call site: a member inheriting a
 # workspace dependency can only add features, never remove them, so a member
 # writing `default-features = false` is silently ignored (cargo warns, and
 # says it may become a hard error). Consumers opt in to store/index/embedder.
 # KM5: the embedding stack, memory kernel/verbs and executors are koine's;
 # the old names stay as aliases so no `use` changes.
-impress-embeddings = { package = "koine-embeddings", path = "../koine/crates/koine-embeddings", default-features = false }
+impress-embeddings = { package = "koine-embeddings", git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48", default-features = false }
 impress-sources = { path = "crates/impress-sources" }
 impress-smart-search = { path = "crates/impress-smart-search" }
 impel-service = { path = "crates/impel-service" }
 impress-parsers-service = { path = "crates/impress-parsers-service" }
 impress-smart-search-service = { path = "crates/impress-smart-search-service" }
-impress-memory-service = { package = "koine-memory", path = "../koine/crates/koine-memory" }
-koine-memory = { path = "../koine/crates/koine-memory", default-features = false }
+impress-memory-service = { package = "koine-memory", git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+koine-memory = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48", default-features = false }
 impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }
 impress-remarkable = { path = "crates/impress-remarkable" }
-impress-fs-lock = { path = "../koine/crates/impress-fs-lock" }
-koine-store-dir = { path = "../koine/crates/koine-store-dir" }
-impress-settings = { path = "../koine/crates/impress-settings" }
+impress-fs-lock = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+koine-store-dir = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+impress-settings = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 impress-ai = { path = "crates/impress-ai" }
 impress-ai-service = { path = "crates/impress-ai-service" }
 impress-ai-tools = { path = "crates/impress-ai-tools" }
@@ -319,8 +319,8 @@ typst-as-lib = { version = "0.15", features = ["typst-kit-fonts", "typst-kit-emb
 
 # impel crates
 impel-core = { path = "crates/impel-core" }
-impel-memory = { package = "koine-memory", path = "../koine/crates/koine-memory", features = ["executors"] }
-impress-helix = { path = "../koine/crates/impress-helix" }
+impel-memory = { package = "koine-memory", git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48", features = ["executors"] }
+impress-helix = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 impel-tui = { path = "apps/impel-tui" }
 impel-server = { path = "crates/impel-server" }
 
@@ -345,8 +345,8 @@ toml = "0.8"
 dirs = "6"
 
 # impress-service-* (Phase 0 codegen pipeline)
-impress-service-core = { path = "../koine/crates/impress-service-core" }
-impress-service-macros = { path = "../koine/crates/impress-service-macros" }
+impress-service-core = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
+impress-service-macros = { git = "https://github.com/yipihey/koine", rev = "767a261a884e7b12b9226fde15beee82b53c9d48" }
 inventory = "0.3"
 schemars = { version = "0.8", features = ["uuid1"] }
 syn = { version = "2", features = ["full"] }

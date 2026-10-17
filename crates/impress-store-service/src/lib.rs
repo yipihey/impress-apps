@@ -199,21 +199,37 @@ mod inventory_tests {
     /// a bare `{"type": "object"}` with no `properties` key. Kept as an
     /// explicit list rather than a relaxed assertion: a tool losing its
     /// arguments to a refactor should still fail this test loudly.
-    const NO_ARGUMENT_TOOLS: [&str; 6] = [
+    const NO_ARGUMENT_TOOLS: [&str; 5] = [
         "collection-service_migration-status",
         "collection-service_rollback",
         "history-service_health",
         "settings-service_schema",
         "provider-service_list",
-        // Linked into this crate's tests by the history-miner engine proof.
-        "impress-workflow-service_workflow-list",
+    ];
+
+    /// The services this crate declares, and the koine ones it re-exports
+    /// (KM2, KM4). The test binary links more (koine's AI, task and
+    /// workflow verbs come in with its dependencies, and a workspace-wide
+    /// `--features native` run links still others); those are their own
+    /// crates' to check.
+    const OWN_SERVICES: [&str; 9] = [
+        "store-query-service",
+        "history-service",
+        "provider-service",
+        "source-service",
+        "docs-import-service",
+        "manuscript-collab-service",
+        "collection-service",
+        "settings-service",
+        "triage-service",
     ];
 
     /// Descriptions come from the trait's doc comments. A tool that ships
     /// "Invoke Service.method" is a tool the model will misuse.
     #[test]
     fn descriptions_are_real() {
-        for d in McpToolDescriptor::iter() {
+        let own = McpToolDescriptor::iter().filter(|d| OWN_SERVICES.contains(&d.verb.service));
+        for d in own {
             assert!(
                 !d.description.starts_with("Invoke "),
                 "{} has a placeholder description",
