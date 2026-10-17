@@ -1,6 +1,6 @@
 [package]
-name = "impress-helix"
-description = "Helix-style modal editing for terminal text interfaces"
+name = "impress-helix-ffi"
+description = "The ImpressHelix xcframework build of koine's impress-helix (modal editing)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -24,12 +24,13 @@ crate-type = ["lib"]
 
 
 [dependencies]
-uniffi = { workspace = true, optional = true }
+# The crate is koine's (KM6); `ffi` is its UniFFI interface.
+impress-helix = { workspace = true }
 impress-workspace-hack.workspace = true
 
 [features]
 default = []
-ffi = ["uniffi"]
+ffi = ["impress-helix/ffi"]
 
 [build-dependencies]
 # No uniffi build-dependency: this crate uses the proc-macro

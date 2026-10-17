@@ -1,5 +1,8 @@
 #!/bin/bash
-# Build script for impress-helix Rust library
+# Build script for the ImpressHelix xcframework: koine's impress-helix
+# (KM6), built through this package (impress-helix-ffi) as a staticlib.
+# The archive cargo writes is libimpress_helix_ffi.a; inside the
+# xcframework it keeps its old name, libimpress_helix.a.
 # Creates an XCFramework for macOS and iOS
 
 set -e
@@ -117,7 +120,7 @@ echo ""
 echo "Creating framework structure..."
 # Archives identical to the last publish: nothing to repackage (~3 s saved;
 # see impress_framework_current in scripts/build-env.sh).
-if impress_framework_current "$FRAMEWORK_DIR" "$BUILD_DIR" impress_helix "$SCRIPT_DIR/build-xcframework.sh"; then
+if impress_framework_current "$FRAMEWORK_DIR" "$BUILD_DIR" impress_helix_ffi "$SCRIPT_DIR/build-xcframework.sh"; then
     echo "impress-helix: archives unchanged since the last publish; nothing to repackage"
     exit 0
 fi
@@ -135,12 +138,12 @@ mkdir -p "$IOS_SIM_UNIVERSAL_DIR"
 if [ "$BUILD_X86" = "1" ]; then
     echo "Creating universal macOS binary..."
     lipo -create \
-        "$BUILD_DIR/$MACOS_TARGET/release/libimpress_helix.a" \
-        "$BUILD_DIR/$MACOS_X86_TARGET/release/libimpress_helix.a" \
+        "$BUILD_DIR/$MACOS_TARGET/release/libimpress_helix_ffi.a" \
+        "$BUILD_DIR/$MACOS_X86_TARGET/release/libimpress_helix_ffi.a" \
         -output "$MACOS_UNIVERSAL_DIR/libimpress_helix.a"
 else
     echo "Creating arm64-only macOS binary (IMPRESS_SKIP_X86=1)..."
-    cp "$BUILD_DIR/$MACOS_TARGET/release/libimpress_helix.a" \
+    cp "$BUILD_DIR/$MACOS_TARGET/release/libimpress_helix_ffi.a" \
         "$MACOS_UNIVERSAL_DIR/libimpress_helix.a"
 fi
 
@@ -150,11 +153,11 @@ if [ "$BUILD_IOS" = "1" ]; then
     # nothing to lipo: the simulator slice is arm64 alone.
     if [ "$BUILD_X86" = "1" ]; then
         lipo -create \
-            "$BUILD_DIR/$IOS_SIM_TARGET/release/libimpress_helix.a" \
-            "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/libimpress_helix.a" \
+            "$BUILD_DIR/$IOS_SIM_TARGET/release/libimpress_helix_ffi.a" \
+            "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/libimpress_helix_ffi.a" \
             -output "$IOS_SIM_UNIVERSAL_DIR/libimpress_helix.a"
     else
-        cp "$BUILD_DIR/$IOS_SIM_TARGET/release/libimpress_helix.a" \
+        cp "$BUILD_DIR/$IOS_SIM_TARGET/release/libimpress_helix_ffi.a" \
             "$IOS_SIM_UNIVERSAL_DIR/libimpress_helix.a"
     fi
 fi
@@ -163,7 +166,7 @@ fi
 echo ""
 echo "Generating Swift bindings..."
 cargo run --release -p uniffi-bindgen -- generate \
-    --library "$BUILD_DIR/$MACOS_TARGET/release/libimpress_helix.a" \
+    --library "$BUILD_DIR/$MACOS_TARGET/release/libimpress_helix_ffi.a" \
     --language swift \
     --out-dir "$FRAMEWORK_DIR/generated"
 
@@ -191,8 +194,12 @@ XCFRAMEWORK_ARGS=(
     -headers "$FRAMEWORK_DIR/headers"
 )
 if [ "$BUILD_IOS" = "1" ]; then
+    # Every slice carries the archive under one name.
+    IOS_DEVICE_DIR="$FRAMEWORK_DIR/ios-device"
+    mkdir -p "$IOS_DEVICE_DIR"
+    cp "$BUILD_DIR/$IOS_TARGET/release/libimpress_helix_ffi.a" "$IOS_DEVICE_DIR/libimpress_helix.a"
     XCFRAMEWORK_ARGS+=(
-        -library "$BUILD_DIR/$IOS_TARGET/release/libimpress_helix.a"
+        -library "$IOS_DEVICE_DIR/libimpress_helix.a"
         -headers "$FRAMEWORK_DIR/headers"
         -library "$IOS_SIM_UNIVERSAL_DIR/libimpress_helix.a"
         -headers "$FRAMEWORK_DIR/headers"
@@ -206,7 +213,7 @@ xcodebuild -create-xcframework \
 # The xcframework holds its own copy of every slice; the per-slice staging
 # above (lipo outputs, .framework wrappers, filtered archives) is consumed only
 # by create-xcframework, and left in place it doubled or tripled each archive.
-rm -rf "$FRAMEWORK_DIR"/{macos-universal,ios-sim-universal,ios-simulator-universal,macos.framework,ios.framework,ios-sim.framework,filtered}
+rm -rf "$FRAMEWORK_DIR"/{macos-universal,ios-sim-universal,ios-device,ios-simulator-universal,macos.framework,ios.framework,ios-sim.framework,filtered}
 
 echo ""
 echo "Cleaning up xcframework headers..."

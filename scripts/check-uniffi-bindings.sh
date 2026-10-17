@@ -193,8 +193,32 @@ if unknown:
 failures = []
 checked = 0
 
+# A crate whose interface is a koine crate's, built here through a thin
+# package (docs/plan-koine-kit-moves.md KM6): its exports are read from the
+# koine crate's source, found where cargo resolved it.
+KOINE_SOURCED = {"impress-helix": "impress-helix"}
+
+
+def koine_source(package):
+    import json
+    import subprocess
+
+    meta = json.loads(
+        subprocess.run(
+            ["cargo", "metadata", "--format-version", "1", "--offline"],
+            cwd=ROOT, check=True, capture_output=True, text=True,
+        ).stdout
+    )
+    for pkg in meta["packages"]:
+        if pkg["name"] == package:
+            return os.path.join(os.path.dirname(pkg["manifest_path"]), "src")
+    return None
+
+
 for crate in crates:
     src = os.path.join(ROOT, "crates", crate, "src")
+    if crate in KOINE_SOURCED:
+        src = koine_source(KOINE_SOURCED[crate]) or src
     if not os.path.isdir(src):
         failures.append(f"{crate}: crates/{crate}/src does not exist")
         continue

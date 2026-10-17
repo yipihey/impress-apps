@@ -4607,8 +4607,16 @@ dependencies = [
 name = "impress-helix"
 version = "0.1.0"
 dependencies = [
- "impress-workspace-hack",
+ "koine-workspace-hack",
  "uniffi",
+]
+
+[[package]]
+name = "impress-helix-ffi"
+version = "0.1.0"
+dependencies = [
+ "impress-helix",
+ "impress-workspace-hack",
 ]
 
 [[package]]

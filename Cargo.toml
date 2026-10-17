@@ -320,7 +320,7 @@ typst-as-lib = { version = "0.15", features = ["typst-kit-fonts", "typst-kit-emb
 # impel crates
 impel-core = { path = "crates/impel-core" }
 impel-memory = { package = "koine-memory", path = "../koine/crates/koine-memory", features = ["executors"] }
-impress-helix = { path = "crates/impress-helix" }
+impress-helix = { path = "../koine/crates/impress-helix" }
 impel-tui = { path = "apps/impel-tui" }
 impel-server = { path = "crates/impel-server" }
 
