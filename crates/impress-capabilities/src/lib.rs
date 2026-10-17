@@ -136,6 +136,17 @@ pub fn force_link() {
         // suite's store instead of an empty stand-in. Idempotent.
         impress_store_service::register_process_ports();
     }
+    #[cfg(feature = "scenario")]
+    {
+        // The scenario verbs are koine's (KM4): a Tier A run gets an
+        // in-memory SQLite scratch store, so impress's verbs a scenario calls
+        // stay off the user's store; the verbs' default store is the process
+        // store this registers.
+        impress_store_service::register_process_ports();
+        impress_scenario_service::tier_a::set_scratch_store_factory(
+            impress_store_service::scratch_call_store,
+        );
+    }
     #[cfg(feature = "kit")]
     {
         // Real relocations retain kit registrations even when no caller

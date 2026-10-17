@@ -162,6 +162,11 @@ impl ChannelSink {
 }
 
 impl Sink for ChannelSink {
+    fn flush(&self, timeout: Duration) -> Result<(), String> {
+        self.flush_until(Instant::now() + timeout)
+            .map_err(|e| e.to_string())
+    }
+
     fn record(&self, record: VerbCallRecord) {
         let sender = self.sender.lock().unwrap_or_else(|e| e.into_inner());
         match sender.try_send(QueueMessage::Record(record)) {

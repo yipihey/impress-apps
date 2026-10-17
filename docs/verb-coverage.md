@@ -187,7 +187,6 @@ and the implore owner decides between verbs and deletion.
 | `impress-plot` | library | should-be-verb | `render::{LinePlot::render, Hist2DFigure::render, ContourFigure::render}` are reached only through a project figure build; no spec-to-SVG/Typst verb |
 | `impress-py` | library | internal | the P6 Python binding: `list_verbs()`/`call(verb, args)`; no capability of its own, it reaches a verb another crate already holds |
 | `impress-remarkable` | library | covered-through | `imbib-eink-service` reaches it through `imbib-core::eink`; `rm::parse_rm` (strokes of a page) has no verb |
-| `impress-scenario-service` | verb-crate | verb-crate | |
 | `impress-smart-search` | library | covered-through | `smart-search-service` exposes it; `url_extract::extract_title` only indirectly |
 | `impress-smart-search-service` | verb-crate | verb-crate | |
 | `impress-sources` | library | should-be-verb | `SourcePlugin::{search, fetch_by_doi}` for arXiv, Crossref, ADS, OpenAlex, PubMed, Semantic Scholar have no Rust verb; `search_sources` refuses when the app is down |

@@ -98,6 +98,11 @@ chrono = { workspace = true }
 # `tests/surface_doc_wire.rs` (moved from impress-surface-service with the
 # doc it checks).
 serde = { workspace = true }
+# `tests/scenario_catalogue.rs`: this repository's stored scenario documents,
+# run on a SQLite scratch store with every impress verb linked (the scenario
+# verbs moved to koine, KM4).
+impress-scenario = { workspace = true }
+impress-scenario-service = { workspace = true }
 tempfile = "3"
 
 [features]
@@ -128,7 +133,7 @@ full = [
     "workflow",
 ]
 kit = ["dep:impress-layout-service", "dep:impress-store-service", "dep:impress-surface-service", "dep:surface-demo-service", "dep:koine-agent", "dep:koine-triage", "dep:koine-collections", "dep:koine-settings-service"]
-scenario = ["dep:impress-scenario-service"]
+scenario = ["dep:impress-scenario-service", "dep:impress-store-service"]
 
 imbib = ["dep:imbib-service"]
 impart = ["dep:impart-service"]

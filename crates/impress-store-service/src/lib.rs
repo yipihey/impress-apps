@@ -107,8 +107,8 @@ pub use source_service::{
     SourceCitationInput, SourceLocatorInput, SourceRecordResult, SourceService,
 };
 pub use store::{
-    default_store_path, install_store, is_fallback_store, register_process_ports, set_store_path,
-    store_instance, store_path,
+    default_store_path, install_store, is_fallback_store, register_process_ports,
+    scratch_call_store, set_store_path, store_instance, store_path,
 };
 pub use subtrees::CollectionSubtrees;
 pub use triage_service::{DefaultTriageService, TriageResult, TriageService};

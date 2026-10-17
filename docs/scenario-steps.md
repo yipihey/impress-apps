@@ -202,6 +202,6 @@ Session recording escapes literal templates before replay and preserves its
 own generated ID captures. A literal argument that cannot round-trip is named
 in the recording's omitted-call report, rather than changed silently.
 
-The checked-in `crates/impress-scenario-service/scenarios/interpreter.gaps.json`
+The checked-in `crates/impress-store-service/scenarios/interpreter.gaps.json`
 combines these features against a seeded scratch store. Its catalogue test runs
 headlessly; native Tier B execution must use an owned host, port and store.

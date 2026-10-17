@@ -66,6 +66,17 @@ pub fn register_process_ports() {
     });
 }
 
+/// A fresh in-memory SQLite store for one Tier A scenario (koine
+/// `impress_scenario_service::tier_a::set_scratch_store_factory`), with this
+/// process's ports registered: the call override is the concrete
+/// `SqliteItemStore`, so impress's own verbs, which resolve the call's store
+/// as that type, run on the scratch store and never on the user's.
+pub fn scratch_call_store() -> Result<koine_store::process::CallStore, String> {
+    register_process_ports();
+    let store = SqliteItemStore::open_in_memory().map_err(|e| e.to_string())?;
+    Ok(koine_store::process::CallStore::of(Arc::new(store)))
+}
+
 /// Name the directory beside the store file as the process workspace, which
 /// is where the settings verbs keep their files. Re-run when the path changes.
 fn note_workspace() {

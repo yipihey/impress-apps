@@ -1,21 +1,16 @@
-//! S2: loads every scenario document under the repo's `crates/*/scenarios/`
-//! directories (the stored documents S2 converted the Tier B catalogues
-//! into), validates each one, and runs the Tier-A-capable ones headlessly
-//! against a scratch store. A Tier B document is not run here (it needs a
-//! live app, out of scope for a headless `cargo test`) but is still parsed
-//! and validated — a malformed stored document fails this test, not a Tier B
-//! run nobody schedules in CI.
+//! This repository's stored scenario documents (`crates/*/scenarios/*.json`):
+//! each one parses and validates, and every Tier A one runs headlessly
+//! against a scratch store. The scenario verbs and runner are koine's
+//! (`impress-scenario-service`, docs/plan-koine-kit-moves.md KM4); this test
+//! stays here because the documents call impress's verbs, so it links the
+//! whole inventory (`force_link`) and runs on the SQLite scratch store that
+//! `force_link` installs, as the scenario verbs do in impress's hosts. A Tier
+//! B document is validated, not run (it needs a live app).
 
 use std::path::{Path, PathBuf};
 
 use impress_scenario::{validate, Scenario, Tier};
 use impress_scenario_service::TierACaller;
-
-/// Force-link every catalogue crate whose `scenarios/` documents this test
-/// walks, so a Tier A run's `call` steps (none exist yet as of S2, but a
-/// future catalogue's might) resolve in the linked inventory.
-#[allow(unused_imports)]
-use impress_surface_service as _force_link_impress_surface_service;
 
 /// The repo root, from this crate's manifest dir.
 fn repo_root() -> PathBuf {
@@ -84,6 +79,7 @@ async fn every_tier_a_document_runs_headlessly() {
             continue;
         }
         ran += 1;
+        impress_capabilities::force_link();
         let mut caller = TierACaller::open().expect("open scratch store");
         let result = impress_scenario::run(&scenario, &mut caller).await;
         assert!(

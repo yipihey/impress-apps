@@ -75,7 +75,6 @@ members = [
     # W1: the workflow verbs (validate/create/get/list/dry-run/enable/disable)
     # over impress-core's `impress/workflow@1.0.0` rows.
     "crates/impress-workflow-service",
-    "crates/impress-scenario-service",
     # the one place the #[impress_service] inventory is linked (ADR-0033 D4)
     "crates/impress-capabilities",
     # the ADR-0033 D7 standalone-kit slice of the inventory (store, layout,
@@ -237,7 +236,7 @@ koine-notebook = { path = "../koine/crates/koine-notebook" }
 koine-tasks = { path = "../koine/crates/koine-tasks", default-features = false }
 koine-ai = { path = "../koine/crates/koine-ai", default-features = false }
 impress-scenario = { path = "../koine/crates/impress-scenario" }
-impress-scenario-service = { path = "crates/impress-scenario-service" }
+impress-scenario-service = { path = "../koine/crates/impress-scenario-service" }
 impress-capabilities = { path = "crates/impress-capabilities", default-features = false }
 impress-surface-service = { path = "../koine/crates/impress-surface-service" }
 surface-demo-service = { path = "../koine/crates/surface-demo-service" }
