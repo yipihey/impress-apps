@@ -34,6 +34,10 @@ koine-settings-service = { workspace = true }
 koine-store-query = { workspace = true, features = ["service"] }
 # The inline job runner moved to koine-tasks (KM11); `job` here wraps it.
 koine-tasks = { workspace = true, features = ["runtime"] }
+# The call log's sink and the history verbs are koine-notebook's (KM10).
+koine-notebook = { workspace = true }
+# Provider persistence and the provider-service verbs are koine's (KM12).
+koine-providers = { workspace = true }
 impress-pane-query = { workspace = true }
 impress-surface = { workspace = true }
 # W4: `propose_workflows`' n-gram miner validates each proposal against the

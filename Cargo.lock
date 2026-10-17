@@ -4852,6 +4852,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "impress-item",
  "impress-schema-ref-codegen",
  "inventory",
  "koine-workspace-hack",
@@ -4993,6 +4994,8 @@ dependencies = [
  "impress-workflow-service",
  "impress-workspace-hack",
  "koine-collections",
+ "koine-notebook",
+ "koine-providers",
  "koine-settings-service",
  "koine-store",
  "koine-store-query",
@@ -5769,7 +5772,6 @@ dependencies = [
  "impress-pane-query",
  "impress-service-core",
  "impress-service-macros",
- "koine-notebook",
  "koine-store",
  "koine-workspace-hack",
  "schemars 0.8.22",
@@ -5887,6 +5889,7 @@ dependencies = [
  "impress-item",
  "impress-service-core",
  "impress-service-macros",
+ "impress-workflow",
  "koine-plot",
  "koine-store",
  "koine-workspace-hack",
@@ -5905,6 +5908,24 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "koine-providers"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "koine-workspace-hack",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

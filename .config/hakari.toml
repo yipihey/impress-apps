@@ -101,6 +101,7 @@ third-party = [
     { name = "koine-memory", path = "../koine/crates/koine-memory" },
     { name = "koine-store-query", path = "../koine/crates/koine-store-query" },
     { name = "koine-store-spy", path = "../koine/crates/koine-store-spy" },
+    { name = "koine-providers", path = "../koine/crates/koine-providers" },
     { name = "impress-helix", path = "../koine/crates/impress-helix" },
     { name = "koine-plot", path = "../koine/crates/koine-plot" },
     { name = "koine-mcp-host", path = "../koine/crates/koine-mcp-host" },

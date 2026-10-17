@@ -217,7 +217,7 @@ koine-mcp-host = { path = "../koine/crates/koine-mcp-host" }
 # leaves for an agent, and the skill an agent reads. `koine-notebook` is its
 # dependency (a `diagnose` request carries the call's notebook record).
 koine-agent = { path = "../koine/crates/koine-agent" }
-koine-notebook = { path = "../koine/crates/koine-notebook" }
+koine-notebook = { path = "../koine/crates/koine-notebook", default-features = false }
 # The task kernel and the AI kernel (koine docs/plan-koine-ai-tasks.md):
 # impel-core, impress-core's task/job and impress-ai re-export them.
 # Features are opt-in per member (a workspace dependency cannot turn one off).
@@ -263,6 +263,8 @@ koine-memory = { path = "../koine/crates/koine-memory", default-features = false
 koine-store-query = { path = "../koine/crates/koine-store-query", default-features = false }
 # KM14: the effects spy's shared types (and SpyStore for any backend).
 koine-store-spy = { path = "../koine/crates/koine-store-spy" }
+# KM12: runtime-provider persistence and the provider-service verbs.
+koine-providers = { path = "../koine/crates/koine-providers" }
 impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }

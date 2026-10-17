@@ -36,7 +36,7 @@ read.
 | `capabilities-service` | capabilities-service | 4 | 4 | 5 (1) | 5 | 4 |
 | `collection-service` | koine-collections | 12 | 12 | 25 (22) | 25 | 12 |
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 38 | 10 |
-| `history-service` | impress-store-service | 7 | 7 | 15 (9) | 15 | 7 |
+| `history-service` | koine-notebook | 7 | 7 | 15 (9) | 15 | 7 |
 | `imbib-annotations-service` | imbib-service | 10 | 10 | 28 (16) | 28 | 10 |
 | `imbib-app-service` | imbib-service | 18 | 18 | 29 (20) | 29 | 18 |
 | `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 36 | 9 |
@@ -70,7 +70,7 @@ read.
 | `memory-service` | koine-memory | 7 | 7 | 20 (20) | 20 | 7 |
 | `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 9 | 6 |
 | `perf-service` | perf-service | 4 | 4 | 4 (3) | 4 | 4 |
-| `provider-service` | impress-store-service | 2 | 2 | 2 (2) | 2 | 2 |
+| `provider-service` | koine-providers | 2 | 2 | 2 (2) | 2 | 2 |
 | `settings-service` | koine-settings-service | 6 | 6 | 6 (5) | 6 | 6 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 28 | 10 |
 | `source-service` | impress-store-service | 9 | 9 | 21 (10) | 21 | 9 |
