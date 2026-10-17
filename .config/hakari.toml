@@ -96,6 +96,7 @@ third-party = [
     { name = "koine-collections", path = "../koine/crates/koine-collections" },
     { name = "koine-settings-service", path = "../koine/crates/koine-settings-service" },
     { name = "impress-scenario-service", path = "../koine/crates/impress-scenario-service" },
+    { name = "impress-workflow-service", path = "../koine/crates/impress-workflow-service" },
     { name = "koine-plot", path = "../koine/crates/koine-plot" },
     { name = "koine-mcp-host", path = "../koine/crates/koine-mcp-host" },
     { name = "koine-agent", path = "../koine/crates/koine-agent" },

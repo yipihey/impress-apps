@@ -84,7 +84,7 @@ fn ensure_system_workflows_seeded(
     {
         return; // A kit-only host cannot execute a domain workflow.
     }
-    let already_seeded = match impress_workflow_service::store::list(store) {
+    let already_seeded = match impress_workflow_service::store::list(store.as_ref()) {
         Ok(rows) => rows
             .iter()
             .any(|r| r.spec.name == "imbib.retention-cleanup"),
@@ -97,7 +97,7 @@ fn ensure_system_workflows_seeded(
         return;
     }
     if let Err(e) = impress_workflow_service::store::insert(
-        store,
+        store.as_ref(),
         &imbib_retention_cleanup_workflow(),
         ActorKind::System,
     ) {
@@ -146,7 +146,11 @@ impl SharedStore {
         ensure_system_workflows_seeded(&core);
         let mut engine = engine().lock().unwrap_or_else(|poison| poison.into_inner());
         engine
-            .run_once(&core, now_ms(), &workspace)
+            .run_once(
+                &impress_workflow_service::CallStore::of(core),
+                now_ms(),
+                &workspace,
+            )
             .into_iter()
             .filter_map(|outcome| {
                 if let Some(error) = outcome.error {

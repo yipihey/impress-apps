@@ -193,7 +193,6 @@ and the implore owner decides between verbs and deletion.
 | `impress-store-ffi` | ffi | internal | `SharedStore::{upsert_item, upsert_items, add_reference, set_parent, delete_item}` are Swift-only generic writes; `store-service` has the per-kind verbs |
 | `impress-store-service` | verb-crate | verb-crate | |
 | `impress-toolbox` | binary | internal | `execute::{handle_execute, handle_execute_file}` run a local command — deliberately unsandboxed, deliberately no verb |
-| `impress-workflow-service` | verb-crate | verb-crate | |
 | `impress-workspace-hack` | tooling | internal | the generated cargo-hakari crate: dependency glue, no code (plan-verb-pipeline-and-transport § Build cost, B4) |
 | `imprint-cli` | binary | internal | the CLI binary over the inventory |
 | `imprint-core` | domain-core | should-be-verb | reached by `imprint-service` through `{project, render, latex, citations, presentation}`; `sourcemap::{generate_source_map, source_map_lookup}` and ≈22 `uniffi::export` items have no verb (`selection` is UI-bound and correctly internal) |

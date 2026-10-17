@@ -74,7 +74,6 @@ members = [
     # (docs/plan-koine-host.md K3b); see [workspace.dependencies].
     # W1: the workflow verbs (validate/create/get/list/dry-run/enable/disable)
     # over impress-core's `impress/workflow@1.0.0` rows.
-    "crates/impress-workflow-service",
     # the one place the #[impress_service] inventory is linked (ADR-0033 D4)
     "crates/impress-capabilities",
     # the ADR-0033 D7 standalone-kit slice of the inventory (store, layout,
@@ -214,7 +213,7 @@ impress-pane-query = { path = "../koine/crates/impress-pane-query" }
 impress-pane-query-compile = { path = "../koine/crates/impress-pane-query-compile" }
 impress-surface = { path = "../koine/crates/impress-surface" }
 impress-workflow = { path = "../koine/crates/impress-workflow" }
-impress-workflow-service = { path = "crates/impress-workflow-service" }
+impress-workflow-service = { path = "../koine/crates/impress-workflow-service" }
 impress-verb-surface = { path = "../koine/crates/impress-verb-surface" }
 koine = { path = "../koine/crates/koine" }
 koine-style-file = { path = "../koine/crates/koine-style-file" }

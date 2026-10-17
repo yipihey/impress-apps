@@ -1361,7 +1361,11 @@ async fn main() {
             // workflow had a call to make. `block_in_place` hands this
             // worker's async tasks to another thread for the pass.
             let outcomes = tokio::task::block_in_place(|| {
-                workflow_engine.run_once(&store, pass_now_ms, &workspace)
+                workflow_engine.run_once(
+                    &impress_workflow_service::CallStore::of(store.clone()),
+                    pass_now_ms,
+                    &workspace,
+                )
             });
             for outcome in outcomes {
                 match outcome.error {

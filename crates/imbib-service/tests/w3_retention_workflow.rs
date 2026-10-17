@@ -92,7 +92,7 @@ fn retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log(
     let engine_store =
         std::sync::Arc::new(SqliteItemStore::open(&path).expect("open engine handle"));
     impress_workflow_service::store::insert(
-        &engine_store,
+        engine_store.as_ref(),
         &retention_workflow(),
         ActorKind::System,
     )
@@ -100,8 +100,9 @@ fn retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log(
 
     let mut engine = WorkflowEngine::new(0, 90_000);
     let workspace = path.parent().unwrap();
+    let engine_call_store = impress_workflow_service::CallStore::of(engine_store.clone());
 
-    let outcomes = engine.run_once(&engine_store, 89_999, workspace);
+    let outcomes = engine.run_once(&engine_call_store, 89_999, workspace);
     assert!(
         outcomes.is_empty(),
         "must not run before the 90s start_delay: {outcomes:?}"
@@ -109,7 +110,7 @@ fn retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log(
     // The paper must still be untouched — no run means no cleanup.
     assert!(imbib.get_publication(old_id.clone()).unwrap().is_some());
 
-    let outcomes = engine.run_once(&engine_store, 90_000, workspace);
+    let outcomes = engine.run_once(&engine_call_store, 90_000, workspace);
     assert_eq!(outcomes.len(), 1, "runs exactly once, right at start_delay");
     assert_eq!(outcomes[0].name, "imbib.retention-cleanup");
     assert_eq!(outcomes[0].calls, 1, "one call: retention_cleanup");
@@ -155,6 +156,6 @@ fn retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log(
     );
 
     // A second tick before another 24h passes must not run again.
-    let outcomes = engine.run_once(&engine_store, 100_000, workspace);
+    let outcomes = engine.run_once(&engine_call_store, 100_000, workspace);
     assert!(outcomes.is_empty(), "not due again inside the 24h interval");
 }
