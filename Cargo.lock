@@ -4996,6 +4996,7 @@ dependencies = [
  "koine-settings-service",
  "koine-store",
  "koine-store-query",
+ "koine-tasks",
  "koine-triage",
  "log",
  "schemars 0.8.22",

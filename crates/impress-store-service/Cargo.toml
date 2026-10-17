@@ -32,6 +32,8 @@ koine-collections = { workspace = true, features = ["service"] }
 koine-settings-service = { workspace = true }
 # `StoreQueryService` moved to koine (KM9); `query_service` re-exports it.
 koine-store-query = { workspace = true, features = ["service"] }
+# The inline job runner moved to koine-tasks (KM11); `job` here wraps it.
+koine-tasks = { workspace = true, features = ["runtime"] }
 impress-pane-query = { workspace = true }
 impress-surface = { workspace = true }
 # W4: `propose_workflows`' n-gram miner validates each proposal against the

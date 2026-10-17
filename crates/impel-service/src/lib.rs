@@ -1112,7 +1112,7 @@ impl ImpelService for DefaultImpelService {
         };
         let store = self.store();
         match runner::wait(
-            &store,
+            &*store,
             job_id,
             after_seq,
             std::time::Duration::from_millis(timeout_ms),
