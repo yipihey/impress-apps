@@ -230,15 +230,27 @@ for svc in $BLOCK_SERVICES; do
 done
 KEBABS="$(for svc in $BLOCK_SERVICES; do kebab "$svc"; done)"
 # A service whose crate moved to yipihey/koine has no block in this tree.
-# The row stays: the inventory still links it.
+# The row stays: the inventory still links it. A koine crate is a git
+# dependency on yipihey/koine, or, while koine is built from a local checkout
+# (koine docs/plan-koine-kit-moves.md KM-D7), a path into ../koine. The
+# service table names the crate by its package name, which an alias
+# (`impress-memory-service = { package = "koine-memory", ... }`) carries in
+# `package`, so both names count.
 KOINE_CRATES="$(python3 - <<'PY'
 import tomllib
 with open("Cargo.toml", "rb") as manifest:
     root = tomllib.load(manifest)
-print(" ".join(
-    name for name, spec in root["workspace"]["dependencies"].items()
-    if isinstance(spec, dict) and spec.get("git") == "https://github.com/yipihey/koine"
-))
+names = set()
+for name, spec in root["workspace"]["dependencies"].items():
+    if not isinstance(spec, dict):
+        continue
+    git = spec.get("git") == "https://github.com/yipihey/koine"
+    path = str(spec.get("path", "")).startswith("../koine/")
+    if git or path:
+        names.add(name)
+        if "package" in spec:
+            names.add(spec["package"])
+print(" ".join(sorted(names)))
 PY
 )"
 SERVICE_CRATES="$(block verb-coverage-services | awk -F'|' '/^\| `/ {
