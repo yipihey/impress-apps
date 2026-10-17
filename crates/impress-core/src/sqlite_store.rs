@@ -5334,6 +5334,10 @@ impl AttributedStore for SqliteItemStore {
 }
 
 impl ItemStore for SqliteItemStore {
+    fn default_author(&self) -> (String, ActorKind) {
+        (self.default_author.clone(), self.default_author_kind)
+    }
+
     /// What this backend can do (koine docs/plan-koine-store.md D1). A
     /// file-backed store (one with a reader pool) is durable and shared;
     /// `:memory:` is private to its one connection. Events are this

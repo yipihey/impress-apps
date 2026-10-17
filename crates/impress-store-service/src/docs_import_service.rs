@@ -1027,7 +1027,7 @@ impl DocsImportService for DefaultDocsImportService {
                 message: String::new(),
             };
             let members: Vec<ItemId> = match &existing_collection {
-                Some(cid) => collection_ops::list_members(&store, &MANUSCRIPT_COLLECTION, cid)
+                Some(cid) => collection_ops::list_members(&*store, &MANUSCRIPT_COLLECTION, cid)
                     .map(|items| items.iter().map(|i| i.id).collect())
                     .unwrap_or_default(),
                 None => Vec::new(),
@@ -1060,7 +1060,7 @@ impl DocsImportService for DefaultDocsImportService {
         let (collection_id, collection_created) = match find_collection(&store, &collection_name) {
             Ok(Some(id)) => (id, false),
             Ok(None) => match collection_ops::create(
-                &store,
+                &*store,
                 &MANUSCRIPT_COLLECTION,
                 &collection_name,
                 None,
@@ -1109,7 +1109,7 @@ impl DocsImportService for DefaultDocsImportService {
             // Membership through the kernel: idempotent per member, so a
             // re-import files nothing and reports `filed: false`.
             let filed = match collection_ops::add_members(
-                &store,
+                &*store,
                 &MANUSCRIPT_COLLECTION,
                 &collection_id,
                 &[doc.id.to_string()],
@@ -1156,7 +1156,7 @@ impl DocsImportService for DefaultDocsImportService {
         {
             Some(name) => match find_collection(&store, name) {
                 Ok(Some(id)) => {
-                    match collection_ops::list_members(&store, &MANUSCRIPT_COLLECTION, &id) {
+                    match collection_ops::list_members(&*store, &MANUSCRIPT_COLLECTION, &id) {
                         Ok(items) => items
                             .into_iter()
                             .filter(|i| i.schema == impress_core::schema::refs::MANUSCRIPT)
@@ -1975,7 +1975,7 @@ mod tests {
 
         // And they are members of the collection the run created.
         let cid = r.collection_id.clone().unwrap();
-        let members = collection_ops::list_members(&store, &MANUSCRIPT_COLLECTION, &cid).unwrap();
+        let members = collection_ops::list_members(&*store, &MANUSCRIPT_COLLECTION, &cid).unwrap();
         assert_eq!(members.len(), 2);
     }
 
@@ -2013,7 +2013,7 @@ mod tests {
         assert_eq!(all.len(), 2);
         let cid = again.collection_id.unwrap();
         assert_eq!(
-            collection_ops::list_members(&store, &MANUSCRIPT_COLLECTION, &cid)
+            collection_ops::list_members(&*store, &MANUSCRIPT_COLLECTION, &cid)
                 .unwrap()
                 .len(),
             2

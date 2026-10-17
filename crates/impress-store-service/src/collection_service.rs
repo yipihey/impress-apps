@@ -1,456 +1,89 @@
 //! `CollectionService` — the agent-facing twin of the collection kernel
-//! (ADR-0022 D1/D5).
+//! (ADR-0022 D1/D5), now koine's.
 //!
-//! One verb set over every collection hierarchy in the suite, parameterized by
-//! a `binding` string that names which schema to operate on. The method names,
-//! argument names and argument order mirror
-//! `impress_store_ffi::SharedStore::collection_*` on purpose: Swift, the CLI
-//! and an agent should say the same words for the same operation, because the
-//! moment they diverge somebody has to keep a translation table in their head.
+//! The twelve `collection-service_*` verbs, their DTOs and the default
+//! deployment live in `koine-collections` (`koine_collections::service`),
+//! over the store port; they register from koine's inventory, once. This
+//! module re-exports them, so every `impress_store_service::collection_service`
+//! path still resolves, and adds what is impress's:
 //!
-//! Everything here delegates to `impress_core::collection_ops`. No logic lives
-//! in this layer — it converts strings to bindings, kernel results to result
-//! DTOs, and nothing else.
+//! * the three app bindings (`imbib`, `manuscript`, `figure`, with the aliases
+//!   the verbs always accepted) registered under their names;
+//! * the SQLite implementation of the `migration-status`, `migrate` and
+//!   `rollback` verbs ([`SqliteCollectionMigration`], over
+//!   `impress_core::collection_migration`), which a store with a
+//!   transactional rewrite of its own can offer and a koine host does not;
+//! * [`sqlite_service`], a service over an explicit `SqliteItemStore` with
+//!   both of the above, which is how the tests here run against a private
+//!   database.
+//!
+//! [`register`] installs the first two for the process. It is idempotent and
+//! `register_process_ports` calls it, so a host that registered its ports
+//! already has them.
 
 use std::sync::Arc;
 
 use impress_core::collection_migration;
-use impress_core::collection_ops::{
-    self, CollectionRow, CollectionSchemaBinding, FIGURE_COLLECTION, GENERIC_COLLECTION,
-    IMBIB_COLLECTION, MANUSCRIPT_COLLECTION,
-};
+use impress_core::collection_ops::{FIGURE_COLLECTION, IMBIB_COLLECTION, MANUSCRIPT_COLLECTION};
 use impress_core::sqlite_store::SqliteItemStore;
-use impress_core::store::StoreError;
-use impress_service_core::async_trait;
-use impress_service_macros::{impress_service, impress_service_impl};
-use serde::{Deserialize, Serialize};
-
-#[allow(unused_imports)]
-use impress_service_macros::impress_method;
+pub use koine_collections::service::*;
 
 use crate::store::store_instance;
 
-/// Every accepted `binding` value, in the order a caller should think about
-/// them. Listed in error messages so a wrong guess is self-correcting.
+/// The primary names `binding` accepts, in the order the verbs always listed
+/// them. (`koine_collections::service::binding_names` is the live list.)
 pub const BINDING_NAMES: [&str; 4] = ["imbib", "manuscript", "figure", "generic"];
 
-/// Resolve a `binding` argument to a kernel binding.
-///
-/// Aliases are deliberate: an agent that knows the record kind (`publication`)
-/// or the stored schema (`imbib/collection`) should not have to learn a third
-/// vocabulary to use the tool.
-pub fn binding_for(name: &str) -> Result<CollectionSchemaBinding, String> {
-    match name.trim().to_ascii_lowercase().as_str() {
-        "imbib" | "publication" | "publications" | "imbib/collection" => Ok(IMBIB_COLLECTION),
-        "manuscript" | "manuscripts" | "imprint" | "manuscript-collection" => {
-            Ok(MANUSCRIPT_COLLECTION)
-        }
-        "figure" | "figures" | "implore" | "figure-collection" => Ok(FIGURE_COLLECTION),
-        "" | "generic" | "any" | "collection" | "impress" => Ok(GENERIC_COLLECTION),
-        other => Err(format!(
-            "unknown collection binding '{other}'. Use one of: {}.",
-            BINDING_NAMES.join(", ")
-        )),
-    }
+/// Register impress's collection bindings and its SQLite migration with the
+/// verbs, once per process.
+pub fn register() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(register_now);
 }
 
-// ---------------------------------------------------------------------------
-// DTOs
-// ---------------------------------------------------------------------------
-
-/// One flat collection row. Build the tree yourself from `parent_id`
-/// (`null` = root); the kernel returns a flat list so callers can group,
-/// filter and sort it their own way.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct CollectionRowDto {
-    /// Lowercase UUID string.
-    pub id: String,
-    pub name: String,
-    /// Lowercase UUID of the PARENT COLLECTION, or null for a root. Never the
-    /// owning library — that is the envelope parent and a different thing.
-    pub parent_id: Option<String>,
-    pub sort_order: i64,
-    /// Record kind this collection organises ("publication", "manuscript",
-    /// "any", …) for schemas that carry one; null for the per-kind schemas.
-    pub kind_scope: Option<String>,
+fn register_now() {
+    register_binding(
+        &["imbib", "publication", "publications", "imbib/collection"],
+        IMBIB_COLLECTION,
+    );
+    register_binding(
+        &[
+            "manuscript",
+            "manuscripts",
+            "imprint",
+            "manuscript-collection",
+        ],
+        MANUSCRIPT_COLLECTION,
+    );
+    register_binding(
+        &["figure", "figures", "implore", "figure-collection"],
+        FIGURE_COLLECTION,
+    );
+    set_migration(Arc::new(SqliteCollectionMigration::process()));
 }
 
-impl From<CollectionRow> for CollectionRowDto {
-    fn from(row: CollectionRow) -> Self {
-        Self {
-            id: row.id,
-            name: row.name,
-            parent_id: row.parent_id,
-            sort_order: row.sort_order,
-            kind_scope: row.kind_scope,
-        }
-    }
+/// A `CollectionService` over an explicit store, with impress's bindings and
+/// the SQLite migration run against that same store.
+pub fn sqlite_service(store: Arc<SqliteItemStore>) -> DefaultCollectionService {
+    register();
+    DefaultCollectionService::with_store(store.clone())
+        .with_migration(Arc::new(SqliteCollectionMigration::with_store(store)))
 }
 
-/// Result of an operation that returns a single collection.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct CollectionResult {
-    pub ok: bool,
-    pub collection: Option<CollectionRowDto>,
-    pub message: String,
-}
-
-/// Result of a whole-tree read.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct CollectionListResult {
-    pub ok: bool,
-    pub collections: Vec<CollectionRowDto>,
-    pub message: String,
-}
-
-/// Result of a membership or delete operation.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct CollectionMutationResult {
-    pub ok: bool,
-    /// How many members were actually added or removed. Zero for `delete`.
-    pub applied: u32,
-    pub message: String,
-}
-
-/// Member counts, aligned index-for-index with the requested ids.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct MemberCountsResult {
-    pub ok: bool,
-    pub counts: Vec<u32>,
-    pub message: String,
-}
-
-// --- Schema convergence (ADR-0022 WP G7) -----------------------------------
-
-/// Rows still stored under one legacy collection schema.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct LegacyCountDto {
-    /// The legacy `schema_ref` (`imbib/collection`, `manuscript-collection`,
-    /// `figure-collection`).
-    pub schema_ref: String,
-    /// The `kind_scope` these rows take on once migrated.
-    pub kind_scope: String,
-    pub rows: u64,
-}
-
-/// Generic `collection@1.0.0` rows sharing a `kind_scope`.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct KindScopeCountDto {
-    /// `"publication"`, `"manuscript"`, `"figure"`, `"any"`, …
-    pub kind_scope: String,
-    pub rows: u64,
-    /// How many of them were produced by a migration. `rows - migrated` were
-    /// created natively as `collection@1.0.0` and no rollback will touch them.
-    pub migrated: u64,
-}
-
-/// Where a store sits on the convergence: the flag, and the actual row counts
-/// on both sides of it.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct MigrationStatusResult {
-    pub ok: bool,
-    /// The `collections.unified` flag. False on every store that has not been
-    /// deliberately migrated — which is all of them by default.
-    pub migrated: bool,
-    pub legacy: Vec<LegacyCountDto>,
-    pub generic: Vec<KindScopeCountDto>,
-    pub message: String,
-}
-
-/// One legacy binding's share of a migration run.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct BindingMigrationDto {
-    pub schema_ref: String,
-    pub kind_scope: String,
-    /// Legacy rows found.
-    pub found: u64,
-    /// Rows rewritten — equal to `found`, or equal to what the real run WOULD
-    /// rewrite when this was a dry run.
-    pub rewritten: u64,
-    /// Rows an earlier run already converged. Makes a re-run's zero legible.
-    pub skipped_already_generic: u64,
-}
-
-/// What `migrate` did, or (dry run) would do.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct MigrationReportResult {
-    pub ok: bool,
-    /// True when nothing was written.
-    pub dry_run: bool,
-    /// The flag's state BEFORE this run.
-    pub was_migrated: bool,
-    pub bindings: Vec<BindingMigrationDto>,
-    /// Always true: the migration rewrites `schema_ref` and `payload` only.
-    /// `Contains` edges and envelope parents are not part of it.
-    pub membership_edges_untouched: bool,
-    pub message: String,
-}
-
-/// Rows restored to one legacy `schema_ref`.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct RollbackCountDto {
-    pub schema_ref: String,
-    pub restored: u64,
-}
-
-/// What `rollback` restored.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct RollbackReportResult {
-    pub ok: bool,
-    /// Rows restored, per originating legacy `schema_ref`.
-    pub restored: Vec<RollbackCountDto>,
-    /// Generic rows with no migration provenance: created natively as
-    /// `collection@1.0.0`, counted and left alone.
-    pub native_generic_untouched: u64,
-    pub membership_edges_untouched: bool,
-    pub message: String,
-}
-
-// ---------------------------------------------------------------------------
-// Trait
-// ---------------------------------------------------------------------------
-
-/// Collections and folders across the whole suite, through one verb set.
-///
-/// Every method takes `binding`, which selects the hierarchy:
-/// `"imbib"` (publication collections), `"manuscript"` (imprint folders),
-/// `"figure"` (implore folders) or `"generic"` (the mixed-kind
-/// `collection@1.0.0` kernel schema, which accepts records of ANY kind).
-#[impress_service]
-pub trait CollectionService: Send + Sync + 'static {
-    /// Every collection in one hierarchy, flat, ordered by `sort_order`.
-    ///
-    /// `binding` is `imbib` | `manuscript` | `figure` | `generic`. Build the
-    /// tree from each row's `parent_id` (null = root). Start here: every other
-    /// method takes ids this returns.
-    #[impress_method(safety = read_only, effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection", any("envelope membership counts can query children of any record kind")]))]
-    #[impress_example(name = "default", args = r#"{"binding": "generic"}"#)]
-    #[impress_example(
-        name = "figure-folder",
-        args = r#"{"binding":"figure"}"#,
-        expect = r#"{"ok":true,"collections":[{"id":"59000000-0000-4000-8000-000000000001","name":"G3 figures","parent_id":null}]}"#
-    )]
-    async fn tree(&self, binding: String) -> CollectionListResult;
-
-    /// Create a collection under `parent_id` (null = a new root).
-    ///
-    /// `kind_scope` is honoured only by the `generic` binding, where it names
-    /// the record kind the collection organises ("publication", "manuscript",
-    /// "figure", "message", "task") or "any" for a mixed-kind collection; it
-    /// defaults to "any". The other bindings ignore it — their schema has no
-    /// such field.
-    #[impress_method]
-    #[impress_example(
-        name = "default",
-        args = r#"{"binding": "generic", "name": "G3 research notes", "parent_id": null, "kind_scope": "any"}"#,
-        expect = r#"{"ok":true,"collection":{"name":"G3 research notes","kind_scope":"any","parent_id":null}}"#
-    )]
-    async fn create(
-        &self,
-        binding: String,
-        name: String,
-        parent_id: Option<String>,
-        kind_scope: Option<String>,
-    ) -> CollectionResult;
-
-    /// Rename a collection.
-    #[impress_method]
-    #[impress_example(
-        name = "missing-collection",
-        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "name": "renamed"}"#,
-        expect = r#"{"ok":false}"#
-    )]
-    #[impress_example(
-        name = "rename-folder",
-        args = r#"{"binding":"generic","id":"59000000-0000-4000-8000-000000000002","name":"Renamed G3 notes"}"#,
-        expect = r#"{"ok":true,"collection":{"id":"59000000-0000-4000-8000-000000000002","name":"Renamed G3 notes"}}"#
-    )]
-    async fn rename(&self, binding: String, id: String, name: String) -> CollectionResult;
-
-    /// Move a collection under `new_parent_id` (null = make it a root).
-    ///
-    /// Refuses self-parenting and any move under one of the collection's own
-    /// descendants — the cycle check lives in the Rust kernel, so it holds for
-    /// every caller rather than only the ones that remembered it.
-    #[impress_method]
-    #[impress_example(
-        name = "missing-collection",
-        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "new_parent_id": null}"#,
-        expect = r#"{"ok":false}"#
-    )]
-    #[impress_example(
-        name = "nest-folder",
-        args = r#"{"binding":"generic","id":"59000000-0000-4000-8000-000000000003","new_parent_id":"59000000-0000-4000-8000-000000000004"}"#,
-        expect = r#"{"ok":true,"collection":{"id":"59000000-0000-4000-8000-000000000003","parent_id":"59000000-0000-4000-8000-000000000004"}}"#
-    )]
-    async fn reparent(
-        &self,
-        binding: String,
-        id: String,
-        new_parent_id: Option<String>,
-    ) -> CollectionResult;
-
-    /// Set a collection's position among its siblings. Lower sorts first.
-    #[impress_method]
-    #[impress_example(
-        name = "missing-collection",
-        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "sort_order": 0}"#,
-        expect = r#"{"ok":false}"#
-    )]
-    #[impress_example(
-        name = "position-folder",
-        args = r#"{"binding":"generic","id":"59000000-0000-4000-8000-000000000005","sort_order":7}"#,
-        expect = r#"{"ok":true,"collection":{"id":"59000000-0000-4000-8000-000000000005","sort_order":7}}"#
-    )]
-    async fn reorder(&self, binding: String, id: String, sort_order: i64) -> CollectionResult;
-
-    /// Delete a collection. Members are NEVER deleted — only the membership
-    /// goes away, so the papers/manuscripts/figures survive. Deleting a
-    /// collection that does not exist is an error, not a no-op.
-    #[impress_method(safety = destructive)]
-    #[impress_example(
-        name = "missing-collection",
-        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000"}"#,
-        expect = r#"{"ok":false}"#
-    )]
-    #[impress_example(
-        name = "delete-empty-folder",
-        args = r#"{"binding":"generic","id":"59000000-0000-4000-8000-000000000006"}"#,
-        expect = r#"{"ok":true,"applied":0}"#
-    )]
-    async fn delete(&self, binding: String, id: String) -> CollectionMutationResult;
-
-    /// File items into a collection. Idempotent per item; returns how many
-    /// were applied. A `generic` collection with `kind_scope: "any"` accepts
-    /// items of every kind at once.
-    #[impress_method(effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection", target(item_ids)], writes = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"]))]
-    #[impress_example(
-        name = "missing-collection",
-        args = r#"{"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}"#,
-        expect = r#"{"ok":false}"#
-    )]
-    #[impress_example(
-        name = "file-manuscript",
-        args = r#"{"binding":"generic","collection_id":"59000000-0000-4000-8000-000000000007","item_ids":["59000000-0000-4000-8000-000000000020"]}"#,
-        expect = r#"{"ok":true,"applied":1}"#
-    )]
-    async fn add_members(
-        &self,
-        binding: String,
-        collection_id: String,
-        item_ids: Vec<String>,
-    ) -> CollectionMutationResult;
-
-    /// Remove items from a collection. The items themselves are untouched;
-    /// items filed in a DIFFERENT collection are left alone rather than
-    /// unfiled. Returns how many were actually removed.
-    #[impress_method]
-    #[impress_example(
-        name = "missing-collection",
-        args = r#"{"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}"#,
-        expect = r#"{"ok":false}"#
-    )]
-    #[impress_example(
-        name = "unfile-manuscript",
-        args = r#"{"binding":"generic","collection_id":"59000000-0000-4000-8000-000000000008","item_ids":["59000000-0000-4000-8000-000000000021"]}"#,
-        expect = r#"{"ok":true,"applied":1}"#
-    )]
-    async fn remove_members(
-        &self,
-        binding: String,
-        collection_id: String,
-        item_ids: Vec<String>,
-    ) -> CollectionMutationResult;
-
-    /// Member count per collection, aligned index-for-index with
-    /// `collection_ids`. Unknown ids count 0 rather than failing the batch, so
-    /// a stale id cannot break a whole sidebar refresh.
-    #[impress_method(safety = read_only, effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"]))]
-    #[impress_example(
-        name = "default",
-        args = r#"{"binding": "generic", "collection_ids": []}"#
-    )]
-    #[impress_example(
-        name = "one-member",
-        args = r#"{"binding":"generic","collection_ids":["59000000-0000-4000-8000-000000000009"]}"#,
-        expect = r#"{"ok":true,"counts":[1]}"#
-    )]
-    async fn member_counts(
-        &self,
-        binding: String,
-        collection_ids: Vec<String>,
-    ) -> MemberCountsResult;
-
-    /// Where this store sits on the `collection@1.0.0` convergence
-    /// (ADR-0022 WP G7): the `collections.unified` flag, how many rows are
-    /// still under each legacy schema, and how many generic rows exist per
-    /// `kind_scope`. Read-only and always safe. Start here before `migrate`.
-    #[impress_method(safety = read_only, effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"]))]
-    #[impress_example(name = "default", args = r#"{}"#)]
-    async fn migration_status(&self) -> MigrationStatusResult;
-
-    /// Converge the three legacy collection schemas onto `collection@1.0.0`.
-    ///
-    /// **Run with `dry_run: true` first.** A dry run writes NOTHING — not the
-    /// rows, not the flag — and reports exactly the counts the real run will
-    /// report, so the numbers you see are the numbers you will get.
-    ///
-    /// The real run rewrites every legacy collection row IN PLACE, keeping its
-    /// id, its `Contains` edges and its envelope parent, and sets the flag in
-    /// the same transaction. Membership is not rewritten. Every rewritten row
-    /// carries its original schema and payload verbatim, so `rollback` is
-    /// byte-faithful. Re-running is safe: the second run rewrites zero rows.
-    ///
-    /// This is a deliberate, human-invoked operation on data users live in.
-    #[impress_method(effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"], writes = ["collection"]))]
-    #[impress_example(
-        name = "preview-convergence",
-        args = r#"{"dry_run":true}"#,
-        expect = r#"{"ok":true,"dry_run":true,"membership_edges_untouched":true}"#
-    )]
-    async fn migrate(&self, dry_run: bool) -> MigrationReportResult;
-
-    /// Undo `migrate`: restore every migrated collection's original schema and
-    /// payload byte-for-byte and clear the flag.
-    ///
-    /// A REWIND, not a merge. The payload restored is the one the migration
-    /// froze, so renames/reorders/moves performed on a migrated collection
-    /// AFTER the migration are discarded along with it. Collections created
-    /// after the migration carry no provenance, are left strictly alone, and
-    /// are reported separately — nothing is deleted, but post-migration edits
-    /// to pre-migration rows do not survive. Check `migration_status` first.
-    #[impress_method(safety = destructive)]
-    #[impress_example(
-        name = "restore-legacy-folders",
-        args = r#"{}"#,
-        expect = r#"{"ok":true}"#
-    )]
-    async fn rollback(&self) -> RollbackReportResult;
-}
-
-// ---------------------------------------------------------------------------
-// Implementation
-// ---------------------------------------------------------------------------
-
-/// Store-backed `CollectionService`. `new()` uses the shared store (opened
-/// lazily); `with_store` takes an explicit one, which is how tests run against
-/// a temp or in-memory database.
-#[derive(Clone, Default)]
-pub struct DefaultCollectionService {
+/// The convergence verbs over `impress_core::collection_migration`.
+pub struct SqliteCollectionMigration {
     store: Option<Arc<SqliteItemStore>>,
 }
 
-impl DefaultCollectionService {
-    pub fn new() -> Self {
+impl SqliteCollectionMigration {
+    /// Run against the process's shared store, opened lazily.
+    pub fn process() -> Self {
         Self { store: None }
     }
 
+    /// Run against `store`.
     pub fn with_store(store: Arc<SqliteItemStore>) -> Self {
         Self { store: Some(store) }
-    }
-
-    fn store(&self) -> Arc<SqliteItemStore> {
-        self.store.clone().unwrap_or_else(store_instance)
     }
 
     /// The store for MIGRATION verbs, which must never run against the
@@ -490,269 +123,8 @@ fn migration_report_refusal(message: String, dry_run: bool) -> MigrationReportRe
     }
 }
 
-/// Kernel errors carry the diagnosis (`invalid UUID`, `would create a cycle`,
-/// `has schema 'x', expected 'y'`); the tool surface just has to not swallow
-/// them.
-fn describe(err: StoreError) -> String {
-    err.to_string()
-}
-
-fn row_result(result: Result<CollectionRow, StoreError>, verb: &str) -> CollectionResult {
-    match result {
-        Ok(row) => CollectionResult {
-            ok: true,
-            message: format!("{verb} '{}' ({}).", row.name, row.id),
-            collection: Some(row.into()),
-        },
-        Err(e) => CollectionResult {
-            ok: false,
-            collection: None,
-            message: describe(e),
-        },
-    }
-}
-
-/// The structural verbs return the row plus the prior value an undo stack
-/// needs (ADR-0022 G2). The agent surface has no undo stack — it reports the
-/// row and drops the prior value on the floor, deliberately.
-fn mutation_result(
-    result: Result<collection_ops::CollectionMutation, StoreError>,
-    verb: &str,
-) -> CollectionResult {
-    row_result(result.map(|m| m.row), verb)
-}
-
-/// The membership verbs return the ids they ACTUALLY changed; the tool surface
-/// reports how many that was.
-fn member_result(result: Result<Vec<String>, StoreError>, verb: &str) -> CollectionMutationResult {
-    match result {
-        Ok(changed) => CollectionMutationResult {
-            ok: true,
-            applied: changed.len() as u32,
-            message: format!("{verb} {} item(s).", changed.len()),
-        },
-        Err(e) => CollectionMutationResult {
-            ok: false,
-            applied: 0,
-            message: describe(e),
-        },
-    }
-}
-
-#[async_trait::async_trait]
-impl CollectionService for DefaultCollectionService {
-    async fn tree(&self, binding: String) -> CollectionListResult {
-        let binding = match binding_for(&binding) {
-            Ok(b) => b,
-            Err(message) => {
-                return CollectionListResult {
-                    ok: false,
-                    collections: vec![],
-                    message,
-                }
-            }
-        };
-        match collection_ops::list_tree(&self.store(), &binding) {
-            Ok(rows) => CollectionListResult {
-                ok: true,
-                message: format!("{} collection(s).", rows.len()),
-                collections: rows.into_iter().map(CollectionRowDto::from).collect(),
-            },
-            Err(e) => CollectionListResult {
-                ok: false,
-                collections: vec![],
-                message: describe(e),
-            },
-        }
-    }
-
-    async fn create(
-        &self,
-        binding: String,
-        name: String,
-        parent_id: Option<String>,
-        kind_scope: Option<String>,
-    ) -> CollectionResult {
-        let binding = match binding_for(&binding) {
-            Ok(b) => b,
-            Err(message) => {
-                return CollectionResult {
-                    ok: false,
-                    collection: None,
-                    message,
-                }
-            }
-        };
-        row_result(
-            collection_ops::create(
-                &self.store(),
-                &binding,
-                &name,
-                parent_id.as_deref(),
-                kind_scope.as_deref(),
-                // The agent surface always appends with the schema default;
-                // explicit positioning is `reorder`'s job here.
-                None,
-            ),
-            "Created",
-        )
-    }
-
-    async fn rename(&self, binding: String, id: String, name: String) -> CollectionResult {
-        let binding = match binding_for(&binding) {
-            Ok(b) => b,
-            Err(message) => {
-                return CollectionResult {
-                    ok: false,
-                    collection: None,
-                    message,
-                }
-            }
-        };
-        mutation_result(
-            collection_ops::rename(&self.store(), &binding, &id, &name),
-            "Renamed to",
-        )
-    }
-
-    async fn reparent(
-        &self,
-        binding: String,
-        id: String,
-        new_parent_id: Option<String>,
-    ) -> CollectionResult {
-        let binding = match binding_for(&binding) {
-            Ok(b) => b,
-            Err(message) => {
-                return CollectionResult {
-                    ok: false,
-                    collection: None,
-                    message,
-                }
-            }
-        };
-        mutation_result(
-            collection_ops::reparent(&self.store(), &binding, &id, new_parent_id.as_deref()),
-            "Moved",
-        )
-    }
-
-    async fn reorder(&self, binding: String, id: String, sort_order: i64) -> CollectionResult {
-        let binding = match binding_for(&binding) {
-            Ok(b) => b,
-            Err(message) => {
-                return CollectionResult {
-                    ok: false,
-                    collection: None,
-                    message,
-                }
-            }
-        };
-        mutation_result(
-            collection_ops::reorder(&self.store(), &binding, &id, sort_order),
-            "Reordered",
-        )
-    }
-
-    async fn delete(&self, binding: String, id: String) -> CollectionMutationResult {
-        let binding = match binding_for(&binding) {
-            Ok(b) => b,
-            Err(message) => {
-                return CollectionMutationResult {
-                    ok: false,
-                    applied: 0,
-                    message,
-                }
-            }
-        };
-        match collection_ops::delete(&self.store(), &binding, &id) {
-            Ok(_snapshot) => CollectionMutationResult {
-                ok: true,
-                applied: 0,
-                message: format!("Deleted collection {id}. Its members were not deleted."),
-            },
-            Err(e) => CollectionMutationResult {
-                ok: false,
-                applied: 0,
-                message: describe(e),
-            },
-        }
-    }
-
-    async fn add_members(
-        &self,
-        binding: String,
-        collection_id: String,
-        item_ids: Vec<String>,
-    ) -> CollectionMutationResult {
-        let binding = match binding_for(&binding) {
-            Ok(b) => b,
-            Err(message) => {
-                return CollectionMutationResult {
-                    ok: false,
-                    applied: 0,
-                    message,
-                }
-            }
-        };
-        member_result(
-            collection_ops::add_members(&self.store(), &binding, &collection_id, &item_ids),
-            "Filed",
-        )
-    }
-
-    async fn remove_members(
-        &self,
-        binding: String,
-        collection_id: String,
-        item_ids: Vec<String>,
-    ) -> CollectionMutationResult {
-        let binding = match binding_for(&binding) {
-            Ok(b) => b,
-            Err(message) => {
-                return CollectionMutationResult {
-                    ok: false,
-                    applied: 0,
-                    message,
-                }
-            }
-        };
-        member_result(
-            collection_ops::remove_members(&self.store(), &binding, &collection_id, &item_ids),
-            "Removed",
-        )
-    }
-
-    async fn member_counts(
-        &self,
-        binding: String,
-        collection_ids: Vec<String>,
-    ) -> MemberCountsResult {
-        let binding = match binding_for(&binding) {
-            Ok(b) => b,
-            Err(message) => {
-                return MemberCountsResult {
-                    ok: false,
-                    counts: vec![],
-                    message,
-                }
-            }
-        };
-        match collection_ops::member_counts(&self.store(), &binding, &collection_ids) {
-            Ok(counts) => MemberCountsResult {
-                ok: true,
-                message: format!("Counted {} collection(s).", counts.len()),
-                counts,
-            },
-            Err(e) => MemberCountsResult {
-                ok: false,
-                counts: vec![],
-                message: describe(e),
-            },
-        }
-    }
-
-    async fn migration_status(&self) -> MigrationStatusResult {
+impl CollectionMigration for SqliteCollectionMigration {
+    fn status(&self) -> MigrationStatusResult {
         let store = match self.migration_store() {
             Ok(s) => s,
             Err(message) => {
@@ -799,12 +171,12 @@ impl CollectionService for DefaultCollectionService {
                 migrated: false,
                 legacy: vec![],
                 generic: vec![],
-                message: describe(e),
+                message: e.to_string(),
             },
         }
     }
 
-    async fn migrate(&self, dry_run: bool) -> MigrationReportResult {
+    fn migrate(&self, dry_run: bool) -> MigrationReportResult {
         let store = match self.migration_store() {
             Ok(s) => s,
             Err(message) => return migration_report_refusal(message, dry_run),
@@ -847,12 +219,12 @@ impl CollectionService for DefaultCollectionService {
                 was_migrated: false,
                 bindings: vec![],
                 membership_edges_untouched: true,
-                message: describe(e),
+                message: e.to_string(),
             },
         }
     }
 
-    async fn rollback(&self) -> RollbackReportResult {
+    fn rollback(&self) -> RollbackReportResult {
         let store = match self.migration_store() {
             Ok(s) => s,
             Err(message) => {
@@ -891,97 +263,10 @@ impl CollectionService for DefaultCollectionService {
                 restored: vec![],
                 native_generic_untouched: 0,
                 membership_edges_untouched: true,
-                message: describe(e),
+                message: e.to_string(),
             },
         }
     }
-}
-
-impress_service_impl! {
-    service = CollectionService,
-    safety = mutating,
-    since = "0.1.0",
-    effects = {
-        reads: ["collection", "imbib/collection", "manuscript-collection", "figure-collection"],
-        writes: ["collection", "imbib/collection", "manuscript-collection", "figure-collection"],
-        reach: [],
-    },
-    impl = DefaultCollectionService,
-    instance = DefaultCollectionService::new,
-    methods = [
-        tree(
-            /// Collection hierarchy: `imbib`, `manuscript`, `figure`, or `generic`.
-            binding: String
-        ) -> CollectionListResult,
-        create(
-            /// Collection hierarchy to create within.
-            binding: String,
-            /// Visible name of the new collection.
-            name: String,
-            /// Parent collection UUID, or null for a root collection.
-            parent_id: Option<String>,
-            /// Record kind for a generic collection; null defaults to `any`.
-            kind_scope: Option<String>
-        ) -> CollectionResult,
-        rename(
-            /// Collection hierarchy containing the row.
-            binding: String,
-            /// UUID of the collection to rename.
-            id: String,
-            /// New visible collection name.
-            name: String
-        ) -> CollectionResult,
-        reparent(
-            /// Collection hierarchy containing both rows.
-            binding: String,
-            /// UUID of the collection to move.
-            id: String,
-            /// New parent collection UUID, or null to make it a root.
-            new_parent_id: Option<String>
-        ) -> CollectionResult,
-        reorder(
-            /// Collection hierarchy containing the row.
-            binding: String,
-            /// UUID of the collection to reposition.
-            id: String,
-            /// Numeric sibling position; lower values sort first.
-            sort_order: i64
-        ) -> CollectionResult,
-        delete(
-            /// Collection hierarchy containing the row.
-            binding: String,
-            /// UUID of the collection to delete; members survive.
-            id: String
-        ) -> CollectionMutationResult,
-        add_members(
-            /// Collection hierarchy containing the target collection.
-            binding: String,
-            /// UUID of the collection receiving members.
-            collection_id: String,
-            /// UUIDs of existing items to file into the collection.
-            item_ids: Vec<String>
-        ) -> CollectionMutationResult,
-        remove_members(
-            /// Collection hierarchy containing the target collection.
-            binding: String,
-            /// UUID of the collection losing members.
-            collection_id: String,
-            /// UUIDs of items to unfile; the items themselves survive.
-            item_ids: Vec<String>
-        ) -> CollectionMutationResult,
-        member_counts(
-            /// Collection hierarchy containing the requested rows.
-            binding: String,
-            /// Collection UUIDs; counts return in the same order.
-            collection_ids: Vec<String>
-        ) -> MemberCountsResult,
-        migration_status() -> MigrationStatusResult,
-        migrate(
-            /// True to report what would change without writing anything.
-            dry_run: bool
-        ) -> MigrationReportResult,
-        rollback() -> RollbackReportResult,
-    ],
 }
 
 #[cfg(test)]
@@ -990,11 +275,12 @@ mod tests {
     use crate::test_support::{make_item, test_store};
 
     fn svc() -> DefaultCollectionService {
-        DefaultCollectionService::with_store(test_store())
+        sqlite_service(test_store())
     }
 
     #[tokio::test]
     async fn binding_names_and_aliases_resolve() {
+        register();
         for name in BINDING_NAMES {
             assert!(binding_for(name).is_ok(), "{name} must resolve");
         }
@@ -1091,7 +377,7 @@ mod tests {
     #[tokio::test]
     async fn members_are_added_counted_and_removed() {
         let store = test_store();
-        let s = DefaultCollectionService::with_store(store.clone());
+        let s = sqlite_service(store.clone());
 
         let mixed = s
             .create(
@@ -1143,7 +429,7 @@ mod tests {
     #[tokio::test]
     async fn every_binding_round_trips_through_the_service() {
         let store = test_store();
-        let s = DefaultCollectionService::with_store(store.clone());
+        let s = sqlite_service(store.clone());
 
         for binding in BINDING_NAMES {
             let created = s
@@ -1204,7 +490,7 @@ mod tests {
     #[tokio::test]
     async fn migrate_dry_run_then_apply_then_rollback() {
         let store = test_store();
-        let s = DefaultCollectionService::with_store(store.clone());
+        let s = sqlite_service(store.clone());
 
         let root = s
             .create("imbib".into(), "Reading".into(), None, None)

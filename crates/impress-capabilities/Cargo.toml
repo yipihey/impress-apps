@@ -57,6 +57,9 @@ surface-demo-service = { workspace = true, optional = true }
 koine-agent = { workspace = true, optional = true }
 # The triage verbs live in koine-triage (KM2); `kit` anchors them like koine-agent.
 koine-triage = { workspace = true, features = ["service"], optional = true }
+# The collection and settings verbs live in koine (KM4); `kit` anchors them too.
+koine-collections = { workspace = true, features = ["service"], optional = true }
+koine-settings-service = { workspace = true, optional = true }
 impress-workspace-hack.workspace = true
 
 # The pipeline tests (tests/pipeline.rs, policy.rs, pipeline_bench.rs) run
@@ -124,7 +127,7 @@ full = [
     "perf",
     "workflow",
 ]
-kit = ["dep:impress-layout-service", "dep:impress-store-service", "dep:impress-surface-service", "dep:surface-demo-service", "dep:koine-agent", "dep:koine-triage"]
+kit = ["dep:impress-layout-service", "dep:impress-store-service", "dep:impress-surface-service", "dep:surface-demo-service", "dep:koine-agent", "dep:koine-triage", "dep:koine-collections", "dep:koine-settings-service"]
 scenario = ["dep:impress-scenario-service"]
 
 imbib = ["dep:imbib-service"]

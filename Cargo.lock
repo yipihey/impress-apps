@@ -4509,6 +4509,8 @@ dependencies = [
  "imprint-service",
  "jsonschema",
  "koine-agent",
+ "koine-collections",
+ "koine-settings-service",
  "koine-triage",
  "perf-service",
  "serde",
@@ -4562,6 +4564,7 @@ dependencies = [
  "impress-pane-query-compile",
  "impress-service-core",
  "impress-workspace-hack",
+ "koine-collections",
  "koine-store",
  "koine-store-conformance",
  "koine-tasks",
@@ -5033,6 +5036,8 @@ dependencies = [
  "impress-surface",
  "impress-workflow",
  "impress-workspace-hack",
+ "koine-collections",
+ "koine-settings-service",
  "koine-store",
  "koine-triage",
  "log",
@@ -5851,6 +5856,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine-collections"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "koine-store",
+ "koine-workspace-hack",
+ "schemars 0.8.22",
+ "serde",
+ "uuid",
+]
+
+[[package]]
 name = "koine-mcp-host"
 version = "0.1.0"
 dependencies = [
@@ -5901,6 +5922,25 @@ dependencies = [
  "pyo3",
  "pythonize",
  "serde_json",
+]
+
+[[package]]
+name = "koine-settings-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-settings",
+ "koine-store",
+ "koine-workspace-hack",
+ "log",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]

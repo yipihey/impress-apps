@@ -1680,7 +1680,7 @@ impl SharedStore {
         &self,
         binding: SharedCollectionBinding,
     ) -> Result<Vec<SharedCollectionRow>, SharedStoreError> {
-        let rows = collection_ops::list_tree(&self.inner, &binding.binding())?;
+        let rows = collection_ops::list_tree(&*self.inner, &binding.binding())?;
         Ok(rows.into_iter().map(collection_row_to_ffi).collect())
     }
 
@@ -1698,8 +1698,11 @@ impl SharedStore {
         binding: SharedCollectionBinding,
         container_id: Option<String>,
     ) -> Result<Vec<SharedCollectionRow>, SharedStoreError> {
-        let rows =
-            collection_ops::list_tree_in(&self.inner, &binding.binding(), container_id.as_deref())?;
+        let rows = collection_ops::list_tree_in(
+            &*self.inner,
+            &binding.binding(),
+            container_id.as_deref(),
+        )?;
         Ok(rows.into_iter().map(collection_row_to_ffi).collect())
     }
 
@@ -1721,7 +1724,7 @@ impl SharedStore {
         sort_order: Option<i64>,
     ) -> Result<SharedCollectionRow, SharedStoreError> {
         let row = collection_ops::create(
-            &self.inner,
+            &*self.inner,
             &binding.binding(),
             &name,
             parent_id.as_deref(),
@@ -1750,7 +1753,7 @@ impl SharedStore {
         container_id: Option<String>,
     ) -> Result<SharedCollectionRow, SharedStoreError> {
         let row = collection_ops::create_in(
-            &self.inner,
+            &*self.inner,
             &binding.binding(),
             &name,
             parent_id.as_deref(),
@@ -1771,7 +1774,7 @@ impl SharedStore {
         id: String,
         name: String,
     ) -> Result<SharedCollectionMutation, SharedStoreError> {
-        let mutation = collection_ops::rename(&self.inner, &binding.binding(), &id, &name)?;
+        let mutation = collection_ops::rename(&*self.inner, &binding.binding(), &id, &name)?;
         Ok(collection_mutation_to_ffi(mutation))
     }
 
@@ -1789,7 +1792,7 @@ impl SharedStore {
         new_parent_id: Option<String>,
     ) -> Result<SharedCollectionMutation, SharedStoreError> {
         let mutation = collection_ops::reparent(
-            &self.inner,
+            &*self.inner,
             &binding.binding(),
             &id,
             new_parent_id.as_deref(),
@@ -1816,7 +1819,7 @@ impl SharedStore {
         new_container_id: Option<String>,
     ) -> Result<SharedCollectionMutation, SharedStoreError> {
         let mutation = collection_ops::reparent_in(
-            &self.inner,
+            &*self.inner,
             &binding.binding(),
             &id,
             new_parent_id.as_deref(),
@@ -1835,7 +1838,7 @@ impl SharedStore {
         id: String,
         sort_order: i64,
     ) -> Result<SharedCollectionMutation, SharedStoreError> {
-        let mutation = collection_ops::reorder(&self.inner, &binding.binding(), &id, sort_order)?;
+        let mutation = collection_ops::reorder(&*self.inner, &binding.binding(), &id, sort_order)?;
         Ok(collection_mutation_to_ffi(mutation))
     }
 
@@ -1848,7 +1851,7 @@ impl SharedStore {
         binding: SharedCollectionBinding,
         id: String,
     ) -> Result<SharedDeletedCollection, SharedStoreError> {
-        let snapshot = collection_ops::delete(&self.inner, &binding.binding(), &id)?;
+        let snapshot = collection_ops::delete(&*self.inner, &binding.binding(), &id)?;
         Ok(SharedDeletedCollection {
             row: collection_row_to_ffi(snapshot.row),
             envelope_parent_id: snapshot.envelope_parent_id,
@@ -1876,7 +1879,7 @@ impl SharedStore {
             member_ids: snapshot.member_ids,
             child_collection_ids: snapshot.child_collection_ids,
         };
-        let row = collection_ops::restore(&self.inner, &binding.binding(), &snapshot)?;
+        let row = collection_ops::restore(&*self.inner, &binding.binding(), &snapshot)?;
         Ok(collection_row_to_ffi(row))
     }
 
@@ -1892,7 +1895,7 @@ impl SharedStore {
         item_ids: Vec<String>,
     ) -> Result<Vec<String>, SharedStoreError> {
         Ok(collection_ops::add_members(
-            &self.inner,
+            &*self.inner,
             &binding.binding(),
             &collection_id,
             &item_ids,
@@ -1911,7 +1914,7 @@ impl SharedStore {
         item_ids: Vec<String>,
     ) -> Result<Vec<String>, SharedStoreError> {
         Ok(collection_ops::remove_members(
-            &self.inner,
+            &*self.inner,
             &binding.binding(),
             &collection_id,
             &item_ids,
@@ -1925,7 +1928,7 @@ impl SharedStore {
         collection_ids: Vec<String>,
     ) -> Result<Vec<u32>, SharedStoreError> {
         Ok(collection_ops::member_counts(
-            &self.inner,
+            &*self.inner,
             &binding.binding(),
             &collection_ids,
         )?)

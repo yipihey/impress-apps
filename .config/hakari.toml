@@ -93,6 +93,8 @@ third-party = [
     { name = "impress-tags", path = "../koine/crates/impress-tags" },
     { name = "impress-flags", path = "../koine/crates/impress-flags" },
     { name = "koine-triage", path = "../koine/crates/koine-triage" },
+    { name = "koine-collections", path = "../koine/crates/koine-collections" },
+    { name = "koine-settings-service", path = "../koine/crates/koine-settings-service" },
     { name = "koine-plot", path = "../koine/crates/koine-plot" },
     { name = "koine-mcp-host", path = "../koine/crates/koine-mcp-host" },
     { name = "koine-agent", path = "../koine/crates/koine-agent" },

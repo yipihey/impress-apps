@@ -194,6 +194,7 @@ pub struct CollectionsOverview {
 
 /// The four bindings' trees, flat per binding, with member counts.
 pub fn collection_overview(store: &SqliteItemStore, store_path: &str) -> CollectionsOverview {
+    crate::collection_service::register();
     let mut bindings = Vec::with_capacity(BINDING_NAMES.len());
 
     for name in BINDING_NAMES {

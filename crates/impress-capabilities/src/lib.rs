@@ -161,6 +161,13 @@ pub fn force_link() {
         std::hint::black_box(std::ptr::addr_of!(
             koine_triage::service::__IMPRESS_VERB_TriageService_set_starred
         ));
+        // The collection and settings verbs (koine-collections, koine-settings-service, KM4).
+        std::hint::black_box(std::ptr::addr_of!(
+            koine_collections::service::__IMPRESS_VERB_CollectionService_tree
+        ));
+        std::hint::black_box(std::ptr::addr_of!(
+            koine_settings_service::__IMPRESS_VERB_SettingsService_schema
+        ));
     }
 }
 

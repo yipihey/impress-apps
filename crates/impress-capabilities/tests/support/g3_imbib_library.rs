@@ -759,7 +759,7 @@ pub fn verify(
                 .ok_or("result omitted scratch library")?;
             let stored = load(store, &id("67"))?.ok_or("scratch library disappeared")?;
             let actual_collection_count =
-                collection_ops::list_tree_in(store, &IMBIB_COLLECTION, Some(&id("67")))
+                collection_ops::list_tree_in(&**store, &IMBIB_COLLECTION, Some(&id("67")))
                     .map_err(|e| e.to_string())?
                     .len();
             if stored.payload.get("name")
@@ -859,7 +859,7 @@ pub fn verify(
                 return Err("collection membership result changed input-order outcomes".into());
             }
             let members =
-                collection_ops::list_members(store, &IMBIB_COLLECTION, &uuid("c1")?.to_string())
+                collection_ops::list_members(&**store, &IMBIB_COLLECTION, &uuid("c1")?.to_string())
                     .map_err(|e| e.to_string())?;
             let paper_id = uuid("c2")?;
             if !members.iter().any(|member| member.id == paper_id) {
@@ -994,7 +994,7 @@ pub fn verify(
             }
         }
         ("imbib-library-service_add-to-collection", "file-paper") => {
-            let members = collection_ops::list_members(store, &IMBIB_COLLECTION, &id("11"))
+            let members = collection_ops::list_members(&**store, &IMBIB_COLLECTION, &id("11"))
                 .map_err(|e| e.to_string())?;
             if members.len() != 1 || members[0].id != uuid("12")? {
                 return Err("paper was not filed into the collection".into());

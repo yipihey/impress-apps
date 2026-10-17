@@ -8,7 +8,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 pub const COLLECTION_SCHEMA: crate::SchemaRef = crate::schema::refs::COLLECTION;
 
 /// `kind_scope` value for a collection that accepts every record kind.
-pub const KIND_SCOPE_ANY: &str = "any";
+pub use koine_collections::ops::KIND_SCOPE_ANY;
 
 /// Schema for the `collection@1.0.0` item type (ADR-0022 D1).
 ///

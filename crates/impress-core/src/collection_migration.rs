@@ -116,14 +116,13 @@ use crate::collection_ops::{
 use crate::item::Value;
 use crate::schemas::collection::{COLLECTION_SCHEMA, KIND_SCOPE_ANY};
 use crate::sqlite_store::SqliteItemStore;
-use crate::store::{AttributedStore, StoreError};
+use crate::store::StoreError;
 
-/// `store_metadata` key holding the convergence flag. Present with
-/// [`MARKER_VALUE`] means the store's collections are `collection@1.0.0`.
-pub const MARKER_KEY: &str = "collections.unified";
-
-/// The only value [`MARKER_KEY`] is ever written with.
-pub const MARKER_VALUE: &str = "1";
+// The convergence flag (`store_metadata` key `collections.unified`, value `1`)
+// and the question "is it set" are the kernel's (koine-collections): every
+// collection verb asks it, on any backend of the port. The rewrite that sets
+// it is SQLite's, and stays here.
+pub use koine_collections::ops::{is_migrated_on, MARKER_KEY, MARKER_VALUE};
 
 /// Payload key carrying a migrated row's ORIGINAL `schema_ref`.
 pub const LEGACY_SCHEMA_REF_KEY: &str = "legacy_schema_ref";
@@ -278,16 +277,6 @@ impl RollbackReport {
 /// store handle instead of requiring cache invalidation nobody would remember.
 pub fn is_migrated(store: &SqliteItemStore) -> Result<bool, StoreError> {
     is_migrated_on(store)
-}
-
-/// [`is_migrated`] over any backend of the store port.
-pub fn is_migrated_on(store: &dyn AttributedStore) -> Result<bool, StoreError> {
-    // The port's `metadata_get`, which SQLite answers from the same
-    // `store_metadata` row this used to select, so the runtimes can ask the
-    // question of any backend (docs/plan-koine-host.md H-D1).
-    Ok(store
-        .metadata_get(MARKER_KEY)?
-        .is_some_and(|v| v == MARKER_VALUE))
 }
 
 // ─── Status ──────────────────────────────────────────────────────────────────

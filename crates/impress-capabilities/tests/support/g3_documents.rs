@@ -97,7 +97,7 @@ pub async fn prepare(
             )?;
             manuscript(store, "40", "G3 placeholder", "")?;
             let member = id("40");
-            collection_ops::add_members(store, &MANUSCRIPT_COLLECTION, &id("41"), &[member])
+            collection_ops::add_members(&**store, &MANUSCRIPT_COLLECTION, &id("41"), &[member])
                 .map_err(|e| e.to_string())?;
         }
         ("docs-import-service_add-watched-folder", "watch-manuscripts") => {
@@ -281,14 +281,14 @@ pub fn verify(
             }
         }
         ("collection-service_add-members", "file-manuscript") => {
-            let counts = collection_ops::member_counts(store, &GENERIC_COLLECTION, &[id("07")])
+            let counts = collection_ops::member_counts(&**store, &GENERIC_COLLECTION, &[id("07")])
                 .map_err(|e| e.to_string())?;
             if counts != [1] {
                 return Err("member was not filed".into());
             }
         }
         ("collection-service_remove-members", "unfile-manuscript") => {
-            let counts = collection_ops::member_counts(store, &GENERIC_COLLECTION, &[id("08")])
+            let counts = collection_ops::member_counts(&**store, &GENERIC_COLLECTION, &[id("08")])
                 .map_err(|e| e.to_string())?;
             if counts != [0] || load(store, &id("21"))?.is_none() {
                 return Err("unfile did not preserve the manuscript".into());

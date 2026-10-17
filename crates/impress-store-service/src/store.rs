@@ -57,7 +57,21 @@ pub fn register_process_ports() {
             crate::subtrees::CollectionSubtrees::process(),
         ));
         impress_pane_query::process_manifest::install(Arc::new(builtin_manifest()));
+        // The collection verbs' app bindings and SQLite migration, and the
+        // settings files' directory (the settings verbs are koine's and read
+        // the process workspace; before the store opens it is the directory
+        // beside the store file, as it always was).
+        crate::collection_service::register();
+        note_workspace();
     });
+}
+
+/// Name the directory beside the store file as the process workspace, which
+/// is where the settings verbs keep their files. Re-run when the path changes.
+fn note_workspace() {
+    if let Some(dir) = store_path().parent() {
+        koine_store::process::set_workspace(dir);
+    }
 }
 
 /// The opener the registry calls when it holds no real store: the lazy,
@@ -110,7 +124,9 @@ pub fn set_store_path(path: impl AsRef<Path>) -> Result<(), String> {
     }
     STORE_PATH
         .set(path.as_ref().to_path_buf())
-        .map_err(|_| "impress store path already set".to_string())
+        .map_err(|_| "impress store path already set".to_string())?;
+    note_workspace();
+    Ok(())
 }
 
 /// The path the services will use (or are using).
@@ -153,6 +169,7 @@ pub fn install_store_at(
         STORE_PATH
             .set(path)
             .map_err(|_| "impress store path changed during initialization".to_string())?;
+        note_workspace();
     }
     let installed = cached.get_or_insert(store).clone();
     publish(&installed, false);

@@ -254,6 +254,10 @@ koine-py = { path = "../koine/crates/koine-py" }
 impress-tags = { path = "../koine/crates/impress-tags" }
 impress-flags = { path = "../koine/crates/impress-flags" }
 koine-triage = { path = "../koine/crates/koine-triage", default-features = false }
+# KM4: the collection kernel and verbs (impress-core takes the kernel only;
+# the service crate adds `service`) and the settings verbs.
+koine-collections = { path = "../koine/crates/koine-collections", default-features = false }
+koine-settings-service = { path = "../koine/crates/koine-settings-service" }
 # default-features = false HERE, not at the call site: a member inheriting a
 # workspace dependency can only add features, never remove them, so a member
 # writing `default-features = false` is silently ignored (cargo warns, and
