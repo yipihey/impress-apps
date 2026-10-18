@@ -47,6 +47,28 @@ Takes no arguments.
   {}
   ```
 
+## `impress-ai-service_apply-routing-preset`
+
+Write a routing preset into the device's task-category assignments from what is ready on this device, and answer what it assigned and what it skipped. `local-first`: `agent.route` is the on-device model, `agent` the best ready local provider (oMLX first), `agent.frontier` the first ready cloud provider, each with its default model. It writes preferences only; any assignment can be changed after. An unknown preset is refused.
+
+- **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
+- **reads**: —
+- **writes**: —
+- **reach**: provider
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `preset` | string | yes | The preset: local-first. |
+
+**Examples**
+
+- `unknown-preset` — Tier A:
+
+  ```json
+  {"preset":"nope"}
+  ```
+
 ## `impress-ai-service_create-conversation`
 
 Create a durable conversation. Enabled tools are stable capability ids such as `scix`, `impress-mcp`, and `web`.
@@ -225,6 +247,8 @@ Atomically append a user message and queue its offline-capable response task. At
 | `attachment_ids` | array | yes | Existing content-blob UUIDs to attach, or an empty list. |
 | `body` | string | yes | User message text; private content is redacted from public tool logs. |
 | `conversation_id` | string | yes | UUID of the conversation that receives the user turn. |
+| `response_schema` | — | no | Optional JSON Schema (`"type": "object"`, at most 32 KiB) the answer must follow; every backend honours it, and the answer is JSON text. |
+| `response_schema_name` | — | no | Name for the schema (letters, digits, `_`, `-`; at most 64); defaults to `answer`. |
 
 **Examples**
 

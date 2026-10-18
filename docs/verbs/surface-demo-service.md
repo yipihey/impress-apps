@@ -25,6 +25,182 @@ An equal-width histogram of `values` over `bins` buckets, plus a `plot-spec@1.0.
   {"values": [1, 2, 3], "bins": 3}
   ```
 
+## `surface-demo-service_inventory`
+
+The map of this app: linked verbs, the kinds they read, write and return, the stored surfaces, and the edges between them.
+
+- **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
+- **reads**: "impress/ui/surface@1.0.0"
+- **writes**: —
+- **reach**: —
+
+Takes no arguments.
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {}
+  ```
+
+## `surface-demo-service_note-add`
+
+Add a note under `parent` (a key or record uuid; null for a root); a parent that is a note files the new one beside it.
+
+- **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
+- **reads**: —
+- **writes**: any("the demo's `note` records (crate::notes), not a canonical ref")
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `parent` | — | no | The parent note's key or record uuid; absent or null for a root. |
+| `title` | string | yes | The note's title; must not be empty. |
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {"title": "A note"}
+  ```
+
+## `surface-demo-service_note-delete`
+
+Delete a note and every note under it; answers the keys deleted.
+
+- **safety**: `destructive`
+- **adverbs**: tentatively, with_review, once
+- **reads**: —
+- **writes**: any("the demo's `note` records (crate::notes), not a canonical ref")
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The note's key or record uuid. |
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {"id": "research"}
+  ```
+
+## `surface-demo-service_note-get`
+
+One note, body included.
+
+- **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
+- **reads**: any("the demo's `note` records (crate::notes), not a canonical ref")
+- **writes**: —
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The note's key or record uuid. |
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {"id": "research"}
+  ```
+
+## `surface-demo-service_note-move`
+
+Move a note under another, or to the root.
+
+- **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
+- **reads**: —
+- **writes**: any("the demo's `note` records (crate::notes), not a canonical ref")
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The note's key or record uuid. |
+| `parent` | — | no | The new parent's key or record uuid; absent or null for the root. |
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {"id": "research"}
+  ```
+
+## `surface-demo-service_note-rename`
+
+Retitle a note.
+
+- **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
+- **reads**: —
+- **writes**: any("the demo's `note` records (crate::notes), not a canonical ref")
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The note's key or record uuid. |
+| `title` | string | yes | The new title; must not be empty. |
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {"id": "research", "title": "Research"}
+  ```
+
+## `surface-demo-service_note-write`
+
+Replace a note's body.
+
+- **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
+- **reads**: —
+- **writes**: any("the demo's `note` records (crate::notes), not a canonical ref")
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `body` | string | yes | The new body; any text, empty included. |
+| `id` | string | yes | The note's key or record uuid. |
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {"id": "ideas", "body": "Try the histogram with 40 bins."}
+  ```
+
+## `surface-demo-service_notes`
+
+Every note in the store, oldest first: rows of the kind `note`, each `{id, title, parent, record, body}` (keys, the record uuid, the text).
+
+- **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
+- **reads**: any("the demo's `note` records (crate::notes), not a canonical ref")
+- **writes**: —
+- **reach**: —
+
+Takes no arguments.
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {}
+  ```
+
 ## `surface-demo-service_series`
 
 A noisy sine wave: `n` samples `x` on `[0, 1)` and `values = sin(2π·freq·x) + noise`. `n` in `2..=100000`, `freq` finite and > 0.

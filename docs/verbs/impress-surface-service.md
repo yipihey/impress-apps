@@ -293,7 +293,7 @@ The working state of one `(surface, host)` instance — the spec's own initial `
 
 ## `impress-surface-service_surface-state-set`
 
-Overwrite the working state of one `(surface, host)` instance directly (bypassing `reduce` — for seeding a surface's state, not for an ordinary field edit, which goes through `surface_dispatch`).
+Overwrite the working state of one `(surface, host)` instance directly (bypassing `reduce` — for seeding a surface's state, not for an ordinary field edit, which goes through `surface_dispatch`). A `surface_wait` blocked on the surface returns at once with `invalidated: true`, so a page showing it renders the new state without waiting out its timeout.
 
 - **safety**: `mutating`
 - **adverbs**: tentatively, with_review, once
@@ -379,7 +379,7 @@ Every problem with a spec, by JSON pointer and severity: structure (a missing fi
 
 ## `impress-surface-service_surface-wait`
 
-Long-poll for the next event past `after_seq`, up to `timeout_ms` (at most 55000). Returns as soon as one lands, or on timeout with `timed_out: true` and no events — the primitive the five-verb loop calls "wait" (ADR-0033 D5/D6). It also returns early, with no events, `next_seq` unchanged and `invalidated: true`, when the host's store feed marks the surface (a record kind its query sources read was written): render again. A host with no feed never sees that answer.
+Long-poll for the next event past `after_seq`, up to `timeout_ms` (at most 55000). Returns as soon as one lands, or on timeout with `timed_out: true` and no events — the primitive the five-verb loop calls "wait" (ADR-0033 D5/D6). It also returns early, with no events, `next_seq` unchanged and `invalidated: true`, when the host's store feed marks the surface (a record kind its query sources read was written) or `surface_state_set` writes the surface's state: render again. A host with no feed sees that answer only for a state write.
 
 - **safety**: `read_only`, idempotent
 - **adverbs**: tentatively, with_review, once, within
