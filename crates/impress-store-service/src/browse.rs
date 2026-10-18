@@ -397,6 +397,9 @@ mod tests {
 
     #[tokio::test]
     async fn collection_overview_reports_nesting_so_a_tree_can_be_rebuilt() {
+        // impress's bindings ("imbib", …) are registered once per process;
+        // alone (or under nextest, one test per process) nothing else has.
+        crate::collection_service::register();
         let store = test_store();
         let svc = DefaultCollectionService::with_store(store.clone());
         let root = svc
