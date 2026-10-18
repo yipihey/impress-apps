@@ -4,7 +4,7 @@ import Foundation
 // MARK: - Figure Entity
 
 @available(macOS 14.0, *)
-public struct FigureEntity: AppEntity, Sendable {
+public struct LibraryFigureEntity: AppEntity, Sendable {
     public static var typeDisplayRepresentation: TypeDisplayRepresentation {
         TypeDisplayRepresentation(
             name: LocalizedStringResource("Figure"),
@@ -12,7 +12,7 @@ public struct FigureEntity: AppEntity, Sendable {
         )
     }
 
-    public static var defaultQuery = FigureEntityQuery()
+    public static var defaultQuery = LibraryFigureEntityQuery()
 
     public let id: UUID
     public let title: String
@@ -42,35 +42,35 @@ public struct FigureEntity: AppEntity, Sendable {
 // MARK: - Figure Entity Query
 
 @available(macOS 14.0, *)
-public struct FigureEntityQuery: EntityQuery {
+public struct LibraryFigureEntityQuery: EntityQuery {
     public init() {}
 
-    public func entities(for identifiers: [UUID]) async throws -> [FigureEntity] {
+    public func entities(for identifiers: [UUID]) async throws -> [LibraryFigureEntity] {
         guard let service = await ImploreIntentServiceLocator.service else { return [] }
         return try await service.figuresForIds(identifiers)
     }
 
-    public func suggestedEntities() async throws -> [FigureEntity] {
+    public func suggestedEntities() async throws -> [LibraryFigureEntity] {
         guard let service = await ImploreIntentServiceLocator.service else { return [] }
         return try await service.listFigures(dataset: nil)
     }
 }
 
 @available(macOS 14.0, *)
-public struct FigureEntityStringQuery: EntityStringQuery {
+public struct LibraryFigureEntityStringQuery: EntityStringQuery {
     public init() {}
 
-    public func entities(for identifiers: [UUID]) async throws -> [FigureEntity] {
+    public func entities(for identifiers: [UUID]) async throws -> [LibraryFigureEntity] {
         guard let service = await ImploreIntentServiceLocator.service else { return [] }
         return try await service.figuresForIds(identifiers)
     }
 
-    public func entities(matching string: String) async throws -> [FigureEntity] {
+    public func entities(matching string: String) async throws -> [LibraryFigureEntity] {
         guard let service = await ImploreIntentServiceLocator.service else { return [] }
         return try await service.searchFiguresByTitle(string)
     }
 
-    public func suggestedEntities() async throws -> [FigureEntity] {
+    public func suggestedEntities() async throws -> [LibraryFigureEntity] {
         guard let service = await ImploreIntentServiceLocator.service else { return [] }
         return try await service.listFigures(dataset: nil)
     }

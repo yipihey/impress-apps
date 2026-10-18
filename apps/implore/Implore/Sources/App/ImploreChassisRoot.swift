@@ -179,6 +179,21 @@ struct CanvasWindowView: View {
                         LibraryManager.shared.selectedFigureId = figureID
                     }
                 }
+                // "This figure": the current NSUserActivity names the figure
+                // on screen as the generated FigureEntity, so Siri / Shortcuts
+                // / Apple Intelligence can act on it.
+                .task(id: figureID ?? LibraryManager.shared.selectedFigureId) {
+                    guard let id = figureID ?? LibraryManager.shared.selectedFigureId else {
+                        FigureActivity.shared.stop()
+                        return
+                    }
+                    FigureActivity.shared.startViewing(
+                        figureID: id, title: LibraryManager.shared.figure(id: id)?.title)
+                }
+                .onDisappear {
+                    FigureActivity.shared.stop(
+                        figureID: figureID ?? LibraryManager.shared.selectedFigureId)
+                }
                 .toolbar {
                     ToolbarItemGroup(placement: .primaryAction) {
                         RenderModePicker()

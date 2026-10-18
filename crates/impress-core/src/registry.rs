@@ -222,6 +222,7 @@ pub fn to_kind_schema(schema: &crate::schema::Schema) -> impress_item::kind::Kin
                 values: None,
             })
             .collect(),
+        enforce: false,
     }
 }
 

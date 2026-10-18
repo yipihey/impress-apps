@@ -49,7 +49,24 @@ struct ImprintChassisRoot: View {
         // none of them — which is exactly what happened when the legacy
         // ContentView (the previous host) retired.
         .modifier(GitIntegrationModifier())
+        // The manuscript open in the chassis is "this" for Siri / Shortcuts /
+        // Apple Intelligence (the current NSUserActivity's appEntityIdentifier).
+        .modifier(ManuscriptActivityModifier())
         .withAppearance()
+    }
+}
+
+/// Keeps the current NSUserActivity on the focused manuscript (published by
+/// `ManuscriptSectionView` in the chassis and by the standalone editor window).
+private struct ManuscriptActivityModifier: ViewModifier {
+    @FocusedValue(\.focusedManuscriptID) private var focusedManuscriptID
+
+    func body(content: Content) -> some View {
+        content.task(id: focusedManuscriptID) {
+            if let id = focusedManuscriptID {
+                HandoffService.shared.startEditingIfNeeded(documentID: id)
+            }
+        }
     }
 }
 #endif // os(macOS)

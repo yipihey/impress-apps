@@ -297,6 +297,10 @@ targets:
     templates: [ChassisUTIs]
     sources:
       - path: Shared
+        # The generated App Intents dispatch through ImprintVerbsFFI, which
+        # the macOS app links (as ImprintNativeVerbs does).
+        excludes:
+          - "VerbIntents/**"
       - path: imprint-iOS
       - path: ../../vendor/typst-packages
         type: folder

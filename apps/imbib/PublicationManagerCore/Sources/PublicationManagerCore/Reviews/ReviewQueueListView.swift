@@ -80,7 +80,8 @@ public struct ReviewQueueListView: View {
 
 // MARK: - Row
 
-/// A single review-request row: question, proposed tags, Approve/Reject.
+/// A single review-request row: question, held-call reason and targets,
+/// proposed tags, Approve/Reject.
 private struct ReviewQueueRow: View {
     let review: PendingReview
     let onResolve: (String) -> Void
@@ -96,6 +97,10 @@ private struct ReviewQueueRow: View {
                 Text(review.created, style: .relative)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            if let call = review.call {
+                ReviewCallDetails(call: call)
             }
 
             if !review.proposedTags.isEmpty {
@@ -131,5 +136,48 @@ private struct ReviewQueueRow: View {
             }
         }
         .padding(.vertical, 6)
+    }
+}
+
+// MARK: - Held call details
+
+/// Why a held verb call needs review and what it acts on: the reason, the
+/// verb with its risk, and the targets ("3 papers: …", full list on hover).
+private struct ReviewCallDetails: View {
+    let call: ReviewCallContext
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let reason = call.reason {
+                Label(reason, systemImage: "exclamationmark.shield")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+            }
+
+            if let verb = call.verb {
+                HStack(spacing: 6) {
+                    Text(verb)
+                        .font(.caption.monospaced())
+                    if let risk = call.riskSummary {
+                        Text(risk)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let caller = call.caller {
+                        Text("· \(caller)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if let summary = call.targetSummary() {
+                Label(summary, systemImage: "doc.on.doc")
+                    .font(.caption)
+                    .lineLimit(2)
+                    .help(call.targets.map { "\($0.displayName) (\($0.id))" }.joined(separator: "\n"))
+            }
+        }
     }
 }

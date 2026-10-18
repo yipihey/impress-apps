@@ -3956,6 +3956,9 @@ public struct PendingReview: Identifiable, Hashable, Sendable {
     public let proposedTags: [String]
     public let resolution: String?
     public let created: Date
+    /// The held verb call this review asks about (reason, targets, risk),
+    /// when it reviews a koine pending call; nil for other review kinds.
+    public internal(set) var call: ReviewCallContext?
 
     public var isResolved: Bool {
         guard let resolution else { return false }
@@ -3971,6 +3974,7 @@ public struct PendingReview: Identifiable, Hashable, Sendable {
         self.proposedTags = payload["context_proposed_tags"] as? [String] ?? []
         self.resolution = payload["resolution"] as? String
         self.created = Date(timeIntervalSince1970: TimeInterval(row.createdMs) / 1000.0)
+        self.call = ReviewCallContext(payload: payload)
     }
 }
 
@@ -4007,7 +4011,16 @@ extension RustStoreAdapter {
     public func listPendingReviews() -> [PendingReview] {
         do {
             let rows = try allReviewRows()
-            let pending = rows.compactMap { PendingReview(row: $0) }.filter { !$0.isResolved }
+            var pending = rows.compactMap { PendingReview(row: $0) }.filter { !$0.isResolved }
+            // Targets filed without a title (or before the paper had one):
+            // name them from the library when the id is a publication.
+            for index in pending.indices {
+                guard let call = pending[index].call,
+                      call.targets.contains(where: { $0.title?.isEmpty ?? true }) else { continue }
+                pending[index].call = call.resolvingTitles { id in
+                    UUID(uuidString: id).flatMap { getPublication(id: $0)?.title }
+                }
+            }
             Logger.library.infoCapture(
                 "Display: \(pending.count) pending reviews (of \(rows.count) review items)",
                 category: "reviews"

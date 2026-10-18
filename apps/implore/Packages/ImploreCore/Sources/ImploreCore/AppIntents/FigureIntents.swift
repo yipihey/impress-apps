@@ -7,12 +7,12 @@ import Foundation
 /// The main app target registers a concrete implementation at launch.
 @available(macOS 14.0, *)
 public protocol ImploreIntentService: Sendable {
-    func listFigures(dataset: String?) async throws -> [FigureEntity]
+    func listFigures(dataset: String?) async throws -> [LibraryFigureEntity]
     func exportFigure(id: UUID, format: String, width: Int, height: Int) async throws
-    func createFigure(title: String, dataset: String) async throws -> FigureEntity
+    func createFigure(title: String, dataset: String) async throws -> LibraryFigureEntity
     func openFigure(id: UUID) async throws
-    func figuresForIds(_ ids: [UUID]) async throws -> [FigureEntity]
-    func searchFiguresByTitle(_ query: String) async throws -> [FigureEntity]
+    func figuresForIds(_ ids: [UUID]) async throws -> [LibraryFigureEntity]
+    func searchFiguresByTitle(_ query: String) async throws -> [LibraryFigureEntity]
 }
 
 /// Global service locator — set by the app at launch.
@@ -42,7 +42,7 @@ public struct ListFiguresIntent: AppIntent {
         }
     }
 
-    public func perform() async throws -> some IntentResult & ReturnsValue<[FigureEntity]> {
+    public func perform() async throws -> some IntentResult & ReturnsValue<[LibraryFigureEntity]> {
         guard let service = await ImploreIntentServiceLocator.service else {
             throw ImploreIntentError.automationDisabled
         }
@@ -62,7 +62,7 @@ public struct ExportFigureIntent: AppIntent {
     )
 
     @Parameter(title: "Figure")
-    public var figure: FigureEntity
+    public var figure: LibraryFigureEntity
 
     @Parameter(title: "Format", description: "The export format", default: .png)
     public var format: ImploreExportFormat
@@ -113,7 +113,7 @@ public struct CreateFigureIntent: AppIntent {
         Summary("Create figure \(\.$title) from \(\.$dataset)")
     }
 
-    public func perform() async throws -> some IntentResult & ReturnsValue<FigureEntity> {
+    public func perform() async throws -> some IntentResult & ReturnsValue<LibraryFigureEntity> {
         guard let service = await ImploreIntentServiceLocator.service else {
             throw ImploreIntentError.automationDisabled
         }
@@ -133,7 +133,7 @@ public struct OpenFigureIntent: AppIntent {
     )
 
     @Parameter(title: "Figure")
-    public var figure: FigureEntity
+    public var figure: LibraryFigureEntity
 
     public init() {}
 

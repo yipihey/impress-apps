@@ -35,13 +35,23 @@ use impress_service_macros::impress_method;
 #[impress_service]
 pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// List every manuscript document.
-    #[impress_method(effects(reads = ["manuscript"]))]
+    #[impress_method(
+        effects(reads = ["manuscript"]),
+        returns_kind = "manuscript",
+        rows(id = "id", title = "title"),
+        entity(search)
+    )]
     #[impress_example(name = "default", args = r#"{}"#)]
     #[impress_example(name = "g3-list-documents", args = r#"{}"#)]
     async fn list_documents(&self) -> Vec<DocumentSummary>;
 
     /// Fetch a single document by UUID.
-    #[impress_method(effects(reads = ["manuscript", "manuscript-section"]))]
+    #[impress_method(
+        effects(reads = ["manuscript", "manuscript-section"]),
+        returns_kind = "manuscript",
+        rows(id = "id", title = "title"),
+        entity(lookup)
+    )]
     #[impress_example(
         name = "g3-get-document",
         args = r#"{"id":"62000000-0000-4000-8000-000000000002"}"#,

@@ -1,3 +1,4 @@
+import AppIntents
 import Foundation
 import OSLog
 import ImpressLogging
@@ -21,6 +22,9 @@ public final class HandoffService {
 
     private var currentActivity: NSUserActivity?
 
+    /// The manuscript the current activity is about, if any.
+    public private(set) var currentDocumentID: UUID?
+
     private init() {
         Logger.handoff.infoCapture("imprint Handoff service initialized", category: "handoff")
     }
@@ -41,9 +45,11 @@ public final class HandoffService {
             "documentID": documentID.uuidString,
             "cursorLine": cursorLine
         ]
+        Self.point(activity, at: documentID)
 
         activity.becomeCurrent()
         currentActivity = activity
+        currentDocumentID = documentID
 
         Logger.handoff.debugCapture("Started editing activity: \(title) at line \(cursorLine)", category: "handoff")
     }
@@ -71,17 +77,48 @@ public final class HandoffService {
         activity.userInfo = [
             "documentID": documentID.uuidString
         ]
+        Self.point(activity, at: documentID)
 
         activity.becomeCurrent()
         currentActivity = activity
+        currentDocumentID = documentID
 
         Logger.handoff.debugCapture("Started viewing activity: \(title)", category: "handoff")
+    }
+
+    /// Start an editing activity for a manuscript unless one for the same
+    /// manuscript is already current (several views may report the same
+    /// focused manuscript). The title comes from the store.
+    public func startEditingIfNeeded(documentID: UUID) {
+        guard currentDocumentID != documentID || currentActivity == nil else { return }
+        let title = ManuscriptStoreAdapter.shared.manuscript(id: documentID)?.title ?? "Manuscript"
+        startEditing(documentID: documentID, title: title, cursorLine: 1)
+    }
+
+    /// Stop the current activity if it is about `documentID`.
+    public func stop(documentID: UUID) {
+        guard currentDocumentID == documentID else { return }
+        stopActivity()
+    }
+
+    /// Name the manuscript an activity is about as the generated
+    /// `ManuscriptEntity` (koine's App Intents), so Siri, Shortcuts and Apple
+    /// Intelligence can act on the manuscript the person is looking at.
+    private static func point(_ activity: NSUserActivity, at documentID: UUID) {
+        // The generated intents are in the macOS target only (VerbIntents/).
+        #if os(macOS)
+        activity.appEntityIdentifier = EntityIdentifier(
+            for: ManuscriptEntity.self,
+            identifier: documentID.uuidString.lowercased()
+        )
+        #endif
     }
 
     /// Stop the current editing activity.
     public func stopEditing() {
         currentActivity?.invalidate()
         currentActivity = nil
+        currentDocumentID = nil
         Logger.handoff.debugCapture("Stopped editing activity", category: "handoff")
     }
 
@@ -89,6 +126,7 @@ public final class HandoffService {
     public func stopActivity() {
         currentActivity?.invalidate()
         currentActivity = nil
+        currentDocumentID = nil
     }
 
     /// Parse an editing activity from an incoming Handoff.

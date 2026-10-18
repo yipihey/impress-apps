@@ -23,13 +23,14 @@ public struct ImbibLibraryImportIdentifiersIntent: AppIntent {
     var libraryId: String?
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
-        try await requestConfirmation(result: .result(dialog: "Add Papers by Identifier is a external action. Go ahead?"))
+        try await requestConfirmation(result: .result(dialog: "Add Papers by Identifier is an external action. Go ahead?"))
+        let verb = "imbib-library-service_import-identifiers"
         var args: [String: Any] = [:]
         if let value = collectionId { args["collection_id"] = value }
         args["download_pdfs"] = downloadPdfs
         args["identifiers"] = identifiers
         if let value = libraryId { args["library_id"] = value }
-        let answer = try await ImbibVerbs.call("imbib-library-service_import-identifiers", args)
+        let answer = try await ImbibVerbs.call(verb, args)
         if ImbibVerbs.isPending(answer) {
             return .result(dialog: "This waits for your approval in the app's review list.")
         }
@@ -51,10 +52,11 @@ public struct ImbibLibrarySetReadIntent: AppIntent {
     var read: Bool
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
+        let verb = "imbib-library-service_set-read"
         var args: [String: Any] = [:]
         args["ids"] = ids.map(\.id)
         args["read"] = read
-        let answer = try await ImbibVerbs.call("imbib-library-service_set-read", args)
+        let answer = try await ImbibVerbs.call(verb, args)
         if ImbibVerbs.isPending(answer) {
             return .result(dialog: "This waits for your approval in the app's review list.")
         }
@@ -76,10 +78,11 @@ public struct ImbibLibrarySetStarredIntent: AppIntent {
     var starred: Bool
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
+        let verb = "imbib-library-service_set-starred"
         var args: [String: Any] = [:]
         args["ids"] = ids.map(\.id)
         args["starred"] = starred
-        let answer = try await ImbibVerbs.call("imbib-library-service_set-starred", args)
+        let answer = try await ImbibVerbs.call(verb, args)
         if ImbibVerbs.isPending(answer) {
             return .result(dialog: "This waits for your approval in the app's review list.")
         }
