@@ -5,6 +5,7 @@
 //  Created by Claude on 2026-01-29.
 //
 
+import AppIntents
 import Foundation
 import OSLog
 
@@ -107,6 +108,9 @@ public final class HandoffService {
             "zoom": Double(zoom)
         ]
 
+        // Siri and Shortcuts see "this paper" (koine plan-koine-trust TR-D14).
+        Self.point(activity, at: publicationID)
+
         // Make this the current activity
         activity.becomeCurrent()
         currentActivity = activity
@@ -171,11 +175,23 @@ public final class HandoffService {
             "publicationID": publicationID.uuidString,
             "citeKey": citeKey
         ]
+        Self.point(activity, at: publicationID)
 
         activity.becomeCurrent()
         currentActivity = activity
 
         Logger.handoff.debug("Started viewing activity: \(citeKey)")
+    }
+
+    /// Name the publication an activity is about as the generated
+    /// `PublicationEntity` (koine's App Intents, plan-koine-trust TR-D14), so
+    /// Siri, Shortcuts and Apple Intelligence can act on what the person is
+    /// looking at.
+    private static func point(_ activity: NSUserActivity, at publicationID: UUID) {
+        activity.appEntityIdentifier = EntityIdentifier(
+            for: PublicationEntity.self,
+            identifier: publicationID.uuidString.lowercased()
+        )
     }
 
     /// Stop any current activity.

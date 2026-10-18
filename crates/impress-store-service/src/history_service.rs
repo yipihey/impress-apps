@@ -61,6 +61,7 @@ mod tests {
                 batch_id: None,
                 references: vec![],
                 parent: None,
+                extra: Default::default(),
             })
             .expect("insert paper");
         id
@@ -453,6 +454,7 @@ mod tests {
                     batch_id: None,
                     references: vec![],
                     parent: None,
+                    extra: Default::default(),
                 })
                 .expect("insert paper");
             impress_service_core::runtime::block_on(pipeline::invoke_on(

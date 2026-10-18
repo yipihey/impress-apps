@@ -64,6 +64,7 @@ mod tests {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         store.insert(item).expect("insert").to_string()
     }

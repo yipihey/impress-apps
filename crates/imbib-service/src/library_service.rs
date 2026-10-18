@@ -823,7 +823,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// optional state, membership, tag, flag, and date filters before paging.
     /// An empty query lists the selected library or collection; with no
     /// membership filter it lists the default library. A zero limit means 50.
-    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection"]))]
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection"]), returns_kind = "publication", rows(id = "id", title = "title"), entity(search), risk(private))]
     #[impress_example(
         name = "find-unique-spectrum",
         args = r#"{"query":"G3 Unique Spectrum","limit":10}"#
@@ -844,7 +844,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         filters: Option<PublicationSearchFilters>,
     ) -> Vec<PublicationSummary>;
     /// Get one paper's summary by id; null when there is no such paper.
-    #[impress_method]
+    #[impress_method(returns_kind = "publication", entity(lookup))]
     #[impress_example(
         name = "paper-summary",
         args = r#"{"id":"5c000000-0000-4000-8000-000000000020"}"#,
@@ -898,7 +898,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
 
     // ---- Paper mutations ----
     /// Mark papers as read or unread. Useful for tracking reading progress.
-    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry"], writes = ["imbib/bibliography-entry"]))]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry"], writes = ["imbib/bibliography-entry"]), targets = "ids", intent(title = "Mark Papers Read", phrase = "Mark papers as read in ${applicationName}"))]
     #[impress_example(
         name = "finish-reading",
         args = r#"{"ids":["5c000000-0000-4000-8000-000000000082"],"read":true}"#,
@@ -906,7 +906,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     )]
     async fn set_read(&self, ids: Vec<String>, read: bool) -> MutationResult;
     /// Toggle the starred status of papers.
-    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry"], writes = ["imbib/bibliography-entry"]))]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry"], writes = ["imbib/bibliography-entry"]), targets = "ids", intent(title = "Star Papers", phrase = "Star papers in ${applicationName}"))]
     #[impress_example(
         name = "star-project-paper",
         args = r#"{"ids":["5c000000-0000-4000-8000-000000000083"],"starred":true}"#,
@@ -1032,7 +1032,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     async fn import_papers(&self, papers: Vec<PaperImport>, library_id: String) -> ImportSummary;
     /// Resolve each identifier in the running app, importing fetched records
     /// and preserving per-identifier duplicate/failure outcomes.
-    #[impress_method(safety = external, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file"], writes = ["imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], reach = [app("imbib"), network, fs]))]
+    #[impress_method(safety = external, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file"], writes = ["imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], reach = [app("imbib"), network, fs]), risk(untrusted), intent(title = "Add Papers by Identifier", phrase = "Add papers to ${applicationName}"))]
     #[impress_example(
         name = "import-identifiers-native",
         tier = "b",

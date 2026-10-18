@@ -1078,6 +1078,8 @@ static LAYOUT_APPLY: VerbDescriptor = VerbDescriptor {
     secrets: &[],
     source: impress_service_core::Source::Linked,
     handler: apply_not_callable,
+    consent: ::impress_service_core::Consent::DEFAULT,
+    intent: ::impress_service_core::IntentDecl::NONE,
 };
 
 fn apply_schema() -> serde_json::Value {

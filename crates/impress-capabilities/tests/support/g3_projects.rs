@@ -95,6 +95,7 @@ fn item(id: ItemId, schema: &str, parent: Option<ItemId>) -> Result<Item, String
         batch_id: None,
         references: vec![],
         parent,
+        extra: Default::default(),
     })
 }
 fn cited_key(method: &str) -> &'static str {

@@ -866,6 +866,7 @@ fn new_manuscript(id: Uuid, payload: BTreeMap<String, Value>) -> Item {
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 

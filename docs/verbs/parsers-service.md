@@ -140,8 +140,8 @@ Parse an mbox archive (imbib's export format, or any RFC 4155 mbox) into message
 
 Which publisher owns a DOI, whether its PDF URL is predictable, and what to try. This is the table imbib's PDF auto-download consults, so the answer is what the app would do.
 
-- **safety**: `read_only`, idempotent
-- **adverbs**: tentatively, with_review, once, within
+- **safety**: `external`
+- **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
 - **reach**: network

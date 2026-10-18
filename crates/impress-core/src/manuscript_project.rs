@@ -498,6 +498,7 @@ pub fn put_file(
                     metadata: None,
                 }],
                 parent: Some(manuscript),
+                extra: Default::default(),
             };
             store.insert(item)?;
             mark_project(store, &manuscript_item, author)?;
@@ -635,6 +636,7 @@ pub fn move_file(
             metadata: None,
         }],
         parent: Some(manuscript),
+        extra: Default::default(),
     };
     store.insert(item)?;
     store.delete(old_id)?;
@@ -1095,6 +1097,7 @@ pub fn record_build(
             metadata: None,
         }],
         parent: Some(manuscript),
+        extra: Default::default(),
     };
     let id = store.insert(item)?;
     store
@@ -1356,6 +1359,7 @@ pub fn create_manuscript(
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     };
     store.insert(item.clone())?;
     Ok(item)
@@ -1498,6 +1502,7 @@ pub fn create_project_revision(
         batch_id: None,
         references,
         parent: Some(manuscript),
+        extra: Default::default(),
     };
     store.insert(revision.clone())?;
     editorial(

@@ -748,6 +748,7 @@ fn item(
         batch_id: None,
         references,
         parent,
+        extra: Default::default(),
     }
 }
 

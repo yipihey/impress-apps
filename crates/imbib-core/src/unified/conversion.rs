@@ -131,6 +131,7 @@ pub fn publication_to_item(pub_data: &Publication, library_id: Option<ItemId>) -
         batch_id: None,
         references: vec![],
         parent: library_id,
+        extra: Default::default(),
     }
 }
 
@@ -277,6 +278,7 @@ pub fn library_to_item(
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 
@@ -329,6 +331,7 @@ pub fn collection_to_item(
         batch_id: None,
         references: vec![],
         parent: parent_id,
+        extra: Default::default(),
     }
 }
 
@@ -363,6 +366,7 @@ pub fn bare_item(
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 
@@ -407,6 +411,7 @@ pub fn tag_definition_to_item(
         batch_id: None,
         references: vec![],
         parent: parent_id,
+        extra: Default::default(),
     }
 }
 
@@ -460,6 +465,7 @@ pub fn linked_file_to_item(
         batch_id: None,
         references: vec![],
         parent: Some(publication_id),
+        extra: Default::default(),
     }
 }
 
@@ -523,6 +529,7 @@ pub fn smart_search_to_item(
         batch_id: None,
         references: vec![],
         parent: Some(library_id),
+        extra: Default::default(),
     }
 }
 
@@ -555,6 +562,7 @@ pub fn muted_item_to_item(mute_type: &str, value: &str) -> Item {
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 
@@ -594,6 +602,7 @@ pub fn dismissed_paper_to_item(
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 
@@ -643,6 +652,7 @@ pub fn scix_library_to_item(
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 
@@ -832,6 +842,7 @@ pub fn annotation_to_item_with_provenance(
         batch_id: None,
         references: vec![],
         parent: Some(linked_file_id),
+        extra: Default::default(),
     }
 }
 
@@ -885,6 +896,7 @@ pub fn comment_to_item(
         batch_id: None,
         references: vec![],
         parent: Some(publication_id),
+        extra: Default::default(),
     }
 }
 
@@ -960,6 +972,7 @@ pub fn assignment_to_item(
         batch_id: None,
         references: vec![],
         parent: Some(publication_id),
+        extra: Default::default(),
     }
 }
 
@@ -1011,6 +1024,7 @@ pub fn activity_record_to_item(
         batch_id: None,
         references: vec![],
         parent: Some(library_id),
+        extra: Default::default(),
     }
 }
 
@@ -1068,6 +1082,7 @@ pub fn recommendation_profile_to_item(
         batch_id: None,
         references: vec![],
         parent: Some(library_id),
+        extra: Default::default(),
     }
 }
 
@@ -1145,6 +1160,7 @@ pub fn artifact_to_item(
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 

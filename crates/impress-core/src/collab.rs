@@ -298,6 +298,7 @@ impl SqliteItemStore {
             batch_id: None,
             references: vec![],
             parent: Some(manuscript),
+            extra: Default::default(),
         };
         self.insert(item)
     }
@@ -783,6 +784,7 @@ mod tests {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         store.insert(item).unwrap()
     }

@@ -322,6 +322,7 @@ mod store_tests {
             batch_id: None,
             references: refs,
             parent: None,
+            extra: Default::default(),
         };
         store.insert(item).expect("insert")
     }

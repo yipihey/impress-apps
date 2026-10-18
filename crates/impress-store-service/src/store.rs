@@ -103,7 +103,18 @@ fn publish(store: &Arc<SqliteItemStore>, fallback: bool) {
     if fallback {
         koine_store::process::install_as_fallback_for(port, store_path().display().to_string());
     } else {
-        koine_store::process::install(port);
+        koine_store::process::install(port.clone());
+        // koine plan-koine-trust TR-D1, TR-D4: `once` answers outlive the
+        // process, and a call the policy holds is kept as a pending call.
+        // Both are this device's: they stay out of sync.
+        if let Err(error) = store.add_sync_excluded_schemas(&[
+            koine_store::once::ONCE_SCHEMA.to_string(),
+            koine_tasks::review::PENDING_CALL.to_string(),
+        ]) {
+            eprintln!("impress-store-service: could not keep once and pending-call rows out of sync: {error}");
+        }
+        koine_store::once::install(port);
+        koine_tasks::review::install_queue();
     }
 }
 

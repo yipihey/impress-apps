@@ -4105,7 +4105,7 @@ impl ImbibStore {
         match schema_filter {
             Some(schema) => {
                 let q = ItemQuery {
-                    schema: Some(parse_schema_ref(&schema)?),
+                    schema: Some(query_schema_ref(&schema)),
                     sort,
                     limit: limit.map(|l| l as usize),
                     offset: offset.map(|o| o as usize),
@@ -4182,7 +4182,7 @@ impl ImbibStore {
         ]);
         // Query all items, then filter by artifact schema prefix
         let q = ItemQuery {
-            schema: schema_filter.as_deref().map(parse_schema_ref).transpose()?,
+            schema: schema_filter.as_deref().map(query_schema_ref),
             predicates: vec![search_pred],
             sort: vec![SortDescriptor {
                 field: "created".into(),
@@ -4338,7 +4338,7 @@ impl ImbibStore {
         match schema_filter {
             Some(schema) => {
                 let q = ItemQuery {
-                    schema: Some(parse_schema_ref(&schema)?),
+                    schema: Some(query_schema_ref(&schema)),
                     ..Default::default()
                 };
                 Ok(self.store.count(&q)? as u32)
@@ -5515,6 +5515,13 @@ fn is_input_dismissed(
             .bibcode
             .as_ref()
             .is_some_and(|b| dismissed.contains(&b.to_lowercase()))
+}
+
+/// A kind to filter a read by. Unlike a write's kind, an unknown one is not
+/// an error (koine plan-koine-trust TR-D13): it may be a newer build's, and
+/// reading it answers its rows, or none.
+fn query_schema_ref(value: &str) -> impress_core::SchemaRef {
+    impress_core::SchemaRef::from_stored(value.to_owned())
 }
 
 fn parse_schema_ref(value: &str) -> Result<impress_core::SchemaRef, StoreApiError> {
@@ -7684,21 +7691,21 @@ mod tests {
     }
 
     #[test]
-    fn artifact_queries_reject_unknown_schema_refs() {
+    /// koine plan-koine-trust TR-D13: a read filtered by a kind this build
+    /// has not heard of (a newer build's) answers that kind's rows — none
+    /// here — rather than an error.
+    fn artifact_queries_accept_a_kind_they_have_not_heard_of() {
         let store = make_store();
         let unknown = Some("impress/artifact/not-in-manifest".to_string());
-        assert!(matches!(
-            store.list_artifacts(unknown.clone(), "created".into(), false, None, None),
-            Err(StoreApiError::InvalidInput(_))
-        ));
-        assert!(matches!(
-            store.search_artifacts("paper".into(), unknown.clone()),
-            Err(StoreApiError::InvalidInput(_))
-        ));
-        assert!(matches!(
-            store.count_artifacts(unknown),
-            Err(StoreApiError::InvalidInput(_))
-        ));
+        assert!(store
+            .list_artifacts(unknown.clone(), "created".into(), false, None, None)
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .search_artifacts("paper".into(), unknown.clone())
+            .unwrap()
+            .is_empty());
+        assert_eq!(store.count_artifacts(unknown).unwrap(), 0);
     }
 
     #[test]

@@ -187,6 +187,7 @@ pub fn create_revision(
         batch_id: None,
         references,
         parent: Some(manuscript_id),
+        extra: Default::default(),
     };
 
     store.insert(revision.clone())?;
@@ -299,6 +300,7 @@ mod tests {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         store.insert(item).unwrap();
         id

@@ -233,7 +233,21 @@ struct EnvelopeFields {
     produced_by: Option<String>,
     version: Option<String>,
     batch_id: Option<String>,
+    /// Envelope fields a newer build wrote (koine plan-koine-trust TR-D13),
+    /// as the JSON object text the `extra` column holds.
+    extra: Option<String>,
 }
+
+/// The envelope keys this build names; any other key is a newer build's.
+const KNOWN_ENVELOPE_KEYS: &[&str] = &[
+    "canonical_id",
+    "visibility",
+    "message_type",
+    "produced_by",
+    "version",
+    "batch_id",
+    "extra",
+];
 
 fn build_envelope_json(fields: &EnvelopeFields) -> String {
     let mut env = serde_json::Map::new();
@@ -252,6 +266,15 @@ fn build_envelope_json(fields: &EnvelopeFields) -> String {
     }
     if let Some(v) = &fields.batch_id {
         env.insert("batch_id".into(), v.as_str().into());
+    }
+    if let Some(serde_json::Value::Object(extra)) = fields
+        .extra
+        .as_deref()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+    {
+        if !extra.is_empty() {
+            env.insert("extra".into(), serde_json::Value::Object(extra));
+        }
     }
     serde_json::Value::Object(env).to_string()
 }
@@ -275,6 +298,20 @@ fn parse_envelope_json(envelope_json: &str) -> EnvelopeFields {
     fields.produced_by = get("produced_by");
     fields.version = get("version");
     fields.batch_id = get("batch_id");
+    // TR-D13: the item's extra fields, and any envelope key this build does
+    // not name (a newer build's), are kept rather than dropped.
+    let mut extra = match env.get("extra") {
+        Some(serde_json::Value::Object(map)) => map.clone(),
+        _ => serde_json::Map::new(),
+    };
+    for (key, value) in &env {
+        if !KNOWN_ENVELOPE_KEYS.contains(&key.as_str()) {
+            extra.insert(key.clone(), value.clone());
+        }
+    }
+    if !extra.is_empty() {
+        fields.extra = Some(serde_json::Value::Object(extra).to_string());
+    }
     fields
 }
 
@@ -341,7 +378,8 @@ impl SqliteItemStore {
                 "SELECT id, schema_ref, payload, logical_clock, author_kind, author,
                         COALESCE(origin, ''), created, modified, is_read, is_starred,
                         flag_color, flag_style, flag_length, priority, parent_id,
-                        canonical_id, visibility, message_type, produced_by, version, batch_id
+                        canonical_id, visibility, message_type, produced_by, version, batch_id,
+                        extra
                  FROM items
                  WHERE id = ?1
                    AND op_target_id IS NULL
@@ -355,6 +393,7 @@ impl SqliteItemStore {
                         produced_by: r.get(19)?,
                         version: r.get(20)?,
                         batch_id: r.get(21)?,
+                        extra: r.get(22)?,
                     };
                     Ok(SyncItemRecord {
                         id: r.get(0)?,
@@ -722,7 +761,8 @@ impl SqliteItemStore {
                              parent_id = ?13, logical_clock = ?14, origin = ?15,
                              canonical_id = ?16, priority = ?17, visibility = ?18,
                              message_type = ?19, produced_by = ?20, version = ?21,
-                             batch_id = ?22, op_target_id = NULL, retention = 'durable'
+                             batch_id = ?22, op_target_id = NULL, retention = 'durable',
+                             extra = ?23
                          WHERE id = ?1",
                         params![
                             &rec.id,
@@ -747,6 +787,7 @@ impl SqliteItemStore {
                             &envelope.produced_by,
                             &envelope.version,
                             &envelope.batch_id,
+                            &envelope.extra,
                         ],
                     )
                     .map_err(|e| StoreError::Storage(format!("apply item update: {}", e)))?;
@@ -773,9 +814,10 @@ impl SqliteItemStore {
                              author, author_kind, is_read, is_starred, flag_color,
                              flag_style, flag_length, parent_id, logical_clock, origin,
                              canonical_id, priority, visibility, message_type, produced_by,
-                             version, batch_id, op_target_id, retention)
+                             version, batch_id, op_target_id, retention, extra)
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                                 ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, NULL, 'durable')",
+                                 ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, NULL, 'durable',
+                                 ?23)",
                         params![
                             &rec.id,
                             &rec.schema_ref,
@@ -799,6 +841,7 @@ impl SqliteItemStore {
                             &envelope.produced_by,
                             &envelope.version,
                             &envelope.batch_id,
+                            &envelope.extra,
                         ],
                     )
                     .map_err(|e| StoreError::Storage(format!("apply item insert: {}", e)))?;
@@ -1436,6 +1479,7 @@ mod tests {
             produced_by: Some("agent:enrich".into()),
             version: None,
             batch_id: Some("b1".into()),
+            extra: Some(r#"{"from_a_newer_build":{"kept":true}}"#.into()),
         };
         let json = build_envelope_json(&fields);
         let back = parse_envelope_json(&json);
@@ -1447,5 +1491,14 @@ mod tests {
         // Missing/garbage envelope falls back to private visibility.
         assert_eq!(parse_envelope_json("").visibility, "private");
         assert_eq!(parse_envelope_json("{}").visibility, "private");
+        // koine plan-koine-trust TR-D13: extra fields come back, and an
+        // envelope key this build does not name is kept among them.
+        let extra: serde_json::Value =
+            serde_json::from_str(back.extra.as_deref().unwrap()).unwrap();
+        assert_eq!(extra["from_a_newer_build"]["kept"], true);
+        let newer = parse_envelope_json(r#"{"visibility":"private","shard":"eu-1"}"#);
+        let extra: serde_json::Value =
+            serde_json::from_str(newer.extra.as_deref().unwrap()).unwrap();
+        assert_eq!(extra["shard"], "eu-1");
     }
 }

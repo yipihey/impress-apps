@@ -62,10 +62,10 @@ catalogue, 168 on the exception table.
 | `agent-service_claim` | — | any("koine/agent-request@1.0.0") | — | — |
 | `agent-service_context` | "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0" | "impress/ui/layout@1.0.0" | — | example ×1 |
 | `agent-service_decline` | — | any("koine/agent-request@1.0.0") | — | — |
-| `agent-service_release` | — | any("koine/agent-request@1.0.0") | — | — |
 | `agent-service_diagnose` | "core/verb-call@1.0.0" | any("koine/agent-request@1.0.0") | — | — |
 | `agent-service_make-surface` | — | any("koine/agent-request@1.0.0") | — | example ×1 |
 | `agent-service_next` | any("koine/agent-request@1.0.0") | — | — | example ×1 |
+| `agent-service_release` | — | any("koine/agent-request@1.0.0") | — | — |
 | `agent-service_requests` | any("koine/agent-request@1.0.0") | — | — | example ×2 |
 | `agent-service_show` | any("koine/agent-request@1.0.0") | "impress/ui/layout@1.0.0" | — | — |
 | `agent-service_skill` | any("koine/agent-request@1.0.0") | — | — | — |
@@ -521,6 +521,12 @@ catalogue, 168 on the exception table.
 | `perf-service_trace` | — | — | — | example ×1 |
 | `provider-service_list` | — | — | — | example ×1 |
 | `provider-service_set-trusted` | "provider@1.0.0" | "provider@1.0.0" | — | catalogue:provider |
+| `review-service_approve` | "koine/pending-call@1.0.0", "review-request@1.0.0" | "koine/pending-call@1.0.0", "review-request@1.0.0", "koine/consent-rule@1.0.0" | — | — |
+| `review-service_list` | "koine/pending-call@1.0.0", "review-request@1.0.0" | — | — | example ×1 |
+| `review-service_reject` | "koine/pending-call@1.0.0", "review-request@1.0.0" | "koine/pending-call@1.0.0", "review-request@1.0.0", "koine/consent-rule@1.0.0" | — | — |
+| `review-service_revoke-rule` | "koine/consent-rule@1.0.0" | "koine/consent-rule@1.0.0" | — | — |
+| `review-service_rules` | "koine/consent-rule@1.0.0" | — | — | example ×1 |
+| `review-service_show` | "koine/pending-call@1.0.0", "review-request@1.0.0" | — | — | — |
 | `settings-service_get` | "impress/settings@1.0.0" | — | fs | — |
 | `settings-service_list` | "impress/settings@1.0.0" | — | fs | — |
 | `settings-service_reset` | — | "impress/settings@1.0.0" | fs | — |
@@ -602,8 +608,8 @@ when one lands).
 | `agent-service_answer` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `agent-service_claim` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `agent-service_decline` | exercised, unobserved (example ran, spy saw no declared read or write) |
-| `agent-service_release` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `agent-service_diagnose` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `agent-service_release` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `agent-service_show` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `agent-service_skill` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `capabilities-service_catalogue-surface` | exercised, unobserved (example ran, spy saw no declared read or write) |
@@ -746,6 +752,10 @@ when one lands).
 | `layout-service_outline-move` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `layout-service_outline-rename` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `parsers-service_resolve-publisher-pdf` | leaves the process (network) |
+| `review-service_approve` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `review-service_reject` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `review-service_revoke-rule` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `review-service_show` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `settings-service_get` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `settings-service_list` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `settings-service_reset` | exercised, unobserved (example ran, spy saw no declared read or write) |

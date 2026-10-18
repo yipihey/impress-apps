@@ -56,6 +56,13 @@ impl SchemaRegistry {
                 });
             }
         }
+        // koine plan-koine-trust TR-D12: koine's registry knows the kind too,
+        // so every store write of it is stamped with this schema's version
+        // and checked against it (warn mode). A change that breaks the kind's
+        // registered schema is refused there, and reported here.
+        if let Err(refused) = impress_item::kind::register(to_kind_schema(&schema)) {
+            eprintln!("impress-core: {refused}");
+        }
         self.schemas.insert(schema.id.clone(), schema);
         Ok(())
     }
@@ -189,6 +196,35 @@ fn value_type_name(value: &Value) -> &'static str {
     }
 }
 
+/// An impress-core schema as koine's [`impress_item::kind::KindSchema`].
+pub fn to_kind_schema(schema: &crate::schema::Schema) -> impress_item::kind::KindSchema {
+    use crate::schema::FieldType as F;
+    use impress_item::kind::{FieldDef, FieldType as K};
+    impress_item::kind::KindSchema {
+        name: schema.id.as_str().to_owned(),
+        version: schema.version.clone(),
+        fields: schema
+            .fields
+            .iter()
+            .map(|field| FieldDef {
+                name: field.name.clone(),
+                ty: match field.field_type {
+                    F::String => K::String,
+                    F::Int => K::Int,
+                    F::Float => K::Float,
+                    F::Bool => K::Bool,
+                    // Stored as text or as milliseconds, by writer.
+                    F::DateTime => K::Any,
+                    F::StringArray => K::Array,
+                    F::Object => K::Object,
+                },
+                required: field.required,
+                values: None,
+            })
+            .collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,6 +312,7 @@ mod tests {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         }
     }
 
@@ -418,6 +455,7 @@ mod tests {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         let errs = reg.validate(&item).unwrap_err();
         assert_eq!(errs.len(), 2); // missing abstract_text + arxiv_id

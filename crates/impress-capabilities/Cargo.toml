@@ -10,6 +10,8 @@ repository.workspace = true
 perf-service = { workspace = true, optional = true }
 serde_json = { workspace = true }
 impress-service-core = { workspace = true }
+# `gen-app-intents` (koine plan-koine-trust TR-D14).
+koine-app-intents = { workspace = true }
 
 # One optional dependency per service crate, gated by the feature of the same
 # name below. `imprint` links both `imprint-service` (the trait) and

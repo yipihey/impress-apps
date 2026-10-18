@@ -52,6 +52,7 @@ fn row(
         batch_id: None,
         references: vec![],
         parent: parent.map(id).transpose()?,
+        extra: Default::default(),
     })
 }
 

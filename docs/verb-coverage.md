@@ -78,6 +78,7 @@ read.
 | `surface-demo-service` | surface-demo-service | 11 | 11 | 16 (14) | 16 | 11 |
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 1 | 1 |
 | `task-service` | koine-tasks | 5 | 5 | 11 (4) | 11 | 5 |
+| `review-service` | koine-tasks | 6 | 6 | 10 (4) | 10 | 6 |
 | `triage-service` | koine-triage | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 24 | 15 |
 | **Total** | 21 crates, 46 services | **491** | **491** | **1126 (728)** | **1126** | **491** |

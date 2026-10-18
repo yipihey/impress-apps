@@ -109,6 +109,7 @@ pub fn make_item_named(store: &SqliteItemStore, schema: &str, title: &str) -> St
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     };
     store.insert(item).expect("insert item").to_string()
 }

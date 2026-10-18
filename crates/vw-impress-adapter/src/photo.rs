@@ -532,6 +532,7 @@ fn ensure_media_source(
                 metadata: None,
             }],
             parent: None,
+            extra: Default::default(),
         })
         .map_err(|error| format!("insert media artifact: {error}"))?;
     Ok(())
@@ -634,6 +635,7 @@ fn insert_evidence(
             batch_id: None,
             references,
             parent: Some(source_id),
+            extra: Default::default(),
         })
         .map_err(|error| format!("insert photo evidence: {error}"))?;
     Ok(())

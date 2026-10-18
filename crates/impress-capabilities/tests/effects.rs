@@ -120,7 +120,17 @@ use serde_json::Value;
 // probes provider health to pick each tier's provider, so its reach leaves the
 // process like `list-providers` and `provider-health`. Its positive evidence is
 // koine-ai `service.rs` tests of `apply_routing_preset`.
-const EXCEPTION_CEILING: usize = 173;
+// 173 → 174: koine adds `review-service` (plan-koine-trust TR-D4). Its
+// `show`, `approve` and `reject` examples can only name a missing pending call
+// (and approve/reject refuse an agent first), so the spy sees nothing; three
+// rows join the table (171 → 174 rows; the ceiling had two to spare). Their
+// positive evidence is koine-tasks `tests/review.rs`, which files, approves,
+// rejects, sweeps and expires real pending calls.
+// 174 → 175: koine adds `review-service_revoke-rule` (plan-koine-trust
+// TR-D9), whose only example revokes a missing rule as an agent (refused), so
+// the spy sees nothing. Its positive evidence is koine-tasks
+// `tests/consent.rs`, which remembers, lists, revokes and re-asks.
+const EXCEPTION_CEILING: usize = 175;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave

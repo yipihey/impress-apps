@@ -2637,6 +2637,7 @@ fn build_item(id: ItemId, schema: StoreSchemaRef, payload: BTreeMap<String, Valu
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 
