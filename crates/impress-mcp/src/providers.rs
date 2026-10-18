@@ -59,6 +59,7 @@ pub fn run_http(bind: &str, token_file: &Path) -> Result<(), Box<dyn std::error:
         server_version: env!("CARGO_PKG_VERSION").into(),
         instructions: "The Impress research suite: one inventory of linked and registered provider verbs. Provider calls use the same policy and audit pipeline.".into(),
         allowed_tool_prefixes: vec![], resources: vec![], tool_ui: vec![], tool_file_params: vec![],
+        secret_url: None,
     };
     koine_mcp_host::run_http(config, bind, token)
 }

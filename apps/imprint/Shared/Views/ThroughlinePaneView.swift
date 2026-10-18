@@ -212,6 +212,19 @@ struct ThroughlinePaneView: View {
                       : "Reject — the anchor stays visibly stale; nothing changes")
                 Spacer()
             }
+            #if os(macOS)
+            // Approve only some targets, or an alternative verb instead
+            // (koine TR-D7). iOS has no verb FFI here; it keeps Accept/Discard.
+            if proposal.anchor == nil, let call = proposal.call, let pendingCallID = call.pendingCallID {
+                HeldCallChoices(
+                    pendingCallID: pendingCallID,
+                    targets: call.targets,
+                    dispatch: ImprintNativeVerbs.heldCallDispatch,
+                    compact: true,
+                    onActed: { derivationTick += 1 }
+                )
+            }
+            #endif
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.05)))

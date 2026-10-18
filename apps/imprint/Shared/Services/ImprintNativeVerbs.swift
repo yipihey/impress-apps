@@ -317,6 +317,25 @@ enum ImprintNativeVerbs {
     }
 }
 
+extension ImprintNativeVerbs {
+    /// Bind the verb store once for in-app callers when the HTTP server has
+    /// not (installing again with the same database is a no-op).
+    private static let installedForApp: Void = {
+        do { try install() } catch {
+            logWarning("Native verbs unavailable for the review pane: \(error)", category: "throughline")
+        }
+    }()
+
+    /// The throughline pane's review-service calls (approve some targets, or
+    /// an alternative instead — koine TR-D7), through imprint's verb FFI.
+    static let heldCallDispatch: HeldCallReview.Dispatch = { verb, argsJSON, callerJSON in
+        await MainActor.run { _ = installedForApp }
+        return await ImprintVerbsFFI.dispatchVerbAsync(
+            name: verb, argsJson: argsJSON, callerJson: callerJSON
+        ).bodyJson
+    }
+}
+
 private struct NativeInstallFailure: LocalizedError {
     let message: String
     var errorDescription: String? { message }
