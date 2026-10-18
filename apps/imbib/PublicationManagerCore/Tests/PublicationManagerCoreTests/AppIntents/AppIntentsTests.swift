@@ -7,6 +7,7 @@
 
 import XCTest
 @testable import PublicationManagerCore
+@testable import ImbibAppIntents
 
 @available(iOS 16.0, macOS 13.0, *)
 final class AppIntentsTests: XCTestCase {
@@ -459,10 +460,7 @@ final class AppIntentsTests: XCTestCase {
         XCTAssertFalse(String(localized: notFoundError.localizedStringResource).isEmpty)
     }
 
-    // MARK: - Shortcuts Provider
-
-    func testImbibShortcuts_hasShortcuts() {
-        let shortcuts = ImbibShortcuts.appShortcuts
-        XCTAssertFalse(shortcuts.isEmpty, "Should have at least one shortcut")
-    }
+    // `ImbibShortcuts` lives in the imbib app target now (App Intents
+    // extraction reads a provider only there); its test is
+    // imbibTests/AppShortcutsTests.swift.
 }

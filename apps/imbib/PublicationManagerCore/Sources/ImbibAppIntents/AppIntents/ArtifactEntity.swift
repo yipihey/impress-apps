@@ -7,6 +7,7 @@
 
 import AppIntents
 import Foundation
+import PublicationManagerCore
 
 // MARK: - Artifact Type Enum for App Intents
 

@@ -98,6 +98,9 @@ targets:
           - "Gemfile*"
     dependencies:
       - package: PublicationManagerCore
+      # imbib's App Intents: only the imbib apps export them.
+      - package: PublicationManagerCore
+        product: ImbibAppIntents
       - package: ImpressHelixCore
       - package: ImpressKit
       - target: imbib-ShareExtension
@@ -187,6 +190,8 @@ targets:
     platform: iOS
     templates: [ChassisUTIs]
     sources:
+      # imbib's App Shortcuts provider lives in the app target (both apps).
+      - path: imbib/AppShortcuts
       - path: imbib-iOS
         excludes:
           - "**/ShareExtension/**"
@@ -255,6 +260,9 @@ targets:
         buildPhase: resources
     dependencies:
       - package: PublicationManagerCore
+      # imbib's App Intents: only the imbib apps export them.
+      - package: PublicationManagerCore
+        product: ImbibAppIntents
       - package: ImpressHelixCore
       - package: ImpressKit
       - target: imbib-iOS-ShareExtension

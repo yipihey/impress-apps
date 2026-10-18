@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ImbibAppIntents
 import PublicationManagerCore
 import OSLog
 import UserNotifications
@@ -31,6 +32,10 @@ struct imbibApp: App {
 
     init() {
         appLogger.info("imbib iOS app initializing...")
+
+        // imbib's App Intents live in ImbibAppIntents; name the publication a
+        // Handoff activity is about as their PublicationEntity.
+        ImbibAppIntents.install()
 
         // Use shared credential manager singleton for persistence
         let credentialManager = CredentialManager.shared

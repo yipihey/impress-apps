@@ -5,7 +5,6 @@
 //  Created by Claude on 2026-01-29.
 //
 
-import AppIntents
 import Foundation
 import OSLog
 
@@ -183,15 +182,17 @@ public final class HandoffService {
         Logger.handoff.debug("Started viewing activity: \(citeKey)")
     }
 
-    /// Name the publication an activity is about as the generated
-    /// `PublicationEntity` (koine's App Intents, plan-koine-trust TR-D14), so
-    /// Siri, Shortcuts and Apple Intelligence can act on what the person is
-    /// looking at.
+    /// Names the publication an activity is about as an App Intents entity,
+    /// so Siri, Shortcuts and Apple Intelligence can act on what the person
+    /// is looking at. Set by the app that declares the entity: imbib installs
+    /// the generated `PublicationEntity` (koine's App Intents,
+    /// plan-koine-trust TR-D14) from `ImbibAppIntents`. The other apps that
+    /// show this detail pane declare no publication entity, so they leave it
+    /// unset rather than point at a type their bundle does not export.
+    public static var entityPointer: ((NSUserActivity, UUID) -> Void)?
+
     private static func point(_ activity: NSUserActivity, at publicationID: UUID) {
-        activity.appEntityIdentifier = EntityIdentifier(
-            for: PublicationEntity.self,
-            identifier: publicationID.uuidString.lowercased()
-        )
+        entityPointer?(activity, publicationID)
     }
 
     /// Stop any current activity.

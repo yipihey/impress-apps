@@ -110,6 +110,9 @@ targets:
         COMBINE_HIDPI_IMAGES: YES
     dependencies:
       - package: ImprintCore
+      # imprint's App Intents: only the imprint apps export them.
+      - package: ImprintCore
+        product: ImprintAppIntents
       - package: ImprintRustCore
       - package: ImprintVerbsFFI
       - package: ImpressHelixCore
@@ -288,6 +291,9 @@ targets:
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
     dependencies:
       - package: ImprintCore
+      # imprint's App Intents: only the imprint apps export them.
+      - package: ImprintCore
+        product: ImprintAppIntents
       - package: ImprintRustCore
       - package: ImpressHelixCore
       - package: ImpressAI

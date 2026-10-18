@@ -28,7 +28,7 @@ const APPS: &[App] = &[
         prefix: "Imbib",
         services: "imbib-",
         ffi: "ImbibVerbsFFI",
-        dir: "apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/VerbIntents",
+        dir: "apps/imbib/PublicationManagerCore/Sources/ImbibAppIntents/VerbIntents",
     },
     App {
         prefix: "Imprint",

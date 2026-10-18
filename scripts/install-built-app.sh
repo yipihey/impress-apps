@@ -23,7 +23,6 @@
 #     group container.
 #   * Only a bundle that verifies. A post-action also runs after a failed
 #     build; then the product is the previous one or half-written.
-#   * Only a bundle carrying its App Intents metadata, the failure above.
 #
 # Xcode does not show a post-action's output, so every run appends to
 # ~/Library/Logs/Impress/install-built-app.log. Run by hand with the built
@@ -63,9 +62,13 @@ if ! /usr/bin/codesign --verify --deep --strict "$SRC" 2>>"$LOG"; then
     say "$NAME: skipped, the build does not verify (a failed or partial build?)"
     exit 0
 fi
-if [ ! -f "$SRC/Contents/Resources/Metadata.appintents/extract.actionsdata" ]; then
-    say "$NAME: skipped, the build has no App Intents metadata"
-    exit 0
+# What the system will see. A post-action runs after extraction, so this is
+# the build's own metadata; an app that declares no intents (impress) has none.
+INTENTS="$SRC/Contents/Resources/Metadata.appintents/extract.actionsdata"
+if [ -f "$INTENTS" ]; then
+    COUNTS="$(/usr/bin/python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("%d intents, %d app shortcuts" % (len(d.get("actions", {})), len(d.get("autoShortcuts", []))))' "$INTENTS" 2>/dev/null || echo "unreadable App Intents metadata")"
+else
+    COUNTS="no App Intents"
 fi
 
 DEST="$HOME/Applications"
@@ -82,5 +85,5 @@ rm -rf "${DEST:?}/$NAME"
 "$LSREG" -u "$SRC" 2>/dev/null || true
 /usr/bin/chflags hidden "$SRC" || true
 /usr/bin/mdimport "$DEST/$NAME" 2>/dev/null || true
-say "$NAME: installed to $DEST (team $TEAM)"
+say "$NAME: installed to $DEST (team $TEAM; $COUNTS)"
 echo "note: installed $NAME to $DEST"

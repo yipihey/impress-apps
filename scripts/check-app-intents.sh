@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 DIRS=(
-    apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/VerbIntents
+    apps/imbib/PublicationManagerCore/Sources/ImbibAppIntents/VerbIntents
     apps/imprint/Shared/VerbIntents
     apps/implore/Implore/Sources/VerbIntents
 )

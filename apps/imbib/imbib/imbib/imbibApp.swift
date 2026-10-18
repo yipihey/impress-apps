@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreSpotlight
+import ImbibAppIntents
 import PublicationManagerCore
 import ImpressLogging
 import ImpressKit
@@ -339,6 +340,10 @@ struct imbibApp: App {
 
     init() {
         let appStart = CFAbsoluteTimeGetCurrent()
+
+        // imbib's App Intents live in ImbibAppIntents; name the publication a
+        // Handoff activity is about as their PublicationEntity.
+        ImbibAppIntents.install()
 
         // Phase 1: Development mode flags (--edit-default-set, --show-welcome-screen, UI testing)
         isEditingDefaultSet = Self.setupDevelopmentModeFlags()
