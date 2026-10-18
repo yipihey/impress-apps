@@ -131,7 +131,7 @@ Delete one comment and nothing else. A missing id or a row of another kind is re
 
 - **safety**: `destructive`
 - **adverbs**: tentatively, with_review, once
-- **reads**: "imbib/comment"
+- **reads**: "imbib/comment", any("the comment's children, whatever their kind, for the undo snapshot")
 - **writes**: "imbib/comment"
 - **reach**: —
 
