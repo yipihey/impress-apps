@@ -336,8 +336,13 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   **Do not set `CARGO_TARGET_DIR=$PWD/target-<task>`** to get around another
   build's lock. Wait for the lock: a warm queued build beats a cold private one,
   and nothing deletes the private dir. `scripts/clean-build-data.sh` (dry run;
-  `--apply` deletes) is the weekly janitor. Build scripts refuse to start below
-  50 GB free. See [docs/build-machine-hygiene.md](docs/build-machine-hygiene.md).
+  `--apply` deletes) is the janitor: daily, plus an hourly light pass that
+  deletes the object files no test binary still names and old test scratch
+  (both pile up by the hundred thousand and slow every rustc call;
+  `scripts/sweep-objects.sh` is the sweep, and `scripts/rust-gate.sh` runs it
+  first and gives its tests a `TMPDIR` of their own). Make a worktree under
+  `.claude/worktrees/`, never beside the checkout: only there does it share
+  the warm target dir. Build scripts refuse to start below 50 GB free. See [docs/build-machine-hygiene.md](docs/build-machine-hygiene.md).
 - **Framework rebuilds skip what did not change**: `build-xcframeworks.sh`
   runs only the crates an edit can reach (`scripts/framework-plan.py`), and each
   crate script skips repackaging when its archives are byte-identical to the last

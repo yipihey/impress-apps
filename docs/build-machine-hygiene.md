@@ -76,9 +76,26 @@ Rules:
   another build's lock. Wait instead: a warm build that queues is faster than a
   cold one, and the private dir is never deleted.
 - `scripts/clean-build-data.sh` is the janitor. It dry-runs by default, and
-  `--apply` deletes. `scripts/install-build-janitor.sh` runs it every Sunday at
-  03:30. It removes merged, clean worktrees idle for 2 days, and leaves alone
-  anything a build touched in the last 2 hours.
+  `--apply` deletes. `scripts/install-build-janitor.sh` runs it daily at
+  03:30, and with `--light` every hour. It removes merged, clean worktrees idle
+  for 2 days, and leaves alone anything a build touched in the last 2 hours.
+- **File count, not only size.** On macOS a test binary's debug info stays in
+  its object files in `target/debug/deps`, and every rebuild writes new ones
+  under new names (~28,000 per impress rebuild). At hundreds of thousands
+  every rustc call slows down, long before any size budget trips (koine:
+  101 GB, under budget, with 461,602 dead objects and gates 5× slower). The
+  janitor's hourly pass and `rust-gate.sh` run `scripts/sweep-objects.sh`,
+  which deletes the objects no binary names; the daily pass also clears a
+  `debug/` whose `deps/` still holds more than `FILE_BUDGET` (60,000) files.
+  It covers both shared dirs, the CI runner dirs and the sibling koine
+  checkout (`EXTRA_TARGETS`).
+- **Test scratch.** `rust-gate.sh` runs tests with a `TMPDIR` of their own and
+  deletes it after, so a test that leaks files cannot fill the real one; the
+  janitor deletes the known test-scratch names in `$TMPDIR` after a day.
+- **Worktrees go under `.claude/worktrees/`.** One made beside the main
+  checkout reads no shared cargo config and builds its own `target/` (192 GB
+  found in `impress-apps-trust` on 2026-10-18); the janitor now deletes a
+  `target/` in any linked worktree that is not in use.
 - Build scripts refuse to start below 50 GB free (`IMPRESS_MIN_FREE_GB`)
   instead of failing halfway with ENOSPC.
 - Self-hosted CI lanes build xcframeworks with `IMPRESS_SKIP_X86=1`

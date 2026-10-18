@@ -34,6 +34,21 @@ MODE="${1:-clippy}"; SHARD="${2:-auto}"
 
 if [ "$MODE" = "fmt" ]; then exec cargo fmt --all --check; fi
 
+# Object files of test binaries pile up in target/debug/deps on macOS, ~12,000
+# a workspace rebuild, until every rustc call crawls (183,191 found on
+# 2026-10-18); drop the ones no binary still names. Seconds; see the script.
+scripts/sweep-objects.sh 2>/dev/null | sed 's/^/rust-gate: /' || true
+
+# Tests that leave files behind (a forgotten TempDir, a store handed away by
+# value) fill $TMPDIR: ~11,000 entries were found there on 2026-10-18. The
+# test run gets a TMPDIR of its own, removed when it ends, so whatever any
+# test leaks — now or in a test written later — goes with it.
+if [ "$MODE" = "test" ]; then
+    TEST_TMP="$(mktemp -d "${TMPDIR:-/tmp}/rust-gate-tests.XXXXXX")"
+    trap 'rm -rf "$TEST_TMP"' EXIT
+    export TMPDIR="$TEST_TMP/"
+fi
+
 pick_shards() {
     if [ "$SHARD" != "auto" ]; then echo "$SHARD"; return; fi
     local base changed
