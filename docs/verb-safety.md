@@ -92,10 +92,10 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `agent-service_claim` | mutating | name/doc |
 | `agent-service_context` | mutating | reads the layout through `layout-service_get-layout`, which writes a device's default layout on first read (the store spy observed it); idempotent thereafter |
 | `agent-service_decline` | mutating | name/doc |
-| `agent-service_release` | mutating | name/doc |
 | `agent-service_diagnose` | mutating | name/doc |
 | `agent-service_make-surface` | mutating | name/doc |
 | `agent-service_next` | read_only | name/doc |
+| `agent-service_release` | mutating | name/doc |
 | `agent-service_requests` | read_only | name/doc |
 | `agent-service_show` | mutating | name/doc |
 | `agent-service_skill` | read_only | name/doc |
@@ -551,6 +551,10 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `perf-service_trace` | read_only | name/doc |
 | `provider-service_list` | read_only | name/doc |
 | `provider-service_set-trusted` | mutating | name/doc |
+| `review-service_approve` | mutating | name/doc |
+| `review-service_list` | read_only | name/doc |
+| `review-service_reject` | mutating | name/doc |
+| `review-service_show` | read_only | name/doc |
 | `settings-service_get` | read_only | name/doc |
 | `settings-service_list` | read_only | name/doc |
 | `settings-service_reset` | mutating | `settings_service.rs` — forgets a stored value in a scope file; the default stands and the file is rewritten atomically |

@@ -712,6 +712,19 @@ async fn main() {
         }
     });
 
+    // koine plan-koine-trust TR-D4: a pending call approved through another
+    // app (imbib's review list resolves the review request) runs here, and a
+    // pending call that waited too long expires.
+    let review_store = store.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Err(error) = koine_tasks::review::sweep(review_store.as_ref()).await {
+                eprintln!("impel-taskd: review sweep: {error}");
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+
     // Executors: credential-free sources by default; ADS joins when a
     // token is supplied (IMPEL_ADS_TOKEN).
     let mut sources = vec![

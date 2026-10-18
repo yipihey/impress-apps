@@ -27,7 +27,14 @@ use crate::store::{AttributedStore, FieldMutation, ItemStore, StoreError};
 /// upgrade at once with `database is locked`, never consulting the busy
 /// timeout. Every write transaction in this file starts here
 /// (`batch_writes_wait_for_another_connections_commit`).
+///
+/// It is also where a dry run is refused (koine plan-koine-trust TR-D3): a
+/// write made inside a `tentatively` call, by any path into this store,
+/// fails here, and the pipeline answers the call statically instead.
 fn immediate_transaction(conn: &Connection) -> rusqlite::Result<rusqlite::Transaction<'_>> {
+    if let Err(refusal) = impress_item::ambient::check_dry_run_write() {
+        return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(refusal)));
+    }
     rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)
 }
 
