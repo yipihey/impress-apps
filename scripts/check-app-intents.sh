@@ -5,7 +5,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-DIR=apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Generated/AppIntents
+DIR=apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/VerbIntents
 cargo run --quiet -p impress-capabilities --bin gen-app-intents
 if ! git diff --quiet -- "$DIR" || [ -n "$(git status --porcelain -- "$DIR")" ]; then
     echo "imbib's generated App Intents are out of date:" >&2

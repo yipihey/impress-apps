@@ -15,7 +15,7 @@ use koine_app_intents::{generate, AppInfo};
 
 /// Where the imbib files go, under the repository root.
 const IMBIB_DIR: &str =
-    "apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Generated/AppIntents";
+    "apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/VerbIntents";
 
 fn main() {
     impress_capabilities::force_link();

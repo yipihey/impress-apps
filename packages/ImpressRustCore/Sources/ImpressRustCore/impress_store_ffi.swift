@@ -15641,6 +15641,7 @@ public enum SchemaRef {
     case contentBlob
     case contentChunk
     case conversation
+    case coreKindSchema
     case coreOperation
     case coreStoreMetadata
     case coreVerbCall
@@ -15683,6 +15684,8 @@ public enum SchemaRef {
     case impressUiSurfaceState
     case impressUiSurface
     case impressWorkflow
+    case koineConsentRule
+    case koinePendingCall
     case mailAccount
     case mailFolder
     case manuscript
@@ -15751,159 +15754,165 @@ public struct FfiConverterTypeSchemaRef: FfiConverterRustBuffer {
         
         case 10: return .conversation
         
-        case 11: return .coreOperation
+        case 11: return .coreKindSchema
         
-        case 12: return .coreStoreMetadata
+        case 12: return .coreOperation
         
-        case 13: return .coreVerbCall
+        case 13: return .coreStoreMetadata
         
-        case 14: return .dataset
+        case 14: return .coreVerbCall
         
-        case 15: return .emailMessage
+        case 15: return .dataset
         
-        case 16: return .extractionRun
+        case 16: return .emailMessage
         
-        case 17: return .figure
+        case 17: return .extractionRun
         
-        case 18: return .figureCollection
+        case 18: return .figure
         
-        case 19: return .figureRegion
+        case 19: return .figureCollection
         
-        case 20: return .gitProject
+        case 20: return .figureRegion
         
-        case 21: return .imbibActivityRecord
+        case 21: return .gitProject
         
-        case 22: return .imbibAnnotation
+        case 22: return .imbibActivityRecord
         
-        case 23: return .imbibAssignment
+        case 23: return .imbibAnnotation
         
-        case 24: return .imbibBibliographyEntry
+        case 24: return .imbibAssignment
         
-        case 25: return .imbibCollection
+        case 25: return .imbibBibliographyEntry
         
-        case 26: return .imbibComment
+        case 26: return .imbibCollection
         
-        case 27: return .imbibDismissedPaper
+        case 27: return .imbibComment
         
-        case 28: return .imbibEinkDevice
+        case 28: return .imbibDismissedPaper
         
-        case 29: return .imbibEinkMirror
+        case 29: return .imbibEinkDevice
         
-        case 30: return .imbibLibrary
+        case 30: return .imbibEinkMirror
         
-        case 31: return .imbibLinkedFile
+        case 31: return .imbibLibrary
         
-        case 32: return .imbibMutedItem
+        case 32: return .imbibLinkedFile
         
-        case 33: return .imbibRecommendationProfile
+        case 33: return .imbibMutedItem
         
-        case 34: return .imbibScixLibrary
+        case 34: return .imbibRecommendationProfile
         
-        case 35: return .imbibSmartSearch
+        case 35: return .imbibScixLibrary
         
-        case 36: return .imbibTagDefinition
+        case 36: return .imbibSmartSearch
         
-        case 37: return .impressArtifactCode
+        case 37: return .imbibTagDefinition
         
-        case 38: return .impressArtifactDataset
+        case 38: return .impressArtifactCode
         
-        case 39: return .impressArtifactGeneral
+        case 39: return .impressArtifactDataset
         
-        case 40: return .impressArtifactMedia
+        case 40: return .impressArtifactGeneral
         
-        case 41: return .impressArtifactNote
+        case 41: return .impressArtifactMedia
         
-        case 42: return .impressArtifactPoster
+        case 42: return .impressArtifactNote
         
-        case 43: return .impressArtifactPresentation
+        case 43: return .impressArtifactPoster
         
-        case 44: return .impressArtifactWebpage
+        case 44: return .impressArtifactPresentation
         
-        case 45: return .impressScenario
+        case 45: return .impressArtifactWebpage
         
-        case 46: return .impressSettings
+        case 46: return .impressScenario
         
-        case 47: return .impressUiLayout
+        case 47: return .impressSettings
         
-        case 48: return .impressUiPreset
+        case 48: return .impressUiLayout
         
-        case 49: return .impressUiSurfaceEvent
+        case 49: return .impressUiPreset
         
-        case 50: return .impressUiSurfaceState
+        case 50: return .impressUiSurfaceEvent
         
-        case 51: return .impressUiSurface
+        case 51: return .impressUiSurfaceState
         
-        case 52: return .impressWorkflow
+        case 52: return .impressUiSurface
         
-        case 53: return .mailAccount
+        case 53: return .impressWorkflow
         
-        case 54: return .mailFolder
+        case 54: return .koineConsentRule
         
-        case 55: return .manuscript
+        case 55: return .koinePendingCall
         
-        case 56: return .manuscriptBuild
+        case 56: return .mailAccount
         
-        case 57: return .manuscriptChange
+        case 57: return .mailFolder
         
-        case 58: return .manuscriptCollection
+        case 58: return .manuscript
         
-        case 59: return .manuscriptFile
+        case 59: return .manuscriptBuild
         
-        case 60: return .manuscriptRevision
+        case 60: return .manuscriptChange
         
-        case 61: return .manuscriptSection
+        case 61: return .manuscriptCollection
         
-        case 62: return .manuscriptSubmission
+        case 62: return .manuscriptFile
         
-        case 63: return .memoryClaim
+        case 63: return .manuscriptRevision
         
-        case 64: return .memoryEpisode
+        case 64: return .manuscriptSection
         
-        case 65: return .memoryInstruction
+        case 65: return .manuscriptSubmission
         
-        case 66: return .plotSpec
+        case 66: return .memoryClaim
         
-        case 67: return .provider
+        case 67: return .memoryEpisode
         
-        case 68: return .review
+        case 68: return .memoryInstruction
         
-        case 69: return .reviewRequest
+        case 69: return .plotSpec
         
-        case 70: return .revisionNote
+        case 70: return .provider
         
-        case 71: return .sourceCitation
+        case 71: return .review
         
-        case 72: return .taskEvent
+        case 72: return .reviewRequest
         
-        case 73: return .task
+        case 73: return .revisionNote
         
-        case 74: return .throughline
+        case 74: return .sourceCitation
         
-        case 75: return .toolInvocation
+        case 75: return .taskEvent
         
-        case 76: return .veuszPlot
+        case 76: return .task
         
-        case 77: return .vwCommandReceipt
+        case 77: return .throughline
         
-        case 78: return .vwConfiguration
+        case 78: return .toolInvocation
         
-        case 79: return .vwDiagnosticSession
+        case 79: return .veuszPlot
         
-        case 80: return .vwKnowledgePack
+        case 80: return .vwCommandReceipt
         
-        case 81: return .vwMeasurement
+        case 81: return .vwConfiguration
         
-        case 82: return .vwObservation
+        case 82: return .vwDiagnosticSession
         
-        case 83: return .vwPhotoEvidence
+        case 83: return .vwKnowledgePack
         
-        case 84: return .vwProcedureRun
+        case 84: return .vwMeasurement
         
-        case 85: return .vwVehicle
+        case 85: return .vwObservation
         
-        case 86: return .watchedFile
+        case 86: return .vwPhotoEvidence
         
-        case 87: return .watchedFolder
+        case 87: return .vwProcedureRun
+        
+        case 88: return .vwVehicle
+        
+        case 89: return .watchedFile
+        
+        case 90: return .watchedFolder
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -15953,312 +15962,324 @@ public struct FfiConverterTypeSchemaRef: FfiConverterRustBuffer {
             writeInt(&buf, Int32(10))
         
         
-        case .coreOperation:
+        case .coreKindSchema:
             writeInt(&buf, Int32(11))
         
         
-        case .coreStoreMetadata:
+        case .coreOperation:
             writeInt(&buf, Int32(12))
         
         
-        case .coreVerbCall:
+        case .coreStoreMetadata:
             writeInt(&buf, Int32(13))
         
         
-        case .dataset:
+        case .coreVerbCall:
             writeInt(&buf, Int32(14))
         
         
-        case .emailMessage:
+        case .dataset:
             writeInt(&buf, Int32(15))
         
         
-        case .extractionRun:
+        case .emailMessage:
             writeInt(&buf, Int32(16))
         
         
-        case .figure:
+        case .extractionRun:
             writeInt(&buf, Int32(17))
         
         
-        case .figureCollection:
+        case .figure:
             writeInt(&buf, Int32(18))
         
         
-        case .figureRegion:
+        case .figureCollection:
             writeInt(&buf, Int32(19))
         
         
-        case .gitProject:
+        case .figureRegion:
             writeInt(&buf, Int32(20))
         
         
-        case .imbibActivityRecord:
+        case .gitProject:
             writeInt(&buf, Int32(21))
         
         
-        case .imbibAnnotation:
+        case .imbibActivityRecord:
             writeInt(&buf, Int32(22))
         
         
-        case .imbibAssignment:
+        case .imbibAnnotation:
             writeInt(&buf, Int32(23))
         
         
-        case .imbibBibliographyEntry:
+        case .imbibAssignment:
             writeInt(&buf, Int32(24))
         
         
-        case .imbibCollection:
+        case .imbibBibliographyEntry:
             writeInt(&buf, Int32(25))
         
         
-        case .imbibComment:
+        case .imbibCollection:
             writeInt(&buf, Int32(26))
         
         
-        case .imbibDismissedPaper:
+        case .imbibComment:
             writeInt(&buf, Int32(27))
         
         
-        case .imbibEinkDevice:
+        case .imbibDismissedPaper:
             writeInt(&buf, Int32(28))
         
         
-        case .imbibEinkMirror:
+        case .imbibEinkDevice:
             writeInt(&buf, Int32(29))
         
         
-        case .imbibLibrary:
+        case .imbibEinkMirror:
             writeInt(&buf, Int32(30))
         
         
-        case .imbibLinkedFile:
+        case .imbibLibrary:
             writeInt(&buf, Int32(31))
         
         
-        case .imbibMutedItem:
+        case .imbibLinkedFile:
             writeInt(&buf, Int32(32))
         
         
-        case .imbibRecommendationProfile:
+        case .imbibMutedItem:
             writeInt(&buf, Int32(33))
         
         
-        case .imbibScixLibrary:
+        case .imbibRecommendationProfile:
             writeInt(&buf, Int32(34))
         
         
-        case .imbibSmartSearch:
+        case .imbibScixLibrary:
             writeInt(&buf, Int32(35))
         
         
-        case .imbibTagDefinition:
+        case .imbibSmartSearch:
             writeInt(&buf, Int32(36))
         
         
-        case .impressArtifactCode:
+        case .imbibTagDefinition:
             writeInt(&buf, Int32(37))
         
         
-        case .impressArtifactDataset:
+        case .impressArtifactCode:
             writeInt(&buf, Int32(38))
         
         
-        case .impressArtifactGeneral:
+        case .impressArtifactDataset:
             writeInt(&buf, Int32(39))
         
         
-        case .impressArtifactMedia:
+        case .impressArtifactGeneral:
             writeInt(&buf, Int32(40))
         
         
-        case .impressArtifactNote:
+        case .impressArtifactMedia:
             writeInt(&buf, Int32(41))
         
         
-        case .impressArtifactPoster:
+        case .impressArtifactNote:
             writeInt(&buf, Int32(42))
         
         
-        case .impressArtifactPresentation:
+        case .impressArtifactPoster:
             writeInt(&buf, Int32(43))
         
         
-        case .impressArtifactWebpage:
+        case .impressArtifactPresentation:
             writeInt(&buf, Int32(44))
         
         
-        case .impressScenario:
+        case .impressArtifactWebpage:
             writeInt(&buf, Int32(45))
         
         
-        case .impressSettings:
+        case .impressScenario:
             writeInt(&buf, Int32(46))
         
         
-        case .impressUiLayout:
+        case .impressSettings:
             writeInt(&buf, Int32(47))
         
         
-        case .impressUiPreset:
+        case .impressUiLayout:
             writeInt(&buf, Int32(48))
         
         
-        case .impressUiSurfaceEvent:
+        case .impressUiPreset:
             writeInt(&buf, Int32(49))
         
         
-        case .impressUiSurfaceState:
+        case .impressUiSurfaceEvent:
             writeInt(&buf, Int32(50))
         
         
-        case .impressUiSurface:
+        case .impressUiSurfaceState:
             writeInt(&buf, Int32(51))
         
         
-        case .impressWorkflow:
+        case .impressUiSurface:
             writeInt(&buf, Int32(52))
         
         
-        case .mailAccount:
+        case .impressWorkflow:
             writeInt(&buf, Int32(53))
         
         
-        case .mailFolder:
+        case .koineConsentRule:
             writeInt(&buf, Int32(54))
         
         
-        case .manuscript:
+        case .koinePendingCall:
             writeInt(&buf, Int32(55))
         
         
-        case .manuscriptBuild:
+        case .mailAccount:
             writeInt(&buf, Int32(56))
         
         
-        case .manuscriptChange:
+        case .mailFolder:
             writeInt(&buf, Int32(57))
         
         
-        case .manuscriptCollection:
+        case .manuscript:
             writeInt(&buf, Int32(58))
         
         
-        case .manuscriptFile:
+        case .manuscriptBuild:
             writeInt(&buf, Int32(59))
         
         
-        case .manuscriptRevision:
+        case .manuscriptChange:
             writeInt(&buf, Int32(60))
         
         
-        case .manuscriptSection:
+        case .manuscriptCollection:
             writeInt(&buf, Int32(61))
         
         
-        case .manuscriptSubmission:
+        case .manuscriptFile:
             writeInt(&buf, Int32(62))
         
         
-        case .memoryClaim:
+        case .manuscriptRevision:
             writeInt(&buf, Int32(63))
         
         
-        case .memoryEpisode:
+        case .manuscriptSection:
             writeInt(&buf, Int32(64))
         
         
-        case .memoryInstruction:
+        case .manuscriptSubmission:
             writeInt(&buf, Int32(65))
         
         
-        case .plotSpec:
+        case .memoryClaim:
             writeInt(&buf, Int32(66))
         
         
-        case .provider:
+        case .memoryEpisode:
             writeInt(&buf, Int32(67))
         
         
-        case .review:
+        case .memoryInstruction:
             writeInt(&buf, Int32(68))
         
         
-        case .reviewRequest:
+        case .plotSpec:
             writeInt(&buf, Int32(69))
         
         
-        case .revisionNote:
+        case .provider:
             writeInt(&buf, Int32(70))
         
         
-        case .sourceCitation:
+        case .review:
             writeInt(&buf, Int32(71))
         
         
-        case .taskEvent:
+        case .reviewRequest:
             writeInt(&buf, Int32(72))
         
         
-        case .task:
+        case .revisionNote:
             writeInt(&buf, Int32(73))
         
         
-        case .throughline:
+        case .sourceCitation:
             writeInt(&buf, Int32(74))
         
         
-        case .toolInvocation:
+        case .taskEvent:
             writeInt(&buf, Int32(75))
         
         
-        case .veuszPlot:
+        case .task:
             writeInt(&buf, Int32(76))
         
         
-        case .vwCommandReceipt:
+        case .throughline:
             writeInt(&buf, Int32(77))
         
         
-        case .vwConfiguration:
+        case .toolInvocation:
             writeInt(&buf, Int32(78))
         
         
-        case .vwDiagnosticSession:
+        case .veuszPlot:
             writeInt(&buf, Int32(79))
         
         
-        case .vwKnowledgePack:
+        case .vwCommandReceipt:
             writeInt(&buf, Int32(80))
         
         
-        case .vwMeasurement:
+        case .vwConfiguration:
             writeInt(&buf, Int32(81))
         
         
-        case .vwObservation:
+        case .vwDiagnosticSession:
             writeInt(&buf, Int32(82))
         
         
-        case .vwPhotoEvidence:
+        case .vwKnowledgePack:
             writeInt(&buf, Int32(83))
         
         
-        case .vwProcedureRun:
+        case .vwMeasurement:
             writeInt(&buf, Int32(84))
         
         
-        case .vwVehicle:
+        case .vwObservation:
             writeInt(&buf, Int32(85))
         
         
-        case .watchedFile:
+        case .vwPhotoEvidence:
             writeInt(&buf, Int32(86))
         
         
-        case .watchedFolder:
+        case .vwProcedureRun:
             writeInt(&buf, Int32(87))
+        
+        
+        case .vwVehicle:
+            writeInt(&buf, Int32(88))
+        
+        
+        case .watchedFile:
+            writeInt(&buf, Int32(89))
+        
+        
+        case .watchedFolder:
+            writeInt(&buf, Int32(90))
         
         }
     }
