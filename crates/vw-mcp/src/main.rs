@@ -162,6 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             tool_name: "vw-diagnostic-service_ingest-photo".into(),
             params: vec!["photo".into()],
         }],
+        secret_url: None,
     };
     if let Some(bind) = http_bind {
         let token = std::env::var("IMPRESS_MCP_ACCESS_TOKEN")

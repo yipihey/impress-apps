@@ -114,3 +114,5 @@ typealias RecordTriageStoreKernel = PublicationManagerCore.RecordTriageStoreKern
 
 typealias ReviewCallContext = PublicationManagerCore.ReviewCallContext
 typealias ReviewCallTarget = PublicationManagerCore.ReviewCallTarget
+typealias HeldCallChoices = PublicationManagerCore.HeldCallChoices
+typealias HeldCallReview = PublicationManagerCore.HeldCallReview

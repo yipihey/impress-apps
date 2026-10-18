@@ -115,6 +115,10 @@ fn publish(store: &Arc<SqliteItemStore>, fallback: bool) {
         }
         koine_store::once::install(port);
         koine_tasks::review::install_queue();
+        // The review-service verbs a person answers held calls with (the
+        // apps' review lists approve a subset or an alternative through
+        // them, TR-D7): keep them linked in every host of this store.
+        koine_tasks::ensure_linked();
     }
 }
 

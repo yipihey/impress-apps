@@ -100,7 +100,7 @@ public struct ReviewCallContext: Hashable, Sendable {
 
     /// `context_targets` is a JSON string (koine stores it as text); accept an
     /// already-decoded array too.
-    private static func decodeTargets(_ raw: Any?) -> [ReviewCallTarget] {
+    static func decodeTargets(_ raw: Any?) -> [ReviewCallTarget] {
         var array: [Any]?
         if let text = raw as? String, let data = text.data(using: .utf8) {
             array = (try? JSONSerialization.jsonObject(with: data)) as? [Any]

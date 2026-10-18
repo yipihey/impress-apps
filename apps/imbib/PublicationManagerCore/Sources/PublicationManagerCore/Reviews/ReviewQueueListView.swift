@@ -44,7 +44,8 @@ public struct ReviewQueueListView: View {
                             review: review,
                             onResolve: { resolution in
                                 resolve(review, as: resolution)
-                            }
+                            },
+                            onActed: { refreshAfterVerb() }
                         )
                     }
                 }
@@ -76,6 +77,13 @@ public struct ReviewQueueListView: View {
         // .onChange, but reload immediately for snappy row removal.
         loadReviews()
     }
+
+    /// A review-service verb wrote through koine's store, not the adapter:
+    /// bump the adapter so every view of the store reloads, then reload.
+    private func refreshAfterVerb() {
+        store.notifyMutationFromBackground()
+        loadReviews()
+    }
 }
 
 // MARK: - Row
@@ -85,6 +93,7 @@ public struct ReviewQueueListView: View {
 private struct ReviewQueueRow: View {
     let review: PendingReview
     let onResolve: (String) -> Void
+    let onActed: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -133,6 +142,15 @@ private struct ReviewQueueRow: View {
                 .controlSize(.small)
 
                 Spacer()
+            }
+
+            if let call = review.call, let pendingCallID = call.pendingCallID {
+                HeldCallChoices(
+                    pendingCallID: pendingCallID,
+                    targets: call.targets,
+                    dispatch: HeldCallReview.imbibDispatch,
+                    onActed: onActed
+                )
             }
         }
         .padding(.vertical, 6)
