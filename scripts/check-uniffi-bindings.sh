@@ -203,16 +203,51 @@ def koine_source(package):
     import json
     import subprocess
 
-    meta = json.loads(
-        subprocess.run(
-            ["cargo", "metadata", "--format-version", "1", "--offline"],
-            cwd=ROOT, check=True, capture_output=True, text=True,
-        ).stdout
-    )
+    # Where cargo resolved it, on a machine that has fetched the workspace.
+    try:
+        meta = json.loads(
+            subprocess.run(
+                ["cargo", "metadata", "--format-version", "1", "--offline"],
+                cwd=ROOT, check=True, capture_output=True, text=True,
+            ).stdout
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        meta = {"packages": []}
     for pkg in meta["packages"]:
         if pkg["name"] == package:
             return os.path.join(os.path.dirname(pkg["manifest_path"]), "src")
-    return None
+    # A fresh runner (this lint's own job has no cargo cache, so `--offline`
+    # cannot resolve a git dependency): that crate's source alone, at the
+    # revision the workspace pins, from a shallow fetch of koine.
+    return pinned_git_source(package)
+
+
+def pinned_git_source(package):
+    import atexit
+    import shutil
+    import subprocess
+    import tempfile
+
+    with open(os.path.join(ROOT, "Cargo.toml")) as f:
+        manifest = f.read()
+    pin = re.search(
+        r'^' + re.escape(package) + r'\s*=\s*\{[^}\n]*git\s*=\s*"([^"]+)"[^}\n]*rev\s*=\s*"([0-9a-f]+)"',
+        manifest, re.M,
+    )
+    if not pin:
+        return None
+    url, rev = pin.groups()
+    checkout = tempfile.mkdtemp(prefix="koine-src-")
+    atexit.register(shutil.rmtree, checkout, True)
+    path = f"crates/{package}/src"
+    for step in (
+        ["git", "init", "-q"],
+        ["git", "fetch", "-q", "--depth", "1", url, rev],
+        ["git", "checkout", "-q", "FETCH_HEAD", "--", path],
+    ):
+        if subprocess.run(step, cwd=checkout, capture_output=True).returncode != 0:
+            return None
+    return os.path.join(checkout, path)
 
 
 for crate in crates:
