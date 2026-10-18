@@ -27,6 +27,13 @@ name = "imbib_core"
 [features]
 default = []
 native = [
+    # One feature set for the shared kit across the framework crates (see
+    # the koine-* dependencies below).
+    "impress-core/schema",
+    "dep:koine-tasks",
+    "dep:koine-triage",
+    "dep:koine-collections",
+    "dep:koine-store-query",
     "uniffi",
     "tokio",
     "reqwest",
@@ -45,6 +52,15 @@ impress-identifiers = { workspace = true }
 impress-flags = { workspace = true }
 impress-tags = { workspace = true }
 impress-core = { workspace = true, features = ["sqlite", "collab"] }
+# Framework builds (`native`) resolve the shared kit with the same features
+# the verbs-ffi crates get through impress-store-service, so
+# scripts/build-xcframeworks.sh compiles that stack once per target rather
+# than once per feature set (three, before: every koine pin bump rebuilt the
+# kit three times for each of macOS, iOS and the simulator).
+koine-tasks = { workspace = true, optional = true, features = ["runtime"] }
+koine-triage = { workspace = true, optional = true, features = ["service"] }
+koine-collections = { workspace = true, optional = true, features = ["service"] }
+koine-store-query = { workspace = true, optional = true, features = ["service"] }
 # Deterministic Cmd+S smart-search core. imbib-core is the FFI host for it:
 # PMC already links ImbibCore.xcframework, so the smart-search surface reaches
 # Swift without adding a third framework to the app bundle.

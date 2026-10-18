@@ -39,7 +39,9 @@ impress-core = { workspace = true }
 koine-plot = { workspace = true }
 
 # Data I/O
-implore-io = { workspace = true, features = ["npz"] }
+# `parquet` as imprint-core's typst-render turns on, so the framework builds
+# share one implore-io (and everything above it) per target.
+implore-io = { workspace = true, features = ["npz", "parquet"] }
 
 # N-dimensional arrays
 ndarray = { workspace = true }

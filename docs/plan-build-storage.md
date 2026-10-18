@@ -263,3 +263,45 @@ needs. CPU is averaged over 18 cores.
 - A PR runs three workflows. #190's took 3 m 18 s, with the impart build on
   the build Mac.
 - On 2026-10-14 it took 1 h 45 m – 2 h on GitHub's hosted runner.
+
+## Gate timing (2026-10-18)
+
+Measured on the 18-core M-series workstation, warm target dirs, after a
+one-line edit low in the stack (impress-core / impress-service-core):
+
+| Gate | Wall | Where it goes |
+|---|---|---|
+| pre-push, after a koine pin bump | 11–25 min | `build-xcframeworks.sh`: 11 crates × 3 targets, serial; the Xcode builds are ~1 min |
+| impress Rust gate (`rust-gate.sh` fmt, clippy, test both shards, the lints) | ~9 min | `test rest` 5.8 min: ~50 s compile, ~110 s of suites run one binary at a time, and the first launch of each of ~100 fresh test binaries |
+| koine gate (fmt, clippy, workspace tests, core all-features, e2e) | ~25 min before the fixes below | workspace tests 18.5 min: koine-store-dir's conformance suite 7 min, ~110 binaries' first launches ~7 min |
+
+Fixed:
+
+- **One feature set for the framework crates.** imbib-core and imprint-core
+  resolved the shared kit (impress-core, impress-item, koine-tasks, …) with
+  fewer features than the verbs-ffi crates, which get them through
+  impress-store-service; impress-store-ffi and implore differed again. Each
+  feature set is its own compile of every crate above it, so a koine pin
+  bump compiled the kit three times per target (79 crate builds for 48
+  crates on iOS). The framework crates now turn on the same features
+  (`native`), and a full rebuild compiles 46 for 44 (8m50s against 11 min).
+  Check with `cargo tree -e features` per crate; only imprint-core's own
+  `uniffi` still differs.
+- **koine-store-dir's watcher** (koine): adding both watched directories in
+  one `paths_mut()` commit halves `DirStore::watch` (FSEvents restarts its
+  stream per path; each start takes ~1.7 s here), and the conformance suite
+  watches only in its `reopen` arm, which is the one the cross-process case
+  uses: 440 s → 18 s.
+
+Not fixable from the repository:
+
+- **macOS scans every new executable on its first launch** (~1.3 s idle,
+  ~5 s while the gate is compiling): a test binary that has already run
+  starts in 0.14 s, a fresh copy of it takes 1.3 s. Every edit relinks
+  ~100 test binaries per workspace, so this is several minutes of each gate.
+  Adding the terminal (and the Claude app, when agents run the gates) under
+  System Settings → Privacy & Security → Developer Tools exempts the
+  processes they start.
+- **Test binaries run one at a time.** `cargo nextest run` runs them in
+  parallel; most of the ~110 s of suites, and the launch scans, would
+  overlap.
