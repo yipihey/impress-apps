@@ -299,8 +299,14 @@ runs:
         # path-dependency closure instead. --all-features over-approximates on
         # purpose: extra invalidation is safe, missing one is not.
         set -uo pipefail
-        dirs=$(cargo tree -p "$CRATE" --all-features -e normal,build --prefix none 2>/dev/null \
-                 | grep -o '(/[^)]*)' | tr -d '()' | sed "s|^$PWD/||" | sort -u)
+        # `inputs.crate` names the directory; the package in it can be called
+        # something else (crates/impress-helix holds impress-helix-ffi since
+        # KM6, and `impress-helix` is koine's crate, outside the workspace).
+        pkg=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "crates/$CRATE/Cargo.toml" 2>/dev/null | head -1) || pkg=""
+        # A closure cargo cannot list takes the fallback below; under the
+        # runner's `bash -e` a failed substitution would end the step instead.
+        dirs=$(cargo tree -p "${pkg:-$CRATE}" --all-features -e normal,build --prefix none 2>/dev/null \
+                 | grep -o '(/[^)]*)' | tr -d '()' | sed "s|^$PWD/||" | sort -u) || dirs=""
         if [ -z "$dirs" ]; then
           echo "scope=workspace" >> "$GITHUB_OUTPUT"          # conservative fallback
           echo "sha=" >> "$GITHUB_OUTPUT"
