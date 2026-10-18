@@ -50,7 +50,22 @@ schema = ["dep:schemars"]
 # Enable Typst rendering support (requires typst dependencies)
 typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:impress-plot", "dep:koine-plot", "dep:implore-io", "dep:implore-core"]
 # Full native build with both UniFFI and Typst
-native = ["uniffi", "typst-render"]
+native = [
+    "uniffi",
+    "typst-render",
+    # The verbs-ffi build of this crate turns `schema` on; so does this one,
+    # and the shared kit gets the same features (see the koine-* deps).
+    "schema",
+    "impress-core/sqlite",
+    "impress-core/collab",
+    # One feature set for the shared kit across the framework crates (see
+    # the koine-* dependencies below).
+    "impress-core/schema",
+    "dep:koine-tasks",
+    "dep:koine-triage",
+    "dep:koine-collections",
+    "dep:koine-store-query",
+]
 # Enable the self-contained Tectonic LaTeX engine (heavy C dependency tree:
 # freetype2, graphite2, icu4c, libpng, zlib; harfbuzz vendored). Kept OUT of
 # `native` until proven — see Phase 0 build spike.
@@ -63,6 +78,15 @@ impress-bibtex = { workspace = true }
 # The project model shares the bundle manifest's role vocabulary and the
 # manuscript-format grammar table (ADR-0030 D2). No features: pure data.
 impress-core = { workspace = true }
+# Framework builds (`native`) resolve the shared kit with the same features
+# the verbs-ffi crates get through impress-store-service, so
+# scripts/build-xcframeworks.sh compiles that stack once per target rather
+# than once per feature set (three, before: every koine pin bump rebuilt the
+# kit three times for each of macOS, iOS and the simulator).
+koine-tasks = { workspace = true, optional = true, features = ["runtime"] }
+koine-triage = { workspace = true, optional = true, features = ["service"] }
+koine-collections = { workspace = true, optional = true, features = ["service"] }
+koine-store-query = { workspace = true, optional = true, features = ["service"] }
 schemars = { workspace = true, optional = true }
 
 # CRDT support

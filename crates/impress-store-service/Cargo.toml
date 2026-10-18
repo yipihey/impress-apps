@@ -39,10 +39,12 @@ koine-notebook = { workspace = true }
 # Provider persistence and the provider-service verbs are koine's (KM12).
 koine-providers = { workspace = true }
 impress-pane-query = { workspace = true }
-impress-surface = { workspace = true }
+# `schema` on both, as impress-store-ffi's surface and workflow services turn
+# it on: one feature set for every framework crate that links this one.
+impress-surface = { workspace = true, features = ["schema"] }
 # W4: `propose_workflows`' n-gram miner validates each proposal against the
 # pure validator before writing it (`impress_workflow::validate`).
-impress-workflow = { workspace = true }
+impress-workflow = { workspace = true, features = ["schema"] }
 log = "0.4"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
