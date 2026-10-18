@@ -2003,9 +2003,11 @@ impl SqliteItemStore {
     /// Insert a single item into the database.
     fn insert_item(conn: &Connection, item: &Item, origin_id: &str) -> Result<(), StoreError> {
         // koine plan-koine-trust TR-D12: the kind's schema version, and a
-        // warn-mode check of the payload against it.
+        // warn-mode check of the payload against it; a kind that enforces
+        // its schema refuses an invalid payload.
         let mut stamped = item.clone();
         impress_item::kind::stamp_item(&mut stamped);
+        impress_item::kind::enforce(&stamped)?;
         let item = &stamped;
         let extra_json = (!item.extra.is_empty())
             .then(|| serde_json::to_string(&item.extra).ok())

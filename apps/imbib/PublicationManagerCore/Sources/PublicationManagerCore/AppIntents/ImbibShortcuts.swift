@@ -95,25 +95,15 @@ public struct ImbibShortcuts: AppShortcutsProvider {
             systemImageName: "book.closed"
         )
 
-        // Add Paper by DOI - user will be prompted for DOI
+        // Add papers by identifier: the generated intent for
+        // imbib-library-service_import-identifiers (VerbIntents/).
         AppShortcut(
-            intent: AddPaperByDOIIntent(),
+            intent: ImbibLibraryImportIdentifiersIntent(),
             phrases: [
-                "Add paper by DOI to \(.applicationName)",
-                "Import DOI to \(.applicationName)"
+                "Add papers to \(.applicationName)",
+                "Import papers to \(.applicationName)"
             ],
-            shortTitle: "Add by DOI",
-            systemImageName: "plus.circle"
-        )
-
-        // Add Paper by arXiv - user will be prompted for arXiv ID
-        AppShortcut(
-            intent: AddPaperByArXivIntent(),
-            phrases: [
-                "Add arXiv paper to \(.applicationName)",
-                "Import arXiv paper to \(.applicationName)"
-            ],
-            shortTitle: "Add by arXiv",
+            shortTitle: "Add Papers",
             systemImageName: "plus.circle"
         )
 

@@ -105,3 +105,12 @@ typealias StoreMutationNotice = PublicationManagerCore.StoreMutationNotice
 typealias CollectionStoreAdapter = PublicationManagerCore.CollectionStoreAdapter
 typealias CollectionKernelRow = PublicationManagerCore.CollectionKernelRow
 typealias RecordTriageStoreKernel = PublicationManagerCore.RecordTriageStoreKernel
+
+// MARK: - Review requests (held verb calls)
+//
+// The decoded reason / targets / risk of a review request that reviews a
+// koine pending call — shared with imbib's review queue so both lists read
+// the `context_*` fields the same way.
+
+typealias ReviewCallContext = PublicationManagerCore.ReviewCallContext
+typealias ReviewCallTarget = PublicationManagerCore.ReviewCallTarget

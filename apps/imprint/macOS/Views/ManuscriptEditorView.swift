@@ -88,6 +88,13 @@ struct ManuscriptEditorView: View {
             session = ManuscriptSessionRegistry.shared.session(for: manuscriptID)
         }
         .task(id: manuscriptID) { await loadMetadata() }
+        // "This manuscript": the current NSUserActivity names it as the
+        // generated ManuscriptEntity, so Siri / Shortcuts / Apple
+        // Intelligence can act on the manuscript this window shows.
+        .task(id: manuscriptID) {
+            HandoffService.shared.startEditingIfNeeded(documentID: manuscriptID)
+        }
+        .onDisappear { HandoffService.shared.stop(documentID: manuscriptID) }
         .onChange(of: adapter.dataVersion) { _, _ in
             if let updated = adapter.manuscript(id: manuscriptID) {
                 manuscript = updated

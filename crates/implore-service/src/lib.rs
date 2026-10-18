@@ -390,7 +390,11 @@ pub trait ImploreService: Send + Sync + 'static {
     async fn get_dataset(&self, dataset_id: String) -> Option<DatasetRecord>;
 
     /// Figures in implore, optionally narrowed to one dataset.
-    #[impress_method]
+    #[impress_method(
+        returns_kind = "figure",
+        rows(id = "id", title = "name"),
+        entity(search)
+    )]
     #[impress_example(
         name = "host-dataset-figures",
         tier = "b",
@@ -399,7 +403,11 @@ pub trait ImploreService: Send + Sync + 'static {
     async fn list_figures(&self, dataset_id: Option<String>) -> Vec<FigureRecord>;
 
     /// One figure's definition.
-    #[impress_method]
+    #[impress_method(
+        returns_kind = "figure",
+        rows(id = "id", title = "name"),
+        entity(lookup)
+    )]
     #[impress_example(
         name = "host-figure-detail",
         tier = "b",
@@ -507,7 +515,9 @@ pub trait ImploreService: Send + Sync + 'static {
     /// figure or record references that image. Returns false on refusal.
     #[impress_method(
         safety = external,
-        effects(reads = [target(figure_id)], writes = ["figure"], reach = [app("implore")])
+        effects(reads = [target(figure_id)], writes = ["figure"], reach = [app("implore")]),
+        targets = "figure_id",
+        intent(title = "Delete Figure")
     )]
     #[impress_example(
         name = "host-delete-figure",

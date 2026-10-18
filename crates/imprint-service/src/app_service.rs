@@ -241,7 +241,7 @@ pub trait ImprintAppService: Send + Sync + 'static {
     async fn create_document(&self, title: String, format: Option<String>) -> Option<String>;
 
     /// Rename a document.
-    #[impress_method]
+    #[impress_method(targets = "document_id", intent(title = "Rename Manuscript"))]
     #[impress_example(
         name = "rename_fixture_document",
         tier = "b",

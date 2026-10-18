@@ -320,14 +320,22 @@ enum ThroughlineCoordinator {
     struct SyncProposal: Identifiable, Equatable {
         let id: String            // review-request item id
         let question: String
-        let direction: String     // manuscript-ahead | throughline-ahead | broken
-        let anchor: String
+        let direction: String     // manuscript-ahead | throughline-ahead | broken | held-call
+        /// The throughline paragraph label; nil for a held verb call that
+        /// names this manuscript among its targets but no anchor.
+        let anchor: String?
         let proposedParagraph: String?
         let currentParagraph: String?
         let note: String?
+        /// Why the call behind this proposal was held and what it acts on,
+        /// when the review request carries a koine pending call's context.
+        let call: ReviewCallContext?
     }
 
-    /// Pending (unresolved) sync proposals for a document, newest first.
+    /// Pending (unresolved) sync proposals for a document, newest first —
+    /// throughline-sync checkpoints anchored in this document, plus held verb
+    /// calls (review requests with `context_pending_call`) whose
+    /// `context_targets` include this document's id.
     /// Read-only; resolution is the only write, and application happens in
     /// the task executor when the suspended task resumes — the UI never
     /// applies edits directly (one apply path, ADR-0016 D6).
@@ -354,18 +362,31 @@ enum ThroughlineCoordinator {
         for row in rows {
             guard let data = row.payloadJson.data(using: .utf8),
                   let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  (payload["context_document_id"] as? String)?.lowercased() == docID,
-                  (payload["resolution"] as? String ?? "").isEmpty,
-                  let anchor = payload["context_anchor"] as? String else { continue }
+                  (payload["resolution"] as? String ?? "").isEmpty else { continue }
+            let call = ReviewCallContext(payload: payload)
+            let anchor = payload["context_anchor"] as? String
+            // A throughline-sync checkpoint names this document and an anchor;
+            // a held verb call (koine pending call) names it among its targets.
+            let isSyncCheckpoint =
+                (payload["context_document_id"] as? String)?.lowercased() == docID
+                && anchor != nil
+            let isHeldCallOnDocument =
+                (payload["context_pending_call"] as? String).map { !$0.isEmpty } == true
+                && (call?.targets.contains { $0.id.lowercased() == docID } ?? false)
+            guard isSyncCheckpoint || isHeldCallOnDocument else { continue }
+            let isHeldCall = !isSyncCheckpoint
             out.append(
                 SyncProposal(
                     id: row.id,
-                    question: payload["question"] as? String ?? "Apply proposed sync?",
-                    direction: payload["context_direction"] as? String ?? "unknown",
-                    anchor: anchor,
+                    question: payload["question"] as? String
+                        ?? (isHeldCall ? "Allow this held call?" : "Apply proposed sync?"),
+                    direction: payload["context_direction"] as? String
+                        ?? (isHeldCall ? "held-call" : "unknown"),
+                    anchor: isSyncCheckpoint ? anchor : nil,
                     proposedParagraph: payload["context_proposed_paragraph"] as? String,
                     currentParagraph: payload["context_current_paragraph"] as? String,
-                    note: payload["context_note"] as? String
+                    note: payload["context_note"] as? String,
+                    call: call
                 ))
         }
         return out

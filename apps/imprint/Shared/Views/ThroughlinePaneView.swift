@@ -120,7 +120,7 @@ struct ThroughlinePaneView: View {
         if !pending.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 Label(
-                    "\(pending.count) sync proposal\(pending.count == 1 ? "" : "s") awaiting review",
+                    "\(pending.count) proposal\(pending.count == 1 ? "" : "s") awaiting review",
                     systemImage: "tray.full")
                     .font(.caption.bold())
                 ForEach(pending) { proposal in
@@ -139,9 +139,21 @@ struct ThroughlinePaneView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 stateBadge(proposal.direction)
-                Text("<\(proposal.anchor)>")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                if let anchor = proposal.anchor {
+                    Text("<\(anchor)>")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                } else if let verb = proposal.call?.verb {
+                    Text(verb)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else {
+                    Text("Held call")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
             }
             Text(proposal.question)
@@ -150,6 +162,24 @@ struct ThroughlinePaneView: View {
                 Text(note)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            if let call = proposal.call {
+                if let reason = call.reason {
+                    Label(reason, systemImage: "exclamationmark.shield")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let risk = call.riskSummary {
+                    Text([call.verb, risk].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                if let targets = call.targetSummary() {
+                    Label(targets, systemImage: "doc.on.doc")
+                        .font(.caption)
+                        .lineLimit(2)
+                        .help(call.targets.map { "\($0.displayName) (\($0.id))" }.joined(separator: "\n"))
+                }
             }
             if let proposed = proposal.proposedParagraph {
                 Text(proposed)
@@ -167,7 +197,9 @@ struct ThroughlinePaneView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .keyboardShortcut(.return, modifiers: [])
-                .help("Approve — the sync agent applies it and rebaselines the ledger")
+                .help(proposal.anchor == nil
+                      ? "Approve — the held call runs"
+                      : "Approve — the sync agent applies it and rebaselines the ledger")
 
                 Button("Discard") {
                     ThroughlineCoordinator.resolveProposal(id: proposal.id, approved: false)
@@ -175,7 +207,9 @@ struct ThroughlinePaneView: View {
                 }
                 .controlSize(.small)
                 .keyboardShortcut(.escape, modifiers: [])
-                .help("Reject — the anchor stays visibly stale; nothing changes")
+                .help(proposal.anchor == nil
+                      ? "Reject — the held call does not run"
+                      : "Reject — the anchor stays visibly stale; nothing changes")
                 Spacer()
             }
         }
@@ -338,6 +372,8 @@ struct ThroughlinePaneView: View {
                 return ("arrow.up.arrow.down.circle.fill", .purple, "Both sides changed since the last sync")
             case "broken":
                 return ("exclamationmark.triangle.fill", .red, "An anchor no longer resolves (heading renamed or removed?)")
+            case "held-call":
+                return ("hand.raised.circle.fill", .orange, "A call on this manuscript was held for your approval")
             default:
                 return ("circle.dotted", .secondary, "Not anchored to any section yet")
             }
