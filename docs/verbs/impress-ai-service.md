@@ -51,7 +51,7 @@ Takes no arguments.
 
 Write a routing preset into the device's task-category assignments from what is ready on this device, and answer what it assigned and what it skipped. `local-first`: `agent.route` is the on-device model, `agent` the best ready local provider (oMLX first), `agent.frontier` the first ready cloud provider, each with its default model. It writes preferences only; any assignment can be changed after. An unknown preset is refused.
 
-- **safety**: `mutating`
+- **safety**: `external`
 - **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —

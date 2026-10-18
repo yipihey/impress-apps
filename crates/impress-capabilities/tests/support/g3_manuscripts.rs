@@ -94,6 +94,7 @@ fn seed_document(store: &SqliteItemStore, id: ItemId, title: &str) -> Result<(),
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     };
     store.insert(row).map(|_| ()).map_err(|e| e.to_string())
 }

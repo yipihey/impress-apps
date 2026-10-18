@@ -126,7 +126,11 @@ use serde_json::Value;
 // rows join the table (171 → 174 rows; the ceiling had two to spare). Their
 // positive evidence is koine-tasks `tests/review.rs`, which files, approves,
 // rejects, sweeps and expires real pending calls.
-const EXCEPTION_CEILING: usize = 174;
+// 174 → 175: koine adds `review-service_revoke-rule` (plan-koine-trust
+// TR-D9), whose only example revokes a missing rule as an agent (refused), so
+// the spy sees nothing. Its positive evidence is koine-tasks
+// `tests/consent.rs`, which remembers, lists, revokes and re-asks.
+const EXCEPTION_CEILING: usize = 175;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave

@@ -142,6 +142,7 @@ impl ProjectWorld {
                 batch_id: None,
                 references: vec![],
                 parent: None,
+                extra: Default::default(),
             })
             .map_err(|e| format!("insert manuscript: {e}"))?;
         let svc = imprint_service::DefaultImprintProjectService::with_store(
@@ -239,6 +240,7 @@ impl ProjectWorld {
                 batch_id: None,
                 references: vec![],
                 parent,
+                extra: Default::default(),
             })
             .map_err(|e| format!("insert {schema}: {e}"))?;
         Ok(id)

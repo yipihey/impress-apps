@@ -394,6 +394,7 @@ fn seed_item(id: ItemId, schema: &str, parent: Option<ItemId>) -> Item {
         batch_id: None,
         references: vec![],
         parent,
+        extra: Default::default(),
     }
 }
 

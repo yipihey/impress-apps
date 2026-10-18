@@ -79,6 +79,7 @@ pub fn record_verb_call(
         batch_id: Some(call_id.to_string()),
         references: vec![],
         parent: None,
+        extra: Default::default(),
     })
 }
 

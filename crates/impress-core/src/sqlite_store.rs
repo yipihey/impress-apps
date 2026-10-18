@@ -343,7 +343,7 @@ const FTS_ELIGIBLE_PREDICATE: &str = "(json_extract(payload, '$.title') IS NOT N
 const ITEM_COLUMNS: &str = "id, schema_ref, payload, created, modified, author, author_kind,
      is_read, is_starred, flag_color, flag_style, flag_length, parent_id,
      logical_clock, origin, canonical_id, priority, visibility,
-     message_type, produced_by, version, batch_id, op_target_id";
+     message_type, produced_by, version, batch_id, op_target_id, extra";
 
 impl SqliteItemStore {
     /// Record a domain-level read that bypasses the typed query hooks, such
@@ -390,6 +390,7 @@ impl SqliteItemStore {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         match self.insert(item) {
             Ok(_) => Ok(()),
@@ -1061,6 +1062,9 @@ impl SqliteItemStore {
             "ALTER TABLE items ADD COLUMN batch_id TEXT",
             "ALTER TABLE items ADD COLUMN op_target_id TEXT REFERENCES items(id) ON DELETE CASCADE",
             "ALTER TABLE items ADD COLUMN retention TEXT NOT NULL DEFAULT 'durable'",
+            // koine plan-koine-trust TR-D13: envelope fields a newer build
+            // wrote, kept as JSON so a write back does not drop them.
+            "ALTER TABLE items ADD COLUMN extra TEXT",
         ];
         for sql in &migrations {
             let _ = conn.execute(sql, []);
@@ -1998,6 +2002,14 @@ impl SqliteItemStore {
 
     /// Insert a single item into the database.
     fn insert_item(conn: &Connection, item: &Item, origin_id: &str) -> Result<(), StoreError> {
+        // koine plan-koine-trust TR-D12: the kind's schema version, and a
+        // warn-mode check of the payload against it.
+        let mut stamped = item.clone();
+        impress_item::kind::stamp_item(&mut stamped);
+        let item = &stamped;
+        let extra_json = (!item.extra.is_empty())
+            .then(|| serde_json::to_string(&item.extra).ok())
+            .flatten();
         let payload_json =
             serde_json::to_string(&item.payload).map_err(|e| StoreError::Storage(e.to_string()))?;
         let author_kind = actor_kind_str(item.author_kind);
@@ -2022,9 +2034,9 @@ impl SqliteItemStore {
             "INSERT INTO items (id, schema_ref, payload, created, modified, author, author_kind,
               is_read, is_starred, flag_color, flag_style, flag_length, parent_id,
               logical_clock, origin, canonical_id, priority, visibility,
-              message_type, produced_by, version, batch_id, op_target_id)
+              message_type, produced_by, version, batch_id, op_target_id, extra)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                     ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, NULL)",
+                     ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, NULL, ?23)",
             params![
                 item.id.to_string(),
                 item.schema,
@@ -2048,6 +2060,7 @@ impl SqliteItemStore {
                 produced_by,
                 item.version,
                 item.batch_id,
+                extra_json,
             ],
         )
         .map_err(|e| {
@@ -2362,13 +2375,14 @@ impl SqliteItemStore {
 
         // Build operation item (with prev for undo)
         let op_id = Uuid::new_v4();
-        let op_payload = build_operation_payload(
+        let mut op_payload = build_operation_payload(
             spec.target_id,
             &spec.op_type,
             spec.intent,
             spec.reason.as_deref(),
             prev,
         );
+        impress_item::kind::stamp_operation(&mut op_payload, &target_schema);
 
         let op_item = Item {
             id: op_id,
@@ -2401,6 +2415,7 @@ impl SqliteItemStore {
                 .or_else(crate::call_context::current_call_id),
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
 
         // Insert operation item with op_target_id. The default mechanical
@@ -2498,13 +2513,16 @@ impl SqliteItemStore {
 
             let clock = Self::next_clock(&tx)?;
             let op_id = Uuid::new_v4();
-            let op_payload = build_operation_payload(
+            let mut op_payload = build_operation_payload(
                 spec.target_id,
                 &spec.op_type,
                 spec.intent,
                 spec.reason.as_deref(),
                 prev,
             );
+            if let Some(kind) = Self::schema_of(&tx, &target_str) {
+                impress_item::kind::stamp_operation(&mut op_payload, &kind);
+            }
 
             let op_item = Item {
                 id: op_id,
@@ -2529,6 +2547,7 @@ impl SqliteItemStore {
                 batch_id: spec.batch_id.clone(),
                 references: vec![],
                 parent: None,
+                extra: Default::default(),
             };
 
             // Same per-schema steering as the single-op path: only the
@@ -3941,6 +3960,14 @@ impl SqliteItemStore {
             .get(21)
             .map_err(|e| StoreError::Storage(format!("row batch_id: {}", e)))?;
         // column 22 = op_target_id (not stored on Item struct, used for queries only)
+        // column 23 = extra (TR-D13): absent from a narrower SELECT, so read
+        // leniently.
+        let extra: std::collections::BTreeMap<String, serde_json::Value> = row
+            .get::<_, Option<String>>(23)
+            .ok()
+            .flatten()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
 
         let created = Utc
             .timestamp_millis_opt(created_ms)
@@ -3991,6 +4018,7 @@ impl SqliteItemStore {
             batch_id,
             references,
             parent,
+            extra,
         })
     }
 
@@ -4163,6 +4191,7 @@ impl SqliteItemStore {
             batch_id,
             references: vec![],
             parent,
+            extra: Default::default(),
         })
     }
 
@@ -4758,6 +4787,7 @@ impl SqliteItemStore {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         Self::insert_operation_item(
             conn,
@@ -6389,6 +6419,7 @@ mod tests {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         }
     }
 
@@ -7911,6 +7942,7 @@ mod tests {
                     batch_id: Some(call_id.to_string()),
                     references: vec![],
                     parent: None,
+                    extra: Default::default(),
                 })
                 .unwrap();
             call_id

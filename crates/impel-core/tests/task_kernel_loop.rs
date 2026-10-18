@@ -663,6 +663,7 @@ async fn spawned_tasks_record_their_rule_and_trigger() {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         item.payload
             .insert("title".into(), Value::String("edited section".into()));
@@ -693,6 +694,7 @@ async fn spawned_tasks_record_their_rule_and_trigger() {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         item.payload
             .insert("title".into(), Value::String("the throughline".into()));

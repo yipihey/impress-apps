@@ -51,6 +51,7 @@ fn item(id: ItemId, schema: impress_core::SchemaRef, parent: Option<ItemId>) -> 
         batch_id: None,
         references: vec![],
         parent,
+        extra: Default::default(),
     }
 }
 

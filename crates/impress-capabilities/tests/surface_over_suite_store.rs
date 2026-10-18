@@ -107,6 +107,7 @@ fn seed_publication(store: &dyn ItemStore, title: &str, year: i64, author_text: 
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     };
     store.insert(item).expect("insert publication").to_string()
 }

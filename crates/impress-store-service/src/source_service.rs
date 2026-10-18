@@ -1065,6 +1065,7 @@ impl DefaultSourceService {
             batch_id: None,
             references,
             parent: Some(options.source_item_id),
+            extra: Default::default(),
         };
         match store.insert(item) {
             Ok(_) => SourceRecordResult {
@@ -1973,6 +1974,7 @@ mod tests {
                 batch_id: None,
                 references: vec![],
                 parent: None,
+                extra: Default::default(),
             })
             .unwrap();
         id

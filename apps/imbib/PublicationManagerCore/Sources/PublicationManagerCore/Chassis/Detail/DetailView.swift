@@ -161,6 +161,16 @@ struct DetailView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The paper on screen is "this" for Siri and Shortcuts (koine
+            // plan-koine-trust TR-D14): a viewing activity names it.
+            .task(id: publicationID) {
+                guard let id = publicationID, !isMultiSelection else { return }
+                HandoffService.shared.startViewing(
+                    publicationID: id,
+                    citeKey: publication?.citeKey ?? "",
+                    title: paper.title
+                )
+            }
         }
         // macOS: No navigation title - clean Apple Mail/Notes style.
         // (A dead `#if os(iOS)` .navigationTitle branch lived here — unreachable

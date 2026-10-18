@@ -345,7 +345,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `implore-service_update-figure` | external | name/doc |
 | `impress-ai-service_ai-health` | external | crates/impress-ai-service/src/lib.rs:660 reqwest GET http://127.0.0.1:8787/api/health with 3 s timeout against the impress-ai daemon; returns daemon_reachable:false rather than an error when it is down; no store acces… |
 | `impress-ai-service_ai-preferences` | read_only | name/doc |
-| `impress-ai-service_apply-routing-preset` | mutating | name/doc |
+| `impress-ai-service_apply-routing-preset` | external | its reach leaves the process (koine plan-koine-trust TR-D11: an egress reach is external) |
 | `impress-ai-service_create-conversation` | mutating | name/doc |
 | `impress-ai-service_get-conversation` | read_only | name/doc |
 | `impress-ai-service_list-conversations` | read_only | name/doc |
@@ -423,7 +423,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imprint-app-service_update-comment` | external | E/M: name/doc |
 | `imprint-app-service_update-document` | external | E/M: name/doc |
 | `imprint-app-service_update-metadata` | external | E/D: crates/imprint-service/src/app_service.rs:236 DEFAULT REFUSES (eprintln + empty/false; no store path); HTTP backend /Users/tabel/Projects/impress-apps/.claude/worktrees/agent-a9747ebb |
-| `imprint-manuscript-service_compile-latex` | read_only | crates/imprint-service/src/manuscript_service.rs:463 spawn_blocking -> crates/imprint-service/src/handlers |
+| `imprint-manuscript-service_compile-latex` | external | its reach leaves the process (koine plan-koine-trust TR-D11: an egress reach is external) |
 | `imprint-manuscript-service_compile-typst` | mutating | name/doc |
 | `imprint-manuscript-service_delete-section` | destructive | crates/imprint-service/src/manuscript_service.rs:372 -> crates/imprint-service/src/handlers.rs:418 -> /Use |
 | `imprint-manuscript-service_document-citations` | read_only | crates/imprint-service/src/manuscript_service.rs:399 -> crates/imprint-service/src/handlers.rs:433 -> /Use |
@@ -544,7 +544,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `parsers-service_extract-landing-page-pdf` | read_only | name/doc |
 | `parsers-service_list-publisher-rules` | read_only | name/doc |
 | `parsers-service_parse-mbox` | read_only | name/doc |
-| `parsers-service_resolve-publisher-pdf` | read_only | name/doc |
+| `parsers-service_resolve-publisher-pdf` | external | its reach leaves the process (koine plan-koine-trust TR-D11: an egress reach is external) |
 | `perf-service_export-chrome-trace` | read_only | name/doc |
 | `perf-service_export-folded-stacks` | read_only | name/doc |
 | `perf-service_summary` | read_only | name/doc |
@@ -554,6 +554,8 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `review-service_approve` | mutating | name/doc |
 | `review-service_list` | read_only | name/doc |
 | `review-service_reject` | mutating | name/doc |
+| `review-service_revoke-rule` | mutating | name/doc |
+| `review-service_rules` | read_only | name/doc |
 | `review-service_show` | read_only | name/doc |
 | `settings-service_get` | read_only | name/doc |
 | `settings-service_list` | read_only | name/doc |

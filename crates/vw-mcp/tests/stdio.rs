@@ -399,6 +399,7 @@ fn page_image_crosses_the_actual_stdio_boundary_as_mcp_image_content() {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         })
         .expect("insert source");
     drop(store);

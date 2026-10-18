@@ -62,6 +62,7 @@ fn manuscript(store: &SqliteItemStore, format: &str, body: &str, external: bool)
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         })
         .unwrap();
     id.to_string()
@@ -102,6 +103,7 @@ fn insert_item(
             batch_id: None,
             references: vec![],
             parent,
+            extra: Default::default(),
         })
         .unwrap()
 }
@@ -640,6 +642,7 @@ async fn compile_renders_a_multi_file_typst_project_with_a_projected_bibliograph
                 batch_id: None,
                 references: vec![],
                 parent: None,
+                extra: Default::default(),
             })
             .unwrap();
     }

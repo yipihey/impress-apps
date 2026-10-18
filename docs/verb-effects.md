@@ -521,9 +521,11 @@ catalogue, 168 on the exception table.
 | `perf-service_trace` | — | — | — | example ×1 |
 | `provider-service_list` | — | — | — | example ×1 |
 | `provider-service_set-trusted` | "provider@1.0.0" | "provider@1.0.0" | — | catalogue:provider |
-| `review-service_approve` | "koine/pending-call@1.0.0", "review-request@1.0.0" | "koine/pending-call@1.0.0", "review-request@1.0.0" | — | — |
+| `review-service_approve` | "koine/pending-call@1.0.0", "review-request@1.0.0" | "koine/pending-call@1.0.0", "review-request@1.0.0", "koine/consent-rule@1.0.0" | — | — |
 | `review-service_list` | "koine/pending-call@1.0.0", "review-request@1.0.0" | — | — | example ×1 |
-| `review-service_reject` | "koine/pending-call@1.0.0", "review-request@1.0.0" | "koine/pending-call@1.0.0", "review-request@1.0.0" | — | — |
+| `review-service_reject` | "koine/pending-call@1.0.0", "review-request@1.0.0" | "koine/pending-call@1.0.0", "review-request@1.0.0", "koine/consent-rule@1.0.0" | — | — |
+| `review-service_revoke-rule` | "koine/consent-rule@1.0.0" | "koine/consent-rule@1.0.0" | — | — |
+| `review-service_rules` | "koine/consent-rule@1.0.0" | — | — | example ×1 |
 | `review-service_show` | "koine/pending-call@1.0.0", "review-request@1.0.0" | — | — | — |
 | `settings-service_get` | "impress/settings@1.0.0" | — | fs | — |
 | `settings-service_list` | "impress/settings@1.0.0" | — | fs | — |
@@ -752,6 +754,7 @@ when one lands).
 | `parsers-service_resolve-publisher-pdf` | leaves the process (network) |
 | `review-service_approve` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `review-service_reject` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `review-service_revoke-rule` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `review-service_show` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `settings-service_get` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `settings-service_list` | exercised, unobserved (example ran, spy saw no declared read or write) |

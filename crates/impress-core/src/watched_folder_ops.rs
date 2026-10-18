@@ -466,6 +466,7 @@ fn new_item(
         batch_id: None,
         references: vec![],
         parent,
+        extra: Default::default(),
     }
 }
 

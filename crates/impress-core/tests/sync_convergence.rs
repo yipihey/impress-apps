@@ -118,6 +118,7 @@ fn make_item(
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 

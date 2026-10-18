@@ -52,6 +52,7 @@ fn manuscript_row(id: ItemId, body: &str) -> Item {
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 

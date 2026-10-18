@@ -44,7 +44,7 @@ Tier A runs without an app or external service. Tier B requires an explicit isol
 - [parsers-service](parsers-service.md) (6 verbs)
 - [perf-service](perf-service.md) (4 verbs)
 - [provider-service](provider-service.md) (2 verbs)
-- [review-service](review-service.md) (4 verbs)
+- [review-service](review-service.md) (6 verbs)
 - [settings-service](settings-service.md) (6 verbs)
 - [smart-search-service](smart-search-service.md) (10 verbs)
 - [source-service](source-service.md) (9 verbs)

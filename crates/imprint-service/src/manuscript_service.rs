@@ -200,7 +200,7 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// Compile LaTeX to PDF with the self-contained Tectonic engine. Returns
     /// PDF length + diagnostics (not raw bytes). `filesystem_root` resolves
     /// on-disk `\includegraphics`/`\input`; pass "" for none.
-    #[impress_method(effects(reach = [subprocess]))]
+    #[impress_method(safety = external, effects(reach = [subprocess]))]
     #[impress_example(
         tier = "b",
         name = "g3-compile-latex",

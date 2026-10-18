@@ -42,6 +42,7 @@ fn bare_item(id: Uuid, schema: impress_core::SchemaRef, payload: BTreeMap<String
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 

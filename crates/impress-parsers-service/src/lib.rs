@@ -181,7 +181,7 @@ pub trait ParsersService: Send + Sync + 'static {
     /// Which publisher owns a DOI, whether its PDF URL is predictable, and what
     /// to try. This is the table imbib's PDF auto-download consults, so the
     /// answer is what the app would do.
-    #[impress_method(effects(reach = [network]))]
+    #[impress_method(safety = external, effects(reach = [network]), risk(untrusted))]
     #[impress_example(
         name = "aps-doi",
         tier = "b",

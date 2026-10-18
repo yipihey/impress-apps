@@ -9,12 +9,15 @@ Approve a pending call; it runs at once.
 - **safety**: `mutating`
 - **adverbs**: tentatively, with_review, once
 - **reads**: "koine/pending-call@1.0.0", "review-request@1.0.0"
-- **writes**: "koine/pending-call@1.0.0", "review-request@1.0.0"
+- **writes**: "koine/pending-call@1.0.0", "review-request@1.0.0", "koine/consent-rule@1.0.0"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | The pending call's id. |
+| `instead` | — | no | Run this alternative verb instead. |
+| `only` | — | no | Approve only these of the records it acts on. |
+| `remember` | — | no | Also allow this verb from this caller from now on. |
 
 **Examples**
 
@@ -64,12 +67,13 @@ Reject a pending call; it never runs.
 - **safety**: `mutating`
 - **adverbs**: tentatively, with_review, once
 - **reads**: "koine/pending-call@1.0.0", "review-request@1.0.0"
-- **writes**: "koine/pending-call@1.0.0", "review-request@1.0.0"
+- **writes**: "koine/pending-call@1.0.0", "review-request@1.0.0", "koine/consent-rule@1.0.0"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | The pending call's id. |
+| `remember` | — | no | Also reject this verb from this caller from now on. |
 
 **Examples**
 
@@ -82,6 +86,58 @@ Reject a pending call; it never runs.
 
   ```json
   {"ok": false, "code": "forbidden"}
+  ```
+
+## `review-service_revoke-rule`
+
+Revoke a standing rule.
+
+- **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
+- **reads**: "koine/consent-rule@1.0.0"
+- **writes**: "koine/consent-rule@1.0.0"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The rule's id. |
+
+**Examples**
+
+- `not-a-person` — Tier A:
+
+  ```json
+  {"id": "00000000-0000-4000-8000-000000000000"}
+  ```
+  expects:
+
+  ```json
+  {"ok": false, "code": "forbidden"}
+  ```
+
+## `review-service_rules`
+
+Standing consent rules.
+
+- **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
+- **reads**: "koine/consent-rule@1.0.0"
+- **writes**: —
+- **reach**: —
+
+Takes no arguments.
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  {"ok": true}
   ```
 
 ## `review-service_show`

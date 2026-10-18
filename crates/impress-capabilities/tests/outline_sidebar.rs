@@ -98,6 +98,7 @@ fn insert(
             batch_id: None,
             references,
             parent,
+            extra: Default::default(),
         })
         .expect("insert")
 }

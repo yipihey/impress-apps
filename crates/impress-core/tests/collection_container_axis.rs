@@ -76,6 +76,7 @@ fn make_item(store: &SqliteItemStore, schema: impl AsRef<str>, name: &str) -> St
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     };
     store.insert(item).expect("insert library").to_string()
 }
