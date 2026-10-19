@@ -485,11 +485,16 @@ pub fn smart_search_to_item(
 ) -> Item {
     let mut payload = BTreeMap::new();
     insert_string(&mut payload, "name", name);
-    insert_string(&mut payload, "query", query);
-    insert_opt_string(
+    // One field holds the search call (S-D10): koine's `Query` and the
+    // sources it is asked of; `query` + `source_ids_json` are read for older
+    // rows and never written for new ones.
+    let sources: Vec<String> = source_ids_json
+        .and_then(|j| serde_json::from_str::<Vec<String>>(j).ok())
+        .unwrap_or_default();
+    insert_string(
         &mut payload,
-        "source_ids_json",
-        &source_ids_json.map(String::from),
+        "query_json",
+        &super::smart_search_query::saved(query, &sources).to_string(),
     );
     payload.insert("max_results".into(), Value::Int(max_results));
     payload.insert("feeds_to_inbox".into(), Value::Bool(feeds_to_inbox));
@@ -1453,10 +1458,16 @@ mod tests {
         assert_eq!(item.schema, impress_core::schema::refs::IMBIB_SMART_SEARCH);
         assert_eq!(item.parent, Some(lib_id));
         assert_eq!(get_string(&item.payload, "name"), Some("My Search".into()));
+        // The saved query is one field; the pair is derived on read.
+        assert_eq!(get_string(&item.payload, "query"), None);
+        let saved = get_string(&item.payload, "query_json").expect("query_json");
         assert_eq!(
-            get_string(&item.payload, "query"),
-            Some("dark matter".into())
+            super::super::smart_search_query::read(&saved),
+            Some(("dark matter".into(), vec!["ADS".into(), "arXiv".into()]))
         );
+        let row = super::super::shaped_queries::item_to_smart_search_row(&item);
+        assert_eq!(row.query, "dark matter");
+        assert_eq!(row.source_ids, vec!["ADS".to_string(), "arXiv".to_string()]);
         assert_eq!(item.payload.get("feeds_to_inbox"), Some(&Value::Bool(true)));
         assert_eq!(item.payload.get("max_results"), Some(&Value::Int(50)));
     }

@@ -51,6 +51,10 @@ impress-bibtex = { workspace = true }
 impress-identifiers = { workspace = true }
 impress-flags = { workspace = true }
 impress-tags = { workspace = true }
+# The one source-priority table (koine docs/plan-source-convention.md S-D6):
+# `koine_sources::cascade::source_priority` replaces this crate's
+# `SOURCE_PRIORITY` and Swift's `deduplicationPriority`.
+koine-sources = { workspace = true }
 impress-core = { workspace = true, features = ["sqlite", "collab"] }
 # Framework builds (`native`) resolve the shared kit with the same features
 # the verbs-ffi crates get through impress-store-service, so

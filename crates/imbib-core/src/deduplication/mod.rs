@@ -16,7 +16,7 @@ pub use orchestration::{
 };
 pub use orchestration::{
     source_priority_rank, DeduplicatedGroup, DeduplicationConfig, DeduplicationInput,
-    SourcePriorityRow, SOURCE_PRIORITY, UNRANKED_SOURCE_PRIORITY,
+    SourcePriorityRow, KNOWN_SOURCES, UNRANKED_SOURCE_PRIORITY,
 };
 #[cfg(feature = "native")]
 pub use similarity::{

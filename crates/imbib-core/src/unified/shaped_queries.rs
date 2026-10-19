@@ -18,6 +18,49 @@ pub struct SearchResultInput {
     pub bibcode: Option<String>,
 }
 
+/// What `imbib-library-service_import-work` hands the store (source
+/// convention S-D5): one `bibliographic-work@1.0.0` already turned into the
+/// source's own BibTeX plus the provenance the old funnel dropped. Not a
+/// UniFFI record: the GUI reaches this through the verb, never directly.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct WorkImportInput {
+    /// The source's own BibTeX (`source-service_export bibtex`), or one the
+    /// caller synthesized when the source exports none — `synthesized` says
+    /// which.
+    pub bibtex: String,
+    /// True when `bibtex` was built from fields rather than fetched; the row
+    /// then keeps no `raw_bibtex` (a synthesized text is not the source's).
+    pub synthesized: bool,
+    /// The source the work came from (`ads`, `crossref`, …): `source_id`.
+    pub source_id: String,
+    /// The source's own id for the record (`source_id` in the provenance).
+    pub source_record_id: Option<String>,
+    /// Every identifier any source supplied, by canonical kind (`doi`,
+    /// `arxiv`, `pmid`, `pmcid`, `bibcode`, `isbn`, `openalex`, `s2`, `mag`,
+    /// `wos`, `dblp`).
+    pub ids: std::collections::BTreeMap<String, String>,
+    /// The `provenance` object of the work, as JSON, kept verbatim.
+    pub provenance_json: Option<String>,
+    /// The id of the verb-call row that produced this import, when one
+    /// exists: the row's `produced_by`.
+    pub produced_by: Option<String>,
+    /// The abstract when the BibTeX carries none.
+    pub abstract_text: Option<String>,
+}
+
+/// What `import_work` did with one work.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct WorkImportOutcome {
+    /// The new row, when one was created.
+    pub imported_id: Option<String>,
+    /// The row that already carried one of the work's identifiers.
+    pub existing_id: Option<String>,
+    /// True when the work matched a dismissed paper and nothing was written.
+    pub dismissed: bool,
+    /// True when the row (new or existing) was filed into the collection asked for.
+    pub added_to_collection: bool,
+}
+
 /// Outcome of a guarded permanent delete.
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "native", derive(uniffi::Record))]
@@ -780,13 +823,23 @@ pub fn item_to_linked_file_row(item: &Item) -> LinkedFileRow {
 /// Convert an Item into a SmartSearchRow.
 pub fn item_to_smart_search_row(item: &Item) -> SmartSearchRow {
     let payload = &item.payload;
+    // Older rows carry `query` + `source_ids_json` (and the GUI still edits
+    // those in place); newer rows carry the one `query_json`. The pair wins
+    // when present, so an in-place edit is what is shown.
+    let saved = get_str(payload, "query_json")
+        .as_deref()
+        .and_then(super::smart_search_query::read);
+    let query = get_str(payload, "query")
+        .or_else(|| saved.as_ref().map(|(q, _)| q.clone()))
+        .unwrap_or_default();
     let source_ids: Vec<String> = get_str(payload, "source_ids_json")
         .and_then(|s| serde_json::from_str(&s).ok())
+        .or_else(|| saved.map(|(_, s)| s))
         .unwrap_or_default();
     SmartSearchRow {
         id: item.id.to_string(),
         name: get_str(payload, "name").unwrap_or_default(),
-        query: get_str(payload, "query").unwrap_or_default(),
+        query,
         source_ids,
         max_results: get_i64(payload, "max_results").unwrap_or(100) as i32,
         feeds_to_inbox: get_bool(payload, "feeds_to_inbox"),
