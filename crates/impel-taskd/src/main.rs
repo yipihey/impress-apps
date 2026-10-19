@@ -685,6 +685,9 @@ fn accumulate_pass(status: &mut WorkerStatusSnapshot, report: &PassReport) {
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() {
     let args = parse_args();
+    // The linked inventory, so every `*-service` verb (and the source
+    // adapters imbib registers through it) is available to the executors.
+    impress_capabilities::force_link();
     let (store, store_path) = open_store(&args);
     let workspace = store_path
         .parent()

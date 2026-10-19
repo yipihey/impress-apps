@@ -145,6 +145,7 @@ pub mod library_service;
 pub mod manuscripts_service;
 pub mod scix_service;
 pub mod search_service;
+pub mod sources;
 pub mod store_singleton;
 pub mod tags_service;
 pub mod undo_service;

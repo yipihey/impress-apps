@@ -42,7 +42,7 @@ read.
 | `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 36 | 9 |
 | `imbib-backup-service` | imbib-service | 6 | 6 | 8 (7) | 8 | 6 |
 | `imbib-eink-service` | imbib-service | 22 | 22 | 35 (15) | 35 | 22 |
-| `imbib-library-service` | imbib-service | 56 | 56 | 114 (84) | 114 | 56 |
+| `imbib-library-service` | imbib-service | 57 | 57 | 117 (85) | 117 | 57 |
 | `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 9 | 7 |
 | `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 17 | 7 |
 | `imbib-search-service` | imbib-service | 10 | 10 | 23 (18) | 23 | 10 |
@@ -73,7 +73,7 @@ read.
 | `provider-service` | koine-providers | 2 | 2 | 2 (2) | 2 | 2 |
 | `settings-service` | koine-settings-service | 6 | 6 | 6 (5) | 6 | 6 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 28 | 10 |
-| `source-service` | impress-store-service | 9 | 9 | 21 (10) | 21 | 9 |
+| `source-service` | source-service | 15 | 15 | 40 (17) | 40 | 15 |
 | `store-query-service` | koine-store-query | 4 | 4 | 8 (8) | 8 | 4 |
 | `surface-demo-service` | surface-demo-service | 11 | 11 | 16 (14) | 16 | 11 |
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 1 | 1 |
@@ -186,7 +186,7 @@ and the implore owner decides between verbs and deletion.
 | `impress-remarkable` | library | covered-through | `imbib-eink-service` reaches it through `imbib-core::eink`; `rm::parse_rm` (strokes of a page) has no verb |
 | `impress-smart-search` | library | covered-through | `smart-search-service` exposes it; `url_extract::extract_title` only indirectly |
 | `impress-smart-search-service` | verb-crate | verb-crate | |
-| `impress-sources` | library | should-be-verb | `SourcePlugin::{search, fetch_by_doi}` for arXiv, Crossref, ADS, OpenAlex, PubMed, Semantic Scholar have no Rust verb; `search_sources` refuses when the app is down |
+| `impress-sources` | library | should-be-verb | superseded by koine `source-service` and its seven adapters (S6: `search_sources`, `resolve_citation` and `import-work` run there, app open or closed); this crate's `SourcePlugin` now serves only impel-enrichment's metadata resolver and impel-taskd, and leaves with that repoint |
 | `impress-store-ffi` | ffi | internal | `SharedStore::{upsert_item, upsert_items, add_reference, set_parent, delete_item}` are Swift-only generic writes; `store-service` has the per-kind verbs |
 | `impress-store-service` | verb-crate | verb-crate | |
 | `impress-toolbox` | binary | internal | `execute::{handle_execute, handle_execute_file}` run a local command — deliberately unsandboxed, deliberately no verb |

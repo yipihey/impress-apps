@@ -130,7 +130,17 @@ use serde_json::Value;
 // TR-D9), whose only example revokes a missing rule as an agent (refused), so
 // the spy sees nothing. Its positive evidence is koine-tasks
 // `tests/consent.rs`, which remembers, lists, revokes and re-asks.
-const EXCEPTION_CEILING: usize = 175;
+// 175 → 182: imbib adopts koine's source convention (S6). The six
+// `source-service_*` verbs and `imbib-library-service_import-work` reach the
+// network, so the default implementation cannot run them headless; seven rows
+// join the table (`imbib-app-service_search-sources` was already on it and
+// only changes its reason from `needs a running app` to `leaves the process
+// (network)`: it no longer needs the app). Their positive evidence is koine
+// `source-service/src/selftest.rs` (every verb over stub adapters: federation,
+// identifier merge, timeouts, etiquette) and `imbib-service/src/sources.rs`
+// tests (`import_work_keeps_provenance_dedups_by_identifier_and_honours_dismissal`
+// drives the store half on a scratch store).
+const EXCEPTION_CEILING: usize = 182;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave

@@ -822,6 +822,30 @@ Parse RIS and add each entry to a library. Returns the ids of the papers created
   {"ris":"TY  - JOUR\nAU  - Doe, Jane\nTI  - Imported RIS record\nPY  - 2026\nER  - \n","library_id":"5c000000-0000-4000-8000-0000000000e4"}
   ```
 
+## `imbib-library-service_import-work`
+
+Import one `bibliographic-work@1.0.0` record — a row of `source-service_search`, `source-service_fetch` or `imbib-app-service_search-sources` — into a library with its provenance kept (source convention S-D5): `source_id` filled, `produced_by` set to this call, the source's OWN BibTeX as `raw_bibtex` (fetched through `source-service_export`; never synthesized), the full `ids` map stored, after the dismissed check. A work whose DOI, arXiv id or bibcode the library already holds answers `existing_id` and writes nothing. `library` defaults to the default library; `collection` files the row.
+
+- **safety**: `external`
+- **adverbs**: tentatively, with_review, once
+- **reads**: "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper"
+- **writes**: "imbib/bibliography-entry"
+- **reach**: network
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `collection` | — | no | UUID of a collection to file the row into; omit for none. |
+| `library` | — | no | UUID of the library receiving the row; omit for the default library. |
+| `work` | — | yes | A `bibliographic-work@1.0.0` record: CSL-JSON (`type`, `title`, `author`, `issued`, `container-title`, …) plus `ids`, `locations`, `provenance`. |
+
+**Examples**
+
+- `import-a-work-into-a-library` — Tier A:
+
+  ```json
+  {"work":{"type":"article-journal","title":"G3 imported work","author":[{"family":"Doe","given":"Jane"}],"issued":{"date-parts":[[2026]]},"ids":{"doi":"10.5555/g3-import-work"},"provenance":{"fetched_at":"2026-10-19T00:00:00Z","source":"crossref","source_id":"10.5555/g3-import-work"}},"library":"5c000000-0000-4000-8000-000000000030","collection":null}
+  ```
+
 ## `imbib-library-service_is-paper-dismissed`
 
 Whether a paper with any of the given identifiers has been dismissed.

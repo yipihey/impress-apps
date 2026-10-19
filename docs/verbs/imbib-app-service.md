@@ -271,13 +271,13 @@ What the USER was recently working on: papers they viewed or added by hand, most
 
 ## `imbib-app-service_resolve-citation`
 
-Resolve free text, BibTeX, or structured citation fields through the running app's local/import/search cascade. Candidate order, confidence, `via`, and reason values are preserved. The returned paper and candidate objects use the same open dictionary shape as HTTP.
+Resolve free text, BibTeX, or structured citation fields through the scored cascade (identifier → the library → the online sources), with the app open or closed. An accepted match not yet in the library is imported with its provenance and returned as `paper` (`via`: `local-identifier`, `local-text`, `imported-identifier`, `duplicate`, `search-high-confidence`); below threshold the scored `candidates` come back, each with `confidence` and the scorer's `evidence` (`search-candidates`), or `not-found` with a `reason`. `download_pdfs` asks the running app for the PDF after an import and does nothing when it is closed. `preview` (the smart-search paste) returns an accepted remote hit as the single candidate (`external-identifier-preview`, `search-high-confidence-preview`) and writes nothing.
 
 - **safety**: `external`
 - **adverbs**: tentatively, with_review, once
-- **reads**: —
-- **writes**: —
-- **reach**: app("imbib")
+- **reads**: "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper"
+- **writes**: "imbib/bibliography-entry"
+- **reach**: network, app("imbib")
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -285,6 +285,7 @@ Resolve free text, BibTeX, or structured citation fields through the running app
 | `citation` | — | no | Structured fields; kept private for the same reason as the raw citation. |
 | `download_pdfs` | boolean | yes | Whether to fetch a PDF after automatic import. |
 | `library_id` | — | no | Destination library UUID; omit to use the default library. |
+| `preview` | — | no | Preview only: an accepted remote match comes back as a candidate and nothing is imported. |
 | `query` | — | no | Free-text citation query (kept private because it may contain manuscript text). |
 
 **Examples**
@@ -320,13 +321,13 @@ Resolve an identifier — DOI, arXiv id, bibcode — to a paper, fetching its me
 
 ## `imbib-app-service_search-sources`
 
-Search external academic sources — ADS, arXiv, Crossref and the rest — for papers NOT yet in the library. This is how you find new work; to search papers already saved use the library search tools instead. Results are candidates: import them before citing or tagging. `sources` is a comma-separated subset (e.g. "arxiv,ads"); empty means every configured source. Make ONE broad call rather than several narrow ones.
+Search external academic sources — ADS, arXiv, Crossref, OpenAlex, PubMed, Web of Science, SciX — for papers NOT yet in the library, with the app open or closed (the adapters are koine's `source-service`). This is how you find new work; to search papers already saved use the library search tools instead. Results are candidates, each with its `ids` and `provenance`: import them (`imbib-library-service_import-work` or `import-identifiers`) before citing or tagging. `query` is words, an identifier, or an ADS-native string (`author:"Abel" year:2002`); `sources` is a comma-separated subset (e.g. "arxiv,ads"); empty means every source that covers the query. Rows from different sources that share an identifier are one row. Make ONE broad call rather than several narrow ones.
 
 - **safety**: `external`
 - **adverbs**: tentatively, with_review, once
 - **reads**: —
 - **writes**: —
-- **reach**: app("imbib")
+- **reach**: network
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

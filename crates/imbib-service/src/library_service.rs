@@ -1030,6 +1030,26 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         args = r#"{"papers":[{"bibtex":"@article{G3SearchRecord2026, title={G3 search record}, author={Doe, Jane}, year={2026}}","doi":"10.5555/g3-search-record","arxiv_id":null,"bibcode":null}],"library_id":"5c000000-0000-4000-8000-000000000085"}"#
     )]
     async fn import_papers(&self, papers: Vec<PaperImport>, library_id: String) -> ImportSummary;
+    /// Import one `bibliographic-work@1.0.0` record — a row of
+    /// `source-service_search`, `source-service_fetch` or
+    /// `imbib-app-service_search-sources` — into a library with its provenance
+    /// kept (source convention S-D5): `source_id` filled, `produced_by` set to
+    /// this call, the source's OWN BibTeX as `raw_bibtex` (fetched through
+    /// `source-service_export`; never synthesized), the full `ids` map stored,
+    /// after the dismissed check. A work whose DOI, arXiv id or bibcode the
+    /// library already holds answers `existing_id` and writes nothing.
+    /// `library` defaults to the default library; `collection` files the row.
+    #[impress_method(safety = external, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper"], writes = ["imbib/bibliography-entry"], reach = [network]))]
+    #[impress_example(
+        name = "import-a-work-into-a-library",
+        args = r#"{"work":{"type":"article-journal","title":"G3 imported work","author":[{"family":"Doe","given":"Jane"}],"issued":{"date-parts":[[2026]]},"ids":{"doi":"10.5555/g3-import-work"},"provenance":{"fetched_at":"2026-10-19T00:00:00Z","source":"crossref","source_id":"10.5555/g3-import-work"}},"library":"5c000000-0000-4000-8000-000000000030","collection":null}"#
+    )]
+    async fn import_work(
+        &self,
+        work: koine_sources::Work,
+        library: Option<String>,
+        collection: Option<String>,
+    ) -> imbib_core::unified::shaped_queries::WorkImportOutcome;
     /// Resolve each identifier in the running app, importing fetched records
     /// and preserving per-identifier duplicate/failure outcomes.
     #[impress_method(safety = external, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file"], writes = ["imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], reach = [app("imbib"), network, fs]), risk(untrusted), intent(title = "Add Papers by Identifier", phrase = "Add papers to ${applicationName}"))]
@@ -2497,6 +2517,15 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
         }
     }
 
+    async fn import_work(
+        &self,
+        work: koine_sources::Work,
+        library: Option<String>,
+        collection: Option<String>,
+    ) -> imbib_core::unified::shaped_queries::WorkImportOutcome {
+        crate::sources::import_work(work, library, collection).await
+    }
+
     async fn import_identifiers(
         &self,
         identifiers: Vec<String>,
@@ -3228,6 +3257,14 @@ impress_service_impl! {
             /// UUID of the library receiving new papers.
             library_id: String
         ) -> ImportSummary,
+        import_work(
+            /// A `bibliographic-work@1.0.0` record: CSL-JSON (`type`, `title`, `author`, `issued`, `container-title`, …) plus `ids`, `locations`, `provenance`.
+            work: koine_sources::Work,
+            /// UUID of the library receiving the row; omit for the default library.
+            library: Option<String>,
+            /// UUID of a collection to file the row into; omit for none.
+            collection: Option<String>
+        ) -> imbib_core::unified::shaped_queries::WorkImportOutcome,
         import_identifiers(
             /// Paper identifiers accepted by imbib, in caller order.
             identifiers: Vec<String>,

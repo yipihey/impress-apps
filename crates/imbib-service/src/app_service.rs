@@ -63,6 +63,14 @@ pub struct ExternalPaper {
     /// Which source returned it (`ads`, `arxiv`, `crossref`, …).
     #[serde(default, alias = "sourceID", alias = "source_id")]
     pub source: Option<String>,
+    /// Every identifier any source supplied, by canonical kind (`doi`,
+    /// `arxiv`, `bibcode`, `pmid`, `openalex`, …): the merge key (S-D7).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub ids: std::collections::BTreeMap<String, String>,
+    /// Where and when the row was fetched; `sources` names every source that
+    /// contributed to a merged row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<koine_sources::kind::Provenance>,
 }
 
 /// Structured bibliographic fields accepted by `/api/papers/resolve`.
@@ -243,14 +251,19 @@ pub trait ImbibAppService: Send + Sync + 'static {
         download_pdfs: bool,
     ) -> IdentifierImportResult;
 
-    /// Search external academic sources — ADS, arXiv, Crossref and the rest —
-    /// for papers NOT yet in the library. This is how you find new work; to
-    /// search papers already saved use the library search tools instead.
-    /// Results are candidates: import them before citing or tagging.
+    /// Search external academic sources — ADS, arXiv, Crossref, OpenAlex,
+    /// PubMed, Web of Science, SciX — for papers NOT yet in the library, with
+    /// the app open or closed (the adapters are koine's `source-service`).
+    /// This is how you find new work; to search papers already saved use the
+    /// library search tools instead. Results are candidates, each with its
+    /// `ids` and `provenance`: import them (`imbib-library-service_import-work`
+    /// or `import-identifiers`) before citing or tagging. `query` is words,
+    /// an identifier, or an ADS-native string (`author:"Abel" year:2002`);
     /// `sources` is a comma-separated subset (e.g. "arxiv,ads"); empty means
-    /// every configured source. Make ONE broad call rather than several narrow
-    /// ones.
-    #[impress_method]
+    /// every source that covers the query. Rows from different sources that
+    /// share an identifier are one row. Make ONE broad call rather than
+    /// several narrow ones.
+    #[impress_method(safety = external, effects(reach = [network]))]
     #[impress_example(
         name = "isolated-search-sources",
         args = r##"{"query":"spectral line formation","sources":"arxiv","limit":5}"##,
@@ -264,10 +277,18 @@ pub trait ImbibAppService: Send + Sync + 'static {
     ) -> Vec<ExternalPaper>;
 
     /// Resolve free text, BibTeX, or structured citation fields through the
-    /// running app's local/import/search cascade. Candidate order,
-    /// confidence, `via`, and reason values are preserved. The returned paper
-    /// and candidate objects use the same open dictionary shape as HTTP.
-    #[impress_method(safety = external, effects(reach = [app("imbib")]))]
+    /// scored cascade (identifier → the library → the online sources), with
+    /// the app open or closed. An accepted match not yet in the library is
+    /// imported with its provenance and returned as `paper` (`via`:
+    /// `local-identifier`, `local-text`, `imported-identifier`, `duplicate`,
+    /// `search-high-confidence`); below threshold the scored `candidates` come
+    /// back, each with `confidence` and the scorer's `evidence`
+    /// (`search-candidates`), or `not-found` with a `reason`. `download_pdfs`
+    /// asks the running app for the PDF after an import and does nothing when
+    /// it is closed. `preview` (the smart-search paste) returns an accepted
+    /// remote hit as the single candidate (`external-identifier-preview`,
+    /// `search-high-confidence-preview`) and writes nothing.
+    #[impress_method(safety = external, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper"], writes = ["imbib/bibliography-entry"], reach = [network, app("imbib")]))]
     #[impress_example(
         name = "host-resolve-local-citation",
         tier = "b",
@@ -280,6 +301,7 @@ pub trait ImbibAppService: Send + Sync + 'static {
         citation: Option<CitationInput>,
         library_id: Option<String>,
         download_pdfs: bool,
+        preview: Option<bool>,
     ) -> CitationResolution;
 
     /// What the USER was recently working on: papers they viewed or added by
@@ -541,26 +563,37 @@ impl ImbibAppService for DefaultImbibAppService {
         }
     }
 
+    // Source search and citation resolution no longer need the app: every
+    // adapter is Rust (`crate::sources`, source convention S6), so these two
+    // answer with imbib closed or open. The native backend calls the same
+    // functions.
     async fn search_sources(
         &self,
-        _query: String,
-        _sources: Option<String>,
-        _limit: u32,
+        query: String,
+        sources: Option<String>,
+        limit: u32,
     ) -> Vec<ExternalPaper> {
-        refuse("search_sources");
-        vec![]
+        crate::sources::search_sources(query, sources, limit).await
     }
 
     async fn resolve_citation(
         &self,
-        _query: Option<String>,
-        _bibtex: Option<String>,
-        _citation: Option<CitationInput>,
-        _library_id: Option<String>,
-        _download_pdfs: bool,
+        query: Option<String>,
+        bibtex: Option<String>,
+        citation: Option<CitationInput>,
+        library_id: Option<String>,
+        download_pdfs: bool,
+        preview: Option<bool>,
     ) -> CitationResolution {
-        refuse("resolve_citation");
-        CitationResolution::unavailable(NOT_RUNNING)
+        crate::sources::resolve_citation(
+            query,
+            bibtex,
+            citation,
+            library_id,
+            download_pdfs,
+            preview.unwrap_or(false),
+        )
+        .await
     }
 
     async fn recent_activity(&self, _limit: u32, _parent_id: Option<String>) -> Vec<ActivityEntry> {
@@ -692,7 +725,9 @@ impress_service_impl! {
             /// Destination library UUID; omit to use the default library.
             library_id: Option<String>,
             /// Whether to fetch a PDF after automatic import.
-            download_pdfs: bool
+            download_pdfs: bool,
+            /// Preview only: an accepted remote match comes back as a candidate and nothing is imported.
+            preview: Option<bool>
         ) -> CitationResolution,
         recent_activity(
             /// Maximum number of results to return.
