@@ -2356,6 +2356,25 @@ public actor AutomationService: AutomationOperations {
         return min(1.0, score)
     }
 
+    /// Test seam for the golden fixtures (CitationScorerGoldenTests): calls
+    /// `scoreCandidate` unchanged. Callers pass LaTeX-decoded inputs exactly as
+    /// `resolveStructuredCitation` does.
+    func scoreCandidateForTesting(
+        _ c: ExternalSearchResult,
+        against input: CitationInput,
+        decodedAuthors: [String],
+        decodedTitle: String?,
+        decodedJournal: String?
+    ) -> Double {
+        scoreCandidate(
+            c,
+            against: input,
+            decodedAuthors: decodedAuthors,
+            decodedTitle: decodedTitle,
+            decodedJournal: decodedJournal
+        )
+    }
+
     /// Cross-check: does `venue` (e.g. "Journal of Cosmology and
     /// Astroparticle Physics") correspond to the short-form `bibstem`
     /// (e.g. "JCAP") the caller provided? ADS/OpenAlex/Crossref return
