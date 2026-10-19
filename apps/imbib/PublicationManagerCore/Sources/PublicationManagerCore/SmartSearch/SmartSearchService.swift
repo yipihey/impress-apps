@@ -710,52 +710,58 @@ public final class SmartSearchService {
         }
     }
 
+    /// `imbib-app-service_resolve-citation` in preview mode: koine's scored
+    /// cascade over the library and the online sources (source convention
+    /// S-D6); nothing is written until the person adds the candidate.
     private func resolveCitation(_ input: CitationInput, fallbackQuery: String) async -> BlockResolveResult {
-        do {
-            let result = try await automation.resolveStructuredCitation(
-                input,
-                library: resolvedAddTargetLibraryID(),
-                downloadPDFs: false,
-                importIfMissing: false
-            )
-            switch result.via {
-            case "local-identifier", "local-text":
-                guard let paper = result.paper else {
-                    return .notFound(reason: result.reason ?? "Local match missing payload")
-                }
-                let cand = Self.candidate(fromLocal: paper, sourceLabel: "Library", confidence: 1.0)
-                return .single(cand)
-
-            case "duplicate":
-                guard let paper = result.paper else {
-                    return .notFound(reason: "Duplicate detected but no payload")
-                }
-                let cand = Self.candidate(fromLocal: paper, sourceLabel: "Library", confidence: 1.0)
-                return .single(cand)
-
-            case "external-identifier-preview", "ads-high-confidence-preview":
-                let cands = (result.candidates ?? []).map(Self.candidate(fromRanked:))
-                guard let cand = cands.first else {
-                    return .notFound(reason: result.reason ?? "Preview returned no candidate")
-                }
-                return .single(cand)
-
-            case "ads-candidates", "all-sources-fallback":
-                let cands = (result.candidates ?? []).map(Self.candidate(fromRanked:))
-                return .candidates(cands)
-
-            case "not-found":
-                return .notFound(reason: result.reason ?? "No match found")
-
-            default:
-                return .notFound(reason: result.reason ?? "Unknown resolve path: \(result.via)")
-            }
-        } catch {
+        var citation: [String: Any] = ["authors": input.authors]
+        if let v = input.title { citation["title"] = v }
+        if let v = input.year { citation["year"] = v }
+        if let v = input.journal { citation["journal"] = v }
+        if let v = input.volume { citation["volume"] = v }
+        if let v = input.pages { citation["pages"] = v }
+        if let v = input.doi { citation["doi"] = v }
+        if let v = input.arxiv { citation["arxiv"] = v }
+        if let v = input.bibcode { citation["bibcode"] = v }
+        if let v = input.rawBibtex { citation["rawBibtex"] = v }
+        citation["freeText"] = input.freeText ?? fallbackQuery
+        var args: [String: Any] = ["citation": citation, "download_pdfs": false, "preview": true]
+        if let library = resolvedAddTargetLibraryID() { args["library_id"] = library.uuidString }
+        let answer = await HTTPAutomationRouter.callVerb("imbib-app-service_resolve-citation", args)
+        guard answer.ok, let body = answer.body as? [String: Any], let via = body["via"] as? String else {
+            let object = answer.body as? [String: Any]
+            let message = object?["message"] as? String ?? "resolve-citation refused"
             Logger.smartSearch.warningCapture(
-                "smartsearch: resolveStructuredCitation failed: \(error.localizedDescription)",
+                "smartsearch: resolve-citation failed: \(message)",
                 category: "smartsearch"
             )
-            return .error(error.localizedDescription)
+            return .error(message)
+        }
+        let reason = body["reason"] as? String
+        switch via {
+        case "local-cite-key", "local-identifier", "local-text", "duplicate":
+            guard let paperDict = body["paper"] as? [String: Any],
+                  let id = (paperDict["id"] as? String).flatMap(UUID.init(uuidString:)),
+                  let paper = try? await automation.getPaper(identifier: .uuid(id)) else {
+                return .notFound(reason: reason ?? "Local match missing payload")
+            }
+            return .single(Self.candidate(fromLocal: paper, sourceLabel: "Library", confidence: 1.0))
+
+        case "external-identifier-preview", "search-high-confidence-preview":
+            let cands = (body["candidates"] as? [[String: Any]] ?? []).map(Self.candidate(fromRanked:))
+            guard let cand = cands.first else {
+                return .notFound(reason: reason ?? "Preview returned no candidate")
+            }
+            return .single(cand)
+
+        case "search-candidates":
+            return .candidates((body["candidates"] as? [[String: Any]] ?? []).map(Self.candidate(fromRanked:)))
+
+        case "not-found":
+            return .notFound(reason: reason ?? "No match found")
+
+        default:
+            return .notFound(reason: reason ?? "Unknown resolve path: \(via)")
         }
     }
 
@@ -903,23 +909,29 @@ public final class SmartSearchService {
 
     // MARK: - Static factories
 
-    private static func candidate(fromRanked rc: RankedCandidate) -> SmartSearchCandidate {
-        let r = rc.result
+    /// One `search-candidates` row of `resolve-citation`: the flat dictionary
+    /// the route has always emitted (`title`, `authors`, `sourceID`,
+    /// `confidence`, `doi`, `arxivID`, `bibcode`, …).
+    private static func candidate(fromRanked r: [String: Any]) -> SmartSearchCandidate {
+        let title = r["title"] as? String ?? ""
+        let year = r["year"] as? Int
+        let sourceID = r["sourceID"] as? String ?? ""
         let id: PaperIdentifier? = {
-            if let doi = r.doi, !doi.isEmpty { return .doi(doi) }
-            if let arxiv = r.arxivID, !arxiv.isEmpty { return .arxiv(arxiv) }
-            if let bib = r.bibcode, !bib.isEmpty { return .bibcode(bib) }
+            if let doi = r["doi"] as? String, !doi.isEmpty { return .doi(doi) }
+            if let arxiv = r["arxivID"] as? String, !arxiv.isEmpty { return .arxiv(arxiv) }
+            if let bib = r["bibcode"] as? String, !bib.isEmpty { return .bibcode(bib) }
             return nil
         }()
+        let venue = r["venue"] as? String ?? ""
         return SmartSearchCandidate(
-            id: stableID(sourceID: r.sourceID, identifier: id, title: r.title, year: r.year),
-            title: r.title,
-            authors: r.authors,
-            year: r.year,
-            venue: r.venue.isEmpty ? nil : r.venue,
+            id: stableID(sourceID: sourceID, identifier: id, title: title, year: year),
+            title: title,
+            authors: r["authors"] as? [String] ?? [],
+            year: year,
+            venue: venue.isEmpty ? nil : venue,
             identifier: id,
-            sourceLabel: sourceLabelFor(r.sourceID),
-            confidence: rc.confidence,
+            sourceLabel: sourceLabelFor(sourceID),
+            confidence: r["confidence"] as? Double,
             alreadyInLibrary: nil
         )
     }

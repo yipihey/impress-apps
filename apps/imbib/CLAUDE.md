@@ -67,7 +67,7 @@ Cross-platform (macOS/iOS) scientific publication manager. BibTeX/BibDesk-compat
 | Data | Rust graph store (SQLite) | All access via `RustStoreAdapter.shared`; Core Data is migration-only legacy |
 | BibTeX | Source of truth | Round-trip fidelity, `Bdsk-File-*` support, cite keys: `{LastName}{Year}{TitleWord}` |
 | PDFs | Human-readable names | `Author_Year_Title.pdf`, relative paths from .bib location |
-| Plugins | Actor-based | `SourcePlugin` protocol, built-in: ArXiv, Crossref, ADS, PubMed, Semantic Scholar, OpenAlex, DBLP |
+| Sources | koine `source-service` (Rust) | arXiv, Crossref, ADS, SciX, OpenAlex, PubMed, Web of Science are koine adapters (`crates/source-*`); `imbib-app-service_{search-sources,resolve-citation}` and `imbib-library-service_import-work` work with the app closed. Semantic Scholar and DBLP have no adapter yet (S-D9 names them next). The Swift `SourcePlugin` tree still serves the GUI's inbox feeds, identifier import, share/Safari/drag-drop paths until those call the verbs |
 | Papers | Unified model (ADR-016) | All papers are CDPublication, search results auto-import |
 | Formats | BibTeX + RIS | First-class RIS support with bidirectional conversion |
 | Automation | URL schemes + AppIntents | `imbib://...` for AI agents, Siri Shortcuts, CLI tool |

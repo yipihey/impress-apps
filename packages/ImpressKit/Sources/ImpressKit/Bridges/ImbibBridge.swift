@@ -814,9 +814,12 @@ public struct ImbibRankedCandidate: Codable, Sendable, Identifiable, Hashable {
 
 /// Response from `ImbibBridge.resolveCitation`. Exactly one of `paper` or
 /// `candidates` is typically set. `via` names the cascade branch taken,
-/// useful for logging: `local-identifier`, `local-text`,
-/// `imported-identifier`, `ads-high-confidence`, `ads-candidates`,
-/// `all-sources-fallback`, `duplicate`, `not-found`.
+/// useful for logging: `local-cite-key`, `local-identifier`, `local-text`,
+/// `imported-identifier`, `duplicate`, `search-high-confidence` (a paper),
+/// `search-candidates` (scored, with `confidence` and `evidence`),
+/// `not-found`. The cascade is koine's (`imbib-app-service_resolve-citation`,
+/// source convention S-D6); the older `ads-*` / `all-sources-fallback` names
+/// are gone with the Swift cascade.
 public struct ImbibResolveResponse: Decodable, Sendable {
     public let status: String?
     public let via: String

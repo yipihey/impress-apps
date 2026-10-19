@@ -82,6 +82,7 @@ public final class SettingsViewModel {
         }
 
         try await credentialManager.storeAPIKey(apiKey, for: sourceID)
+        await SourceSecrets.push(credentials: credentialManager)
         await loadCredentialStatus()
     }
 
@@ -93,6 +94,7 @@ public final class SettingsViewModel {
         }
 
         try await credentialManager.storeEmail(email, for: sourceID)
+        await SourceSecrets.push(credentials: credentialManager)
         await loadCredentialStatus()
     }
 
@@ -100,6 +102,7 @@ public final class SettingsViewModel {
         Logger.viewModels.info("Deleting credentials for \(sourceID)")
 
         await credentialManager.deleteAll(for: sourceID)
+        await SourceSecrets.push(credentials: credentialManager)
         await loadCredentialStatus()
     }
 
