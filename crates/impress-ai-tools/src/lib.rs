@@ -347,7 +347,7 @@ fn required_app(name: &str) -> Option<&'static str> {
 fn is_scix(name: &str) -> bool {
     name.starts_with("imbib-scix-service_")
         || name.starts_with("smart-search-service_")
-        || name == "imbib-app-service_search-sources"
+        || name == "imbib-sources-service_search-sources"
 }
 
 fn is_vw(name: &str) -> bool {
@@ -400,7 +400,7 @@ fn domain_of(name: &str) -> Option<&'static str> {
 fn action_of(name: &str, group: &str) -> Option<String> {
     let (namespace, verb) = name.split_once('_')?;
     if group == "scix" {
-        if name == "imbib-app-service_search-sources" {
+        if name == "imbib-sources-service_search-sources" {
             return Some("search-sources".into());
         }
         let service = namespace.strip_suffix("-service").unwrap_or(namespace);
@@ -479,7 +479,10 @@ mod tests {
     #[test]
     fn app_gated_tools_are_withheld_but_store_tools_remain() {
         let adapter = ImpressToolAdapter::with_reachability(Reachability::default());
-        assert!(!adapter.is_available("imbib-app-service_search-sources"));
+        assert!(!adapter.is_available("imbib-app-service_status"));
+        // The source verbs run in Rust with the app closed (source
+        // convention S6): never withheld.
+        assert!(adapter.is_available("imbib-sources-service_search-sources"));
         assert!(adapter.is_available("imbib-library-service_list-libraries"));
         assert!(adapter.resolve("impress", "ai.list-models").is_some());
     }

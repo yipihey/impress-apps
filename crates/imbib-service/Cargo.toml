@@ -28,6 +28,8 @@ dirs = { workspace = true }
 # The e-ink verbs run the blocking mirror engine off the async executor.
 tokio = { workspace = true }
 uuid = { workspace = true }
+# `sources::fields_of_reference`: the year, surnames and title of a free-text reference.
+regex = { workspace = true }
 # The source convention (koine docs/plan-source-convention.md, S6): the
 # vocabulary (`Work`, the scorer and cascade), the six `source-service_*`
 # verbs, and the seven adapters imbib registers at start (`sources.rs`).

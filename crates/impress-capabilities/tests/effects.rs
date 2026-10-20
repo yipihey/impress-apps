@@ -133,9 +133,9 @@ use serde_json::Value;
 // 175 → 182: imbib adopts koine's source convention (S6). The six
 // `source-service_*` verbs and `imbib-library-service_import-work` reach the
 // network, so the default implementation cannot run them headless; seven rows
-// join the table (`imbib-app-service_search-sources` was already on it and
-// only changes its reason from `needs a running app` to `leaves the process
-// (network)`: it no longer needs the app). Their positive evidence is koine
+// join the table (the two verbs moved from the app-gated `imbib-app-service` to
+// `imbib-sources-service`, so `search-sources` leaves and re-enters the table
+// under the new name and `leaves the process (network)`). Their positive evidence is koine
 // `source-service/src/selftest.rs` (every verb over stub adapters: federation,
 // identifier merge, timeouts, etiquette) and `imbib-service/src/sources.rs`
 // tests (`import_work_keeps_provenance_dedups_by_identifier_and_honours_dismissal`

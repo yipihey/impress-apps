@@ -1032,7 +1032,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     async fn import_papers(&self, papers: Vec<PaperImport>, library_id: String) -> ImportSummary;
     /// Import one `bibliographic-work@1.0.0` record — a row of
     /// `source-service_search`, `source-service_fetch` or
-    /// `imbib-app-service_search-sources` — into a library with its provenance
+    /// `imbib-sources-service_search-sources` — into a library with its provenance
     /// kept (source convention S-D5): `source_id` filled, `produced_by` set to
     /// this call, the source's OWN BibTeX as `raw_bibtex` (fetched through
     /// `source-service_export`; never synthesized), the full `ids` map stored,

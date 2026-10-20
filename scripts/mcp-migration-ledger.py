@@ -116,7 +116,7 @@ MANUAL_COVERED = {
     "imbib_create_tag": "imbib-tags-service_create-tag",
     # Ported in the app-service phase; the token heuristic cannot see that
     # "sources" and "external" are the same idea.
-    "imbib_search_sources": "imbib-app-service_search-sources",
+    "imbib_search_sources": "imbib-sources-service_search-sources",
     "imbib_get_library_activity": "imbib-app-service_recent-activity",
     # /api/search is already global across open documents, so the existing
     # search tool IS cross-document search. Building a second one nearly

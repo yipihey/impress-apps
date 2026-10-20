@@ -239,7 +239,7 @@ final class TransportProofTests: XCTestCase {
         ])
         try require(retiredResolution.status == 404, "retired citation-resolution route is unavailable")
         let generatedResolution = try await verb(base, bearer,
-            "imbib-app-service_resolve-citation", [
+            "imbib-sources-service_resolve-citation", [
                 "query": key, "library_id": libraryID, "download_pdfs": false
             ])
         let generatedResolutionBody = try object(generatedResolution, "generated local citation resolution")
@@ -248,7 +248,7 @@ final class TransportProofTests: XCTestCase {
         let generatedResolvedID = try XCTUnwrap(generatedResolvedPaper["id"] as? String)
         let expectedPaperUUID = try XCTUnwrap(UUID(uuidString: paperID))
         let actualPaperUUID = try XCTUnwrap(UUID(uuidString: generatedResolvedID))
-        try require(generatedVia == "local-search" &&
+        try require((generatedVia == "local-search" || generatedVia == "local-cite-key") &&
                     actualPaperUUID == expectedPaperUUID &&
                     generatedResolvedPaper["citeKey"] as? String == key &&
                     generatedResolvedPaper["title"] as? String == paperTitle,
@@ -258,7 +258,7 @@ final class TransportProofTests: XCTestCase {
             "download_pdfs": false
         ])
         let generatedMissing = try await request(base, bearer,
-            "/api/verb/imbib-app-service_resolve-citation", ["download_pdfs": false])
+            "/api/verb/imbib-sources-service_resolve-citation", ["download_pdfs": false])
         try require(retiredMissing.status == 404 && generatedMissing.status == 400,
                     "retired route is absent and generated citation refuses missing input")
         let generatedError = try objectWithoutSuccessCheck(generatedMissing, "generated missing citation error")

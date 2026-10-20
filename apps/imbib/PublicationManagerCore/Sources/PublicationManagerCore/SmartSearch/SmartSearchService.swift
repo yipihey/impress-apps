@@ -710,7 +710,7 @@ public final class SmartSearchService {
         }
     }
 
-    /// `imbib-app-service_resolve-citation` in preview mode: koine's scored
+    /// `imbib-sources-service_resolve-citation` in preview mode: koine's scored
     /// cascade over the library and the online sources (source convention
     /// S-D6); nothing is written until the person adds the candidate.
     private func resolveCitation(_ input: CitationInput, fallbackQuery: String) async -> BlockResolveResult {
@@ -727,7 +727,7 @@ public final class SmartSearchService {
         citation["freeText"] = input.freeText ?? fallbackQuery
         var args: [String: Any] = ["citation": citation, "download_pdfs": false, "preview": true]
         if let library = resolvedAddTargetLibraryID() { args["library_id"] = library.uuidString }
-        let answer = await HTTPAutomationRouter.callVerb("imbib-app-service_resolve-citation", args)
+        let answer = await HTTPAutomationRouter.callVerb("imbib-sources-service_resolve-citation", args)
         guard answer.ok, let body = answer.body as? [String: Any], let via = body["via"] as? String else {
             let object = answer.body as? [String: Any]
             let message = object?["message"] as? String ?? "resolve-citation refused"

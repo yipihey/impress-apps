@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use imbib_service::app_service::{
-    ActivityEntry, AppStatus, CitationInput, CitationResolution, ExternalPaper,
-    IdentifierImportResult, ImbibAppService, LogEntry, PapersWindowResult, SyncNudgeResult,
+    ActivityEntry, AppStatus, IdentifierImportResult, ImbibAppService, LogEntry,
+    PapersWindowResult, SyncNudgeResult,
 };
 use imbib_service::manuscripts_service::{
     CompileResult, ImbibManuscriptsService, ManuscriptRecord, TemplateRecord, WriteResult,
@@ -95,35 +95,6 @@ impl ImbibAppService for NativeImbibAppService {
         .unwrap_or_default()
     }
 
-    // Source search and citation resolution run in Rust (imbib-service's
-    // `sources`, source convention S6) in every host; the app is not asked.
-    async fn search_sources(
-        &self,
-        query: String,
-        sources: Option<String>,
-        limit: u32,
-    ) -> Vec<ExternalPaper> {
-        imbib_service::sources::search_sources(query, sources, limit).await
-    }
-    async fn resolve_citation(
-        &self,
-        query: Option<String>,
-        bibtex: Option<String>,
-        citation: Option<CitationInput>,
-        library_id: Option<String>,
-        download_pdfs: bool,
-        preview: Option<bool>,
-    ) -> CitationResolution {
-        imbib_service::sources::resolve_citation(
-            query,
-            bibtex,
-            citation,
-            library_id,
-            download_pdfs,
-            preview.unwrap_or(false),
-        )
-        .await
-    }
     async fn recent_activity(&self, limit: u32, parent_id: Option<String>) -> Vec<ActivityEntry> {
         self.invoke(
             "recent_activity",

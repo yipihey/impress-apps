@@ -49,8 +49,10 @@ use tracing_subscriber::Layer;
 /// `verb` (this crate's own per-call span, P2), and `perf` — a budget
 /// breach warning (`impress_service_core::pipeline::finish`, D-P2, G7c),
 /// forwarded as an ordinary event through [`Layer::on_event`] like any other
-/// bridged category (it opens no span of its own).
-pub const BRIDGED_CATEGORIES: &[&str] = &["layout", "surface", "verb", "perf"];
+/// bridged category (it opens no span of its own), and `sources` — imbib's
+/// three-point trace of a search, a resolve and an import through koine's
+/// `source-service` (`imbib_service::sources`, source convention S6).
+pub const BRIDGED_CATEGORIES: &[&str] = &["layout", "surface", "verb", "perf", "sources"];
 
 /// What the host implements to receive the Rust half's log lines.
 #[cfg_attr(feature = "native", uniffi::export(callback_interface))]

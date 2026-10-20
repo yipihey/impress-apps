@@ -1,7 +1,7 @@
 //! The 98 goldens recorded from imbib's Swift scorer (work package S2a,
 //! `fixtures/citation-scorer-goldens.json`; the decisions that look wrong are
 //! in `fixtures/citation-scorer-NOTES.md`) reproduce through the path
-//! `imbib-app-service_resolve-citation` runs: koine's cascade
+//! `imbib-sources-service_resolve-citation` runs: koine's cascade
 //! (`koine_sources::cascade::resolve`) with `Scorer::legacy()` over the
 //! sources, as `imbib_service::sources::resolve_citation` drives it. The
 //! Swift scorer is deleted; this is what proves the Rust path matches it.

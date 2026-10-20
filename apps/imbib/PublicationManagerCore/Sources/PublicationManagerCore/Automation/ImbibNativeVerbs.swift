@@ -31,6 +31,7 @@ public enum ImbibNativeVerbs {
             "imbib-search-service", "imbib-undo-service", "imbib-annotations-service",
             "imbib-artifacts-service", "imbib-scix-service", "imbib-manuscripts-service",
             "imbib-backup-service", "imbib-eink-service", "imbib-text-service",
+            "imbib-sources-service",
         ]) { name, argsJSON, callerJSON in
             let result = await dispatchVerbAsync(name: name, argsJson: argsJSON, callerJson: callerJSON)
             if (200..<300).contains(result.status), verbWritesStore(name: name) {

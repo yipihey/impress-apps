@@ -122,9 +122,7 @@ catalogue, 168 on the exception table.
 | `imbib-app-service_get-notes` | — | — | app("imbib") | — |
 | `imbib-app-service_open-manuscript-papers` | — | — | app("imbib") | — |
 | `imbib-app-service_recent-activity` | — | — | app("imbib") | — |
-| `imbib-app-service_resolve-citation` | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry" | network, app("imbib") | — |
 | `imbib-app-service_resolve-identifier` | — | — | app("imbib") | — |
-| `imbib-app-service_search-sources` | — | — | network | — |
 | `imbib-app-service_status` | — | — | app("imbib") | — |
 | `imbib-app-service_sync-nudge` | — | — | app("imbib") | — |
 | `imbib-app-service_sync-status` | — | — | app("imbib") | — |
@@ -238,6 +236,8 @@ catalogue, 168 on the exception table.
 | `imbib-scix-service_list-scix-libraries` | "imbib/scix-library" | — | — | example ×1 |
 | `imbib-scix-service_query-scix-library-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/scix-library" | — | — | example ×1 |
 | `imbib-scix-service_remove-from-scix-library` | "imbib/scix-library" | "imbib/scix-library" | — | example ×1 |
+| `imbib-sources-service_resolve-citation` | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry" | network, app("imbib") | — |
+| `imbib-sources-service_search-sources` | — | — | network | — |
 | `imbib-search-service_create-smart-search` | "imbib/library" | "imbib/smart-search" | — | example ×1 |
 | `imbib-search-service_find-by-arxiv` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-search-service_find-by-bibcode` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
@@ -645,9 +645,7 @@ when one lands).
 | `imbib-app-service_get-notes` | needs a running app |
 | `imbib-app-service_open-manuscript-papers` | needs a running app |
 | `imbib-app-service_recent-activity` | needs a running app |
-| `imbib-app-service_resolve-citation` | needs a running app |
 | `imbib-app-service_resolve-identifier` | needs a running app |
-| `imbib-app-service_search-sources` | leaves the process (network) |
 | `imbib-app-service_status` | needs a running app |
 | `imbib-app-service_sync-nudge` | needs a running app |
 | `imbib-app-service_sync-status` | needs a running app |
@@ -676,6 +674,8 @@ when one lands).
 | `imbib-semantic-service_get-paper-chunks` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-semantic-service_list-indexed-papers` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-semantic-service_search-papers` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `imbib-sources-service_resolve-citation` | needs a running app |
+| `imbib-sources-service_search-sources` | leaves the process (network) |
 | `imbib-tags-service_add-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-tags-service_remove-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-undo-service_recent-undo-groups` | exercised, unobserved (example ran, spy saw no declared read or write) |

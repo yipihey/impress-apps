@@ -38,13 +38,14 @@ read.
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 38 | 10 |
 | `history-service` | koine-notebook | 7 | 7 | 15 (9) | 15 | 7 |
 | `imbib-annotations-service` | imbib-service | 10 | 10 | 28 (16) | 28 | 10 |
-| `imbib-app-service` | imbib-service | 18 | 18 | 29 (20) | 29 | 18 |
+| `imbib-app-service` | imbib-service | 16 | 16 | 21 (17) | 21 | 16 |
 | `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 36 | 9 |
 | `imbib-backup-service` | imbib-service | 6 | 6 | 8 (7) | 8 | 6 |
 | `imbib-eink-service` | imbib-service | 22 | 22 | 35 (15) | 35 | 22 |
 | `imbib-library-service` | imbib-service | 57 | 57 | 117 (85) | 117 | 57 |
 | `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 9 | 7 |
 | `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 17 | 7 |
+| `imbib-sources-service` | imbib-service | 2 | 2 | 9 (3) | 9 | 2 |
 | `imbib-search-service` | imbib-service | 10 | 10 | 23 (18) | 23 | 10 |
 | `imbib-semantic-service` | imbib-semantic-service | 3 | 3 | 4 (2) | 4 | 3 |
 | `imbib-tags-service` | imbib-service | 11 | 11 | 22 (14) | 22 | 11 |

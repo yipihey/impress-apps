@@ -385,7 +385,7 @@ fn split_sources(sources: Option<String>) -> Option<Vec<String>> {
     (!list.is_empty()).then_some(list)
 }
 
-/// `imbib-app-service_search-sources`: one federated search over the
+/// `imbib-sources-service_search-sources`: one federated search over the
 /// registered adapters (S-D7), bounded at 100 rows per source, every row
 /// carrying its `ids` and `provenance`. Diagnostics are logged under
 /// `sources`; a refused call (an unknown source, an empty query) is reported
@@ -607,12 +607,92 @@ fn scorer_input(
             raw_bibtex: c.raw_bibtex.or(bibtex),
             free_text: c.free_text.or(query),
         },
-        None => ScorerInput {
-            raw_bibtex: bibtex.filter(|b| !b.trim().is_empty()),
-            free_text: query.filter(|q| !q.trim().is_empty()),
-            ..Default::default()
-        },
+        None => {
+            let free_text = query.filter(|q| !q.trim().is_empty());
+            let (authors, year, journal, title) = free_text
+                .as_deref()
+                .map(fields_of_reference)
+                .unwrap_or_default();
+            ScorerInput {
+                authors,
+                year,
+                journal,
+                title,
+                raw_bibtex: bibtex.filter(|b| !b.trim().is_empty()),
+                free_text,
+                ..Default::default()
+            }
+        }
     }
+}
+
+/// What the scorer can use of a reference written as one line (`Bromm, V.,
+/// Coppi, P. S., & Larson, R. B. 2002, ApJ, 564, 23, The Formation of the
+/// First Stars`): the first year, the surnames before it (`Surname, I.`
+/// pairs, or `Surname et al.`), the journal (the first short, non-numeric
+/// fragment after the year: `ApJ`, `Science 295`), and the first fragment of
+/// three or more words after the year as the title. A line that carries none of these
+/// stays a free-text search; nothing here is a reference parser.
+pub fn fields_of_reference(
+    text: &str,
+) -> (Vec<String>, Option<i32>, Option<String>, Option<String>) {
+    use std::sync::LazyLock;
+    static YEAR: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"\b(1[89]\d\d|20\d\d)[a-z]?\b").expect("static regex"));
+    static SURNAME: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?:^|[,&;]|\band\b)\s*([A-Z][\p{L}'\-]+(?:\s[A-Z][\p{L}'\-]+)?),\s*(?:[A-Z]\.\s*)+",
+        )
+        .expect("static regex")
+    });
+    static ET_AL: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"^\s*([A-Z][\p{L}'\-]+)\s+et\s+al").expect("static regex")
+    });
+    let text = text.trim();
+    let Some(year_match) = YEAR.find(text) else {
+        return (vec![], None, None, None);
+    };
+    let year = year_match.as_str()[..4].parse::<i32>().ok();
+    let before = &text[..year_match.start()];
+    let after = &text[year_match.end()..];
+    let mut authors: Vec<String> = SURNAME
+        .captures_iter(before)
+        .map(|c| c[1].trim().to_string())
+        .collect();
+    if authors.is_empty() {
+        if let Some(c) = ET_AL.captures(before) {
+            authors.push(c[1].to_string());
+        }
+    }
+    let fragments: Vec<&str> = after
+        .split([',', ';'])
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .collect();
+    let title = fragments
+        .iter()
+        .flat_map(|f| f.split('.'))
+        .map(str::trim)
+        .find(|f| f.split_whitespace().count() >= 3)
+        .map(|f| f.to_string());
+    // The journal: the first fragment before the title that is not a
+    // number (volume, pages) and is at most three words (`ApJ`, `Science
+    // 295`, `Phys. Rev. D`).
+    let is_number = |f: &str| {
+        !f.is_empty()
+            && f.chars()
+                .all(|c| c.is_ascii_digit() || c == '-' || c == '\u{2013}')
+    };
+    let journal = fragments
+        .iter()
+        .take_while(|f| {
+            title
+                .as_deref()
+                .is_none_or(|t| !f.trim_end_matches('.').starts_with(t))
+        })
+        .find(|f| !is_number(f) && f.split_whitespace().count() <= 3)
+        .map(|f| f.trim_end_matches('.').to_string());
+    (authors, year, journal, title)
 }
 
 /// One candidate as the HTTP route has always emitted it (flat, with
@@ -703,7 +783,7 @@ fn paper_json(store: &ImbibStore, id: &str) -> Option<Value> {
     Some(v)
 }
 
-/// `imbib-app-service_resolve-citation`: koine's cascade (S-D6) over the
+/// `imbib-sources-service_resolve-citation`: koine's cascade (S-D6) over the
 /// library and the registered sources, scored with the legacy quirks. An
 /// accepted hit that is not yet in the library is imported through
 /// [`import_work`] — the contract of `/api/papers/resolve` is that the paper
@@ -1336,6 +1416,27 @@ mod tests {
             )
             .expect("import");
         assert!(out.dismissed && out.imported_id.is_none() && out.existing_id.is_none());
+    }
+
+    #[test]
+    fn a_reference_line_yields_its_surnames_year_and_title() {
+        let (authors, year, journal, title) = fields_of_reference(
+            "Bromm, V., Coppi, P. S., & Larson, R. B. 2002, ApJ, 564, 23, The Formation of the First Stars. I. The Primordial Star-forming Cloud",
+        );
+        assert_eq!(authors, vec!["Bromm", "Coppi", "Larson"]);
+        assert_eq!(year, Some(2002));
+        assert_eq!(journal.as_deref(), Some("ApJ"));
+        assert_eq!(title.as_deref(), Some("The Formation of the First Stars"));
+        let (authors, year, journal, title) =
+            fields_of_reference("Abel et al. 2002, Science 295, 93");
+        assert_eq!(authors, vec!["Abel"]);
+        assert_eq!(year, Some(2002));
+        assert_eq!(journal.as_deref(), Some("Science 295"));
+        assert_eq!(title, None);
+        assert_eq!(
+            fields_of_reference("dark matter halos"),
+            (vec![], None, None, None)
+        );
     }
 
     #[test]

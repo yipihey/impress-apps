@@ -1385,53 +1385,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
-    /// GET /api/search/external?q=...&source=...&limit=...
-    /// Search the online databases through `imbib-app-service_search-sources`
-    /// (koine's `source-service` over the seven adapters, source convention
-    /// S6): federated, merged by identifier, every row with its `ids` and
-    /// `provenance`. `source` is a comma-separated subset.
-    private func handleSearchExternal(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let query = request.queryParams["q"], !query.isEmpty else {
-            return .badRequest("Missing required 'q' parameter")
-        }
-        let source = request.queryParams["source"]
-        let limit = request.queryParams["limit"].flatMap { Int($0) } ?? 20
-        var args: [String: Any] = ["query": query, "limit": limit]
-        if let source, !source.isEmpty { args["sources"] = source }
-        let answer = await Self.callVerb("imbib-app-service_search-sources", args)
-        guard answer.ok, let rows = answer.body as? [[String: Any]] else {
-            return answer.refusal
-        }
-        let resultDicts: [[String: Any]] = rows.map { r in
-            var dict: [String: Any] = [
-                "title": r["title"] ?? "",
-                "authors": r["authors"] ?? [],
-                "venue": r["venue"] ?? "",
-                "abstract": r["abstract_text"] ?? "",
-                "sourceID": r["source"] ?? "",
-                "identifier": r["identifier"] ?? (r["title"] ?? ""),
-            ]
-            if let year = r["year"] { dict["year"] = year }
-            if let doi = r["doi"] { dict["doi"] = doi }
-            if let arxiv = r["arxiv_id"] { dict["arxivID"] = arxiv }
-            if let bib = r["bibcode"] { dict["bibcode"] = bib }
-            if let ids = r["ids"] { dict["ids"] = ids }
-            if let provenance = r["provenance"] { dict["provenance"] = provenance }
-            return dict
-        }
-        Logger.sources.infoCapture(
-            "search/external: display \(resultDicts.count) row(s) for '\(query)' (sources: \(source ?? "all"))",
-            category: "sources"
-        )
-        return .json([
-            "status": "ok",
-            "query": query,
-            "source": source ?? "all",
-            "count": resultDicts.count,
-            "results": resultDicts
-        ])
-    }
-
     /// GET /api/papers/{citeKey}
     /// Get a single paper by cite key.
     private func handleGetPaper(citeKey: String) async -> HTTPResponse {
@@ -2330,55 +2283,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         } catch {
             return mapError(error)
         }
-    }
-
-    /// POST /api/papers/resolve
-    /// Atomic citation resolution for agents, answered by
-    /// `imbib-app-service_resolve-citation` — koine's scored cascade
-    /// (identifier → the library → the online sources, source convention
-    /// S-D6) — so the route and the MCP tool are one path. Two request shapes:
-    ///
-    /// **Free-text**: `{"query": "...", "bibtex"?: "...", "library"?: "<uuid>",
-    /// "download_pdfs"?: false}`.
-    ///
-    /// **Structured**: `{"citation": {"authors": [...], "title": "...", "year": Y,
-    /// "journal": "...", "volume": "...", "pages": "...", "doi"?: "...",
-    /// "arxiv"?: "...", "bibcode"?: "...", "rawBibtex"?: "...",
-    /// "freeText"?: "..."}, "library"?: "<uuid>", "download_pdfs"?: false}`.
-    ///
-    /// Response: `{"status": "ok", "via": "<path>", "paper": {...}?,
-    /// "candidates": [...]?, "reason": "..."?}`. `via` is `local-cite-key`,
-    /// `local-identifier`, `local-text`, `imported-identifier`, `duplicate`,
-    /// `search-high-confidence` (a paper), `search-candidates` (each with
-    /// `confidence` and the scorer's `evidence`) or `not-found`.
-    private func handleResolvePaper(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let json = parseJSONBody(request) else {
-            return .badRequest("Invalid JSON body")
-        }
-        let query = (json["query"] as? String) ?? ""
-        let bibtex = (json["bibtex"] as? String) ?? ""
-        let citation = json["citation"] as? [String: Any]
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !bibtex.isEmpty || citation != nil else {
-            return .badRequest("Provide at least 'query', 'bibtex', or 'citation'")
-        }
-        var args: [String: Any] = ["download_pdfs": json["download_pdfs"] as? Bool ?? false]
-        if !trimmed.isEmpty { args["query"] = trimmed }
-        if !bibtex.isEmpty { args["bibtex"] = bibtex }
-        if let citation { args["citation"] = citation }
-        if let library = json["library"] as? String, UUID(uuidString: library) != nil {
-            args["library_id"] = library
-        }
-        let answer = await Self.callVerb("imbib-app-service_resolve-citation", args)
-        guard answer.ok, let body = answer.body as? [String: Any], let via = body["via"] as? String else {
-            return answer.refusal
-        }
-        var response: [String: Any] = ["status": "ok", "via": via]
-        for key in ["paper", "candidates", "reason"] {
-            if let value = body[key] { response[key] = value }
-        }
-        Logger.sources.infoCapture("papers/resolve: via=\(via)", category: "sources")
-        return .json(response)
     }
 
     /// One verb call as the person, through the app's verb FFI. `ok` is the
@@ -5037,9 +4941,14 @@ extension HTTPAutomationRouter {
             return await setNativeArtifactTags(id: id, tags: tags)
         case "resolve_identifier":
             guard let identifier = string("identifier") else { return nativeFailure(400, "invalid-args", "Missing identifier") }
-            response = await handleResolvePaper(request("POST", [
-                "query": identifier, "download_pdfs": (args["download_pdfs"] as? Bool) ?? false]))
-            return Self.nativeResolveIdentifierResult(response)
+            // The cascade is Rust's (`imbib-sources-service_resolve-citation`,
+            // source convention S6); this app-owned verb keeps its contract
+            // (a cite key, or a refusal naming why) over that answer.
+            let answer = await Self.callVerb("imbib-sources-service_resolve-citation", [
+                "query": identifier, "download_pdfs": (args["download_pdfs"] as? Bool) ?? false])
+            guard answer.ok, var body = answer.body as? [String: Any] else { return nativeMapped(answer.refusal) { $0 } }
+            body["status"] = "ok"
+            return Self.nativeResolveIdentifierResult(.json(body))
         case "add_to_library":
             guard let ids = strings("publication_ids"), let library = string("library_id") else {
                 return nativeFailure(400, "invalid-args", "Missing publication_ids or library_id")

@@ -36,7 +36,7 @@ called as written — or reached through its domain tool.
 
 | App | Domain | Typical tools |
 |---|---|---|
-| **imbib** | bibliography, papers, PDFs, annotations, notes, tags, collections | `imbib-app-service_resolve-identifier`, `imbib-search-service_full-text-search`, `imbib-app-service_search-sources`, `imbib-library-service_import-papers`, `imbib-library-service_get-publication-detail`, `imbib-annotations-service_list-annotations` |
+| **imbib** | bibliography, papers, PDFs, annotations, notes, tags, collections | `imbib-app-service_resolve-identifier`, `imbib-search-service_full-text-search`, `imbib-sources-service_search-sources`, `imbib-library-service_import-papers`, `imbib-library-service_get-publication-detail`, `imbib-annotations-service_list-annotations` |
 | **imprint** | Typst/LaTeX manuscript authoring, sections, citations, compile | `imprint-manuscript-service_list-documents`, `imprint-manuscript-service_list-sections`, `imprint-manuscript-service_put-section`, `imprint-manuscript-service_compile-typst`, `imprint-app-service_get-pdf` |
 | **implore** | data visualisation, datasets, figures, volume slices | `implore-service_list-datasets`, `implore-service_create-figure`, `implore-service_export-figure`, `implore-service_rg-load`, `implore-service_rg-slice-png` |
 | **impart** | communication — conversations, messages, decisions | `impart-service_list-conversations`, `impart-service_get-conversation`, `impart-service_record-decision` |
@@ -70,7 +70,7 @@ Several tools have "search" in the name. They are not interchangeable:
 - **`imbib-search-service_full-text-search`** — over papers the user already
   has: "what do I have on X". `search_papers` is its semantic sibling over
   indexed PDFs; `get_paper_chunks` then feeds full-context RAG.
-- **`imbib-app-service_search-sources`** — external only (ADS, arXiv,
+- **`imbib-sources-service_search-sources`** — external only (ADS, arXiv,
   Crossref); one broad call, not several narrow ones. Results are candidates:
   `imbib-library-service_import-papers` before citing or tagging.
 - **`store-query-service_search-all`** — cross-app search over the shared
@@ -120,7 +120,7 @@ PNG is what impress's `plot` pane and every figure view draw, and
 
 1. **Find and file a paper** — `imbib-search-service_find-by-doi` (or
    sibling) → on a miss, `imbib-app-service_resolve-identifier` → no
-   identifier at all? `imbib-app-service_search-sources`, confirm with the
+   identifier at all? `imbib-sources-service_search-sources`, confirm with the
    user, `imbib-library-service_import-papers` → file with
    `imbib-library-service_add-to-collection` / `imbib-tags-service_add-tag`.
 2. **Cite into a manuscript** — `imbib-manuscripts-service_list-manuscripts`

@@ -110,10 +110,7 @@ mod tests {
 
     #[test]
     fn app_gated_tools_name_their_app() {
-        assert_eq!(
-            required_app("imbib-app-service_search-sources"),
-            Some(App::Imbib)
-        );
+        assert_eq!(required_app("imbib-app-service_status"), Some(App::Imbib));
         assert_eq!(
             required_app("imprint-app-service_get-pdf"),
             Some(App::Imprint)
