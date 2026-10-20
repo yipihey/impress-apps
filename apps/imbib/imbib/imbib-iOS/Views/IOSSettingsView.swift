@@ -1215,7 +1215,7 @@ struct IOSPDFStorageSettingsView: View {
 #Preview {
     IOSSettingsView()
         .environment(SettingsViewModel(
-            sourceManager: SourceManager(),
+            sourceClient: SourceClient(),
             credentialManager: CredentialManager()
         ))
 }

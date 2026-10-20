@@ -333,7 +333,7 @@ struct imbibApp: App {
     /// Dependencies created during app initialization, used for async setup.
     private struct AppDependencies: Sendable {
         let credentialManager: CredentialManager
-        let sourceManager: SourceManager
+        let sourceClient: SourceClient
         let deduplicationService: DeduplicationService
     }
 
@@ -410,7 +410,7 @@ struct imbibApp: App {
         // Create shared dependencies
         let stepStart = CFAbsoluteTimeGetCurrent()
         let credentialManager = CredentialManager.shared
-        let sourceManager = SourceManager(credentialManager: credentialManager)
+        let sourceClient = SourceClient()
         let deduplicationService = DeduplicationService()
         appLogger.infoCapture("⏱ Created shared dependencies: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms", category: "startup")
 
@@ -426,7 +426,7 @@ struct imbibApp: App {
 
         return AppDependencies(
             credentialManager: credentialManager,
-            sourceManager: sourceManager,
+            sourceClient: sourceClient,
             deduplicationService: deduplicationService
         )
     }
@@ -446,11 +446,11 @@ struct imbibApp: App {
         stepStart = CFAbsoluteTimeGetCurrent()
         let libraryViewModel = LibraryViewModel()
         let searchViewModel = SearchViewModel(
-            sourceManager: deps.sourceManager,
+            sourceClient: deps.sourceClient,
             deduplicationService: deps.deduplicationService
         )
         let settingsViewModel = SettingsViewModel(
-            sourceManager: deps.sourceManager,
+            sourceClient: deps.sourceClient,
             credentialManager: deps.credentialManager
         )
         appLogger.infoCapture("⏱ ViewModels initialized: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms", category: "startup")
@@ -518,16 +518,17 @@ struct imbibApp: App {
             }()
 
             async let sourcesInit: Void = {
-                // Register built-in sources
-                await deps.sourceManager.registerBuiltInSources()
-                DragDropCoordinator.shared.sourceManager = deps.sourceManager
-                await AutomationService.shared.configure(sourceManager: deps.sourceManager)
-                appLogger.info("Built-in sources registered")
+                // The online sources are koine's adapters behind the Rust
+                // verbs (source convention S6); the GUI's SourceClient
+                // calls them. Nothing to register here but the sharing.
+                DragDropCoordinator.shared.sourceClient = deps.sourceClient
+                await AutomationService.shared.configure(sourceClient: deps.sourceClient)
+                appLogger.info("Source client shared with drag-drop and automation")
 
                 // Register browser URL providers for interactive PDF downloads
-                await BrowserURLProviderRegistry.shared.register(ArXivSource.self, priority: 20)
-                await BrowserURLProviderRegistry.shared.register(SciXSource.self, priority: 11)
-                await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
+                await BrowserURLProviderRegistry.shared.register(ArXivBrowserURLs.self, priority: 20)
+                await BrowserURLProviderRegistry.shared.register(SciXBrowserURLs.self, priority: 11)
+                await BrowserURLProviderRegistry.shared.register(ADSBrowserURLs.self, priority: 10)
                 appLogger.info("BrowserURLProviders registered")
 
                 await EnrichmentCoordinator.shared.start()
@@ -687,7 +688,7 @@ struct imbibApp: App {
                     if shareExtensionHandler == nil {
                         shareExtensionHandler = ShareExtensionHandler(
                             libraryManager: libraryManager,
-                            sourceManager: searchViewModel.sourceManager
+                            sourceClient: searchViewModel.sourceClient
                         )
                     }
                     // Note: App Group access is deferred until the Safari extension is actually used.

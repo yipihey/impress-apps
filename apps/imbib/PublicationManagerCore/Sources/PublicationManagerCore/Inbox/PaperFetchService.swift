@@ -19,7 +19,7 @@ import OSLog
 /// - Ad-hoc searches via "Send to Inbox" action
 ///
 /// The pipeline:
-/// 1. Execute search query (via SourceManager)
+/// 1. Execute search query (via SourceClient — `imbib-sources-service_search-sources`)
 /// 2. Apply mute filters (via MuteService)
 /// 3. Deduplicate against permanent libraries (excluding Dismissed/Exploration)
 /// 4. Route new papers to target collection (inbox or per-feed save target)
@@ -27,7 +27,7 @@ public actor PaperFetchService {
 
     // MARK: - Dependencies
 
-    private let sourceManager: SourceManager
+    private let sourceClient: SourceClient
 
     // MARK: - Store Access
 
@@ -44,9 +44,9 @@ public actor PaperFetchService {
     // MARK: - Initialization
 
     public init(
-        sourceManager: SourceManager
+        sourceClient: SourceClient
     ) {
-        self.sourceManager = sourceManager
+        self.sourceClient = sourceClient
     }
 
     // MARK: - State Access
@@ -158,7 +158,7 @@ public actor PaperFetchService {
             sourceIDs: sources.isEmpty ? nil : sources
         )
 
-        let results = try await sourceManager.search(query: query, options: options)
+        let results = try await sourceClient.search(query: query, options: options)
         Logger.inbox.debugCapture("Search returned \(results.count) results", category: "fetch")
 
         // Automatic work: a feed's imports are not the user's to undo, and
@@ -192,7 +192,7 @@ public actor PaperFetchService {
         defer { _isLoading = false }
 
         let options = SearchOptions(maxResults: maxResults, sourceIDs: sourceIDs)
-        let results = try await sourceManager.search(query: query, options: options)
+        let results = try await sourceClient.search(query: query, options: options)
 
         let newCount = await processResultsForInbox(results)
 
@@ -283,7 +283,7 @@ public actor PaperFetchService {
             sourceIDs: data.sources.isEmpty ? nil : data.sources
         )
 
-        let results = try await sourceManager.search(query: data.query, options: options)
+        let results = try await sourceClient.search(query: data.query, options: options)
         Logger.inbox.debugCapture("Search returned \(results.count) results for feed '\(data.name)'", category: "feed")
 
         // Determine target library: saveTargetID > libraryID > default library
@@ -403,9 +403,19 @@ public actor PaperFetchService {
             let exists = await identifierCache.exists(result)
             if exists { continue }
 
-            let bibtex = result.toBibTeX()
-            let importedIDs = await withStore { $0.importBibTeX(bibtex, libraryId: libraryId) }
-            newPaperIDs.append(contentsOf: importedIDs)
+            // File the record with its provenance (S-D5) through
+            // `imbib-library-service_import-work`; no export call per row.
+            do {
+                let outcome = try await sourceClient.importWork(result, library: libraryId, fetchBibTeX: false)
+                if let id = outcome.importedID {
+                    newPaperIDs.append(id)
+                }
+            } catch {
+                Logger.inbox.warningCapture(
+                    "Feed import refused for \(result.primaryIdentifier ?? result.id): \(error.localizedDescription)",
+                    category: "feed"
+                )
+            }
             await identifierCache.addFromResult(result)
         }
 
@@ -519,9 +529,28 @@ public actor PaperFetchService {
                 continue
             }
 
-            // Create new publication via RustStoreAdapter
-            let bibtex = result.toBibTeX()
-            let importedIDs = await withStore { $0.importBibTeX(bibtex, libraryId: libraryId) }
+            // File the record with its provenance (S-D5) through
+            // `imbib-library-service_import-work`; no export call per row.
+            var importedIDs: [UUID] = []
+            do {
+                let outcome = try await sourceClient.importWork(result, library: libraryId, fetchBibTeX: false)
+                if let id = outcome.importedID {
+                    importedIDs = [id]
+                } else if let id = outcome.existingID {
+                    // The verb's own identifier dedup found it: link it to
+                    // the feed like any existing paper.
+                    existingPaperIDs.append(id)
+                    continue
+                } else if outcome.dismissed {
+                    continue
+                }
+            } catch {
+                Logger.inbox.warningCapture(
+                    "Inbox import refused for \(result.primaryIdentifier ?? result.id): \(error.localizedDescription)",
+                    category: "fetch"
+                )
+                continue
+            }
             newPaperIDs.append(contentsOf: importedIDs)
 
             // Add to maps so duplicates within this batch are caught

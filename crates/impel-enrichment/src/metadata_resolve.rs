@@ -1,10 +1,16 @@
 //! `metadata-resolve` — ADR-0005 §9's first pipeline stage.
 //!
-//! Fetches metadata for the publication the task `OperatesOn` from each
-//! configured source, merges via `imbib-core`'s priority-aware
+//! Fetches the publication the task `OperatesOn` from each configured
+//! source through the source convention's `bib-source-service_fetch`
+//! (koine docs/plan-source-convention.md; one record per source as a
+//! `bibliographic-work@1.0.0`, the adapters' secrets from the installed
+//! secret source), merges via `imbib-core`'s priority-aware
 //! `merge_metadata`, and persists **only** `changed_fields` as attributed
 //! `SetPayload` operations (Durable — corrected fields are part of the
-//! research record, ADR-0005 §9 retention table).
+//! research record, ADR-0005 §9 retention table). The sources are named by
+//! id ([`WorkSource`]; [`BibSource`] is the live one, a test's fake answers
+//! a `Work` of its own) — the per-crate HTTP clients `impress-sources`
+//! carried are gone with S6.
 //!
 //! ## The record outranks the sources (fill-only persistence)
 //!
@@ -35,26 +41,71 @@ use impel_core::{AgentRunRecord, ExecutionOutcome, TaskError, TaskExecutor, Task
 use impress_core::item::{ActorKind, Item, ItemId, Value};
 use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
 use impress_core::reference::EdgeType;
-use impress_sources::types::PaperMetadata as SourceMetadata;
-use impress_sources::{SourceError, SourcePlugin};
+use koine_sources::kind::Author;
+use koine_sources::Work;
 use sha2::{Digest, Sha256};
+use source_service::service::{BibSourceService, DefaultBibSourceService};
 
 use crate::KIND_METADATA_RESOLVE;
 
-/// A configured source: the plugin plus its (optional) credentials.
-pub struct ConfiguredSource {
-    pub plugin: Arc<dyn SourcePlugin>,
-    pub credentials: Option<String>,
+/// One source the resolver asks, by id: the live one fetches through
+/// `bib-source-service_fetch` scoped to that source; a test's answers a
+/// `Work` of its own.
+#[async_trait]
+pub trait WorkSource: Send + Sync {
+    /// The source id (`ads`, `arxiv`, `crossref`, `openalex`, …).
+    fn id(&self) -> &str;
+
+    /// One record by a canonical identifier (`doi:…`, `arxiv:…`,
+    /// `bibcode:…`); `Ok(None)` when the source has no such record, `Err`
+    /// when it could not answer (network, auth, a refused call).
+    async fn fetch(&self, id: &str) -> Result<Option<Work>, String>;
+}
+
+/// The live source: koine's `bib-source-service_fetch` asked of one source.
+/// The adapter reads its secret (`ads-token`, …) through the installed
+/// secret source (`imbib_service::sources::link()` installs imbib's:
+/// memory, `KOINE_SECRET_*`, then the keychain) and sends the process-wide
+/// contact to polite pools.
+pub struct BibSource {
+    id: String,
+}
+
+impl BibSource {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self { id: id.into() }
+    }
+}
+
+#[async_trait]
+impl WorkSource for BibSource {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    async fn fetch(&self, id: &str) -> Result<Option<Work>, String> {
+        let result = DefaultBibSourceService::new()
+            .fetch(id.to_string(), Some(vec![self.id.clone()]), None)
+            .await;
+        match result.answer {
+            Some(answer) => Ok(Some(answer.work)),
+            None if result.outcome.code.as_deref() == Some("not-found") => Ok(None),
+            None => Err(result
+                .outcome
+                .message
+                .unwrap_or_else(|| format!("{}: fetch refused", self.id))),
+        }
+    }
 }
 
 pub struct MetadataResolveExecutor {
-    sources: Vec<ConfiguredSource>,
+    sources: Vec<Arc<dyn WorkSource>>,
     priority: SourcePriority,
     actor: String,
 }
 
 impl MetadataResolveExecutor {
-    pub fn new(sources: Vec<ConfiguredSource>, priority: SourcePriority) -> Self {
+    pub fn new(sources: Vec<Arc<dyn WorkSource>>, priority: SourcePriority) -> Self {
         Self {
             sources,
             priority,
@@ -75,12 +126,17 @@ impl MetadataResolveExecutor {
             .ok_or_else(|| TaskError::Permanent(format!("target item {target} missing")))
     }
 
-    /// Best fetch identifier from the publication payload.
+    /// Best fetch identifier from the publication payload, spelled
+    /// canonically (`doi:…`, `arxiv:…`, `bibcode:…`) for `fetch`.
     fn identifier_of(publication: &Item) -> Option<String> {
-        for field in ["doi", "arxiv_id", "bibcode"] {
+        for (field, kind) in [
+            ("doi", "doi"),
+            ("arxiv_id", "arxiv"),
+            ("bibcode", "bibcode"),
+        ] {
             if let Some(Value::String(s)) = publication.payload.get(field) {
                 if !s.is_empty() {
-                    return Some(s.clone());
+                    return Some(format!("{kind}:{}", s.trim()));
                 }
             }
         }
@@ -125,21 +181,60 @@ impl MetadataResolveExecutor {
         }
     }
 
-    fn convert(source_id: &str, m: SourceMetadata) -> MergeMetadata {
+    /// `Family, Given` (or the family name alone) for an author, the
+    /// display form the merge compares.
+    fn display_name(a: &Author) -> String {
+        match (&a.family, &a.given) {
+            (Some(f), Some(g)) if !g.is_empty() => format!("{f}, {g}"),
+            (Some(f), _) => f.clone(),
+            (None, Some(g)) => g.clone(),
+            (None, None) => String::new(),
+        }
+    }
+
+    /// A `bibliographic-work@1.0.0` as the merge's shape: the identifiers
+    /// from `ids` (the top-level `DOI` folded in), the year from `issued`,
+    /// the citation count from `metrics`, the PDF links from `locations`.
+    fn convert(source_id: &str, w: &Work) -> MergeMetadata {
+        let id = |kind: &str| {
+            w.ids
+                .get(kind)
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
         MergeMetadata {
             source: Some(EnrichmentSourceId(source_id.to_string())),
-            title: (!m.title.is_empty()).then(|| m.title.clone()),
-            year: m.year,
-            authors: m.authors.iter().map(|a| a.display_name()).collect(),
-            abstract_text: m.abstract_text,
-            venue: m.venue,
-            doi: m.doi,
-            arxiv_id: m.arxiv_id,
-            bibcode: None,
-            pmid: None,
-            citation_count: None,
+            title: w.title.clone().filter(|t| !t.is_empty()),
+            year: w
+                .issued
+                .as_ref()
+                .and_then(|i| i.date_parts.first())
+                .and_then(|p| p.first())
+                .copied(),
+            authors: w
+                .author
+                .iter()
+                .map(Self::display_name)
+                .filter(|s| !s.is_empty())
+                .collect(),
+            abstract_text: w.abstract_.clone(),
+            venue: w.container_title.clone(),
+            doi: w
+                .doi
+                .clone()
+                .map(|d| d.trim().to_string())
+                .filter(|d| !d.is_empty())
+                .or_else(|| id("doi")),
+            arxiv_id: id("arxiv"),
+            bibcode: id("bibcode"),
+            pmid: id("pmid"),
+            citation_count: w
+                .metrics
+                .as_ref()
+                .and_then(|m| m.cited_by.as_ref())
+                .map(|c| c.value as i64),
             reference_count: None,
-            pdf_urls: m.pdf_url.into_iter().collect(),
+            pdf_urls: w.locations.iter().filter_map(|l| l.pdf.clone()).collect(),
             extras: BTreeMap::new(),
         }
     }
@@ -227,7 +322,7 @@ impl MetadataResolveExecutor {
         original: &Item,
         merged: &MergeMetadata,
         changed: &[&'static str],
-        structured_authors: Option<&[impress_sources::types::Author]>,
+        structured_authors: Option<&[Author]>,
         store: &dyn TaskStoreApi,
     ) -> Result<usize, TaskError> {
         let mut written = 0;
@@ -270,18 +365,17 @@ impl MetadataResolveExecutor {
     /// source's structured authors when available.
     fn author_payloads(
         display_names: &[String],
-        structured: Option<&[impress_sources::types::Author]>,
+        structured: Option<&[Author]>,
     ) -> (String, Option<String>) {
         if let Some(authors) = structured {
+            let authors: Vec<&Author> = authors
+                .iter()
+                .filter(|a| a.family.is_some() || a.given.is_some())
+                .collect();
             if !authors.is_empty() {
                 let text = authors
                     .iter()
-                    .map(|a| match &a.given_name {
-                        Some(given) if !given.is_empty() => {
-                            format!("{}, {}", a.family_name, given)
-                        }
-                        _ => a.family_name.clone(),
-                    })
+                    .map(|a| Self::display_name(a))
                     .collect::<Vec<_>>()
                     .join("; ");
                 let json = serde_json::json!(authors
@@ -289,8 +383,8 @@ impl MetadataResolveExecutor {
                     .map(|a| {
                         serde_json::json!({
                             "id": uuid::Uuid::new_v4().to_string(),
-                            "given_name": a.given_name,
-                            "family_name": a.family_name,
+                            "given_name": a.given,
+                            "family_name": a.family.clone().unwrap_or_default(),
                             "suffix": null,
                             "orcid": a.orcid,
                             "affiliation": null,
@@ -326,28 +420,25 @@ impl TaskExecutor for MetadataResolveExecutor {
         let mut merged = Self::base_metadata(&publication);
         let mut all_changed: Vec<&'static str> = Vec::new();
         let mut fetched_from: Vec<&str> = Vec::new();
-        let mut last_err: Option<SourceError> = None;
+        let mut misses: Vec<&str> = Vec::new();
+        let mut last_err: Option<String> = None;
         // Structured authors from the highest-priority source that returned
         // any — the basis for `authors_json` when the record has none.
-        let mut best_authors: Option<(usize, Vec<impress_sources::types::Author>)> = None;
+        let mut best_authors: Option<(usize, Vec<Author>)> = None;
 
         for source in &self.sources {
-            match source
-                .plugin
-                .fetch_by_id(&identifier, source.credentials.as_deref())
-                .await
-            {
-                Ok(m) => {
-                    fetched_from.push(source.plugin.id());
-                    if !m.authors.is_empty() {
+            match source.fetch(&identifier).await {
+                Ok(Some(work)) => {
+                    fetched_from.push(source.id());
+                    if !work.author.is_empty() {
                         let rank = self
                             .priority
-                            .rank(&EnrichmentSourceId(source.plugin.id().to_string()));
+                            .rank(&EnrichmentSourceId(source.id().to_string()));
                         if best_authors.as_ref().is_none_or(|(r, _)| rank < *r) {
-                            best_authors = Some((rank, m.authors.clone()));
+                            best_authors = Some((rank, work.author.clone()));
                         }
                     }
-                    let incoming = Self::convert(source.plugin.id(), m);
+                    let incoming = Self::convert(source.id(), &work);
                     let outcome = merge_metadata(merged, incoming, &self.priority);
                     merged = outcome.merged;
                     for f in outcome.changed_fields {
@@ -356,18 +447,45 @@ impl TaskExecutor for MetadataResolveExecutor {
                         }
                     }
                 }
+                Ok(None) => misses.push(source.id()),
                 Err(e) => last_err = Some(e),
             }
         }
 
         if fetched_from.is_empty() {
-            // Every source failed. Network-ish failures are retryable.
-            let msg = last_err
-                .map(|e| e.to_string())
-                .unwrap_or_else(|| "no sources configured".into());
-            return Err(TaskError::Retryable(format!(
-                "metadata-resolve: all sources failed: {msg}"
-            )));
+            if let Some(msg) = last_err {
+                // A source could not answer (network, auth, a refused
+                // call): retryable, like every infrastructure failure.
+                return Err(TaskError::Retryable(format!(
+                    "metadata-resolve: all sources failed: {msg}"
+                )));
+            }
+            if self.sources.is_empty() {
+                return Err(TaskError::Retryable(
+                    "metadata-resolve: all sources failed: no sources configured".into(),
+                ));
+            }
+            // Every source answered and none has the record: a data
+            // condition, not an outage. Complete with nothing written, and
+            // say so in the run record.
+            let mut hasher = Sha256::new();
+            hasher.update(identifier.as_bytes());
+            store.record_agent_run(
+                task.id,
+                AgentRunRecord {
+                    agent_id: self.actor.clone(),
+                    model: "api-pipeline".into(),
+                    prompt_hash: format!("{:x}", hasher.finalize()),
+                    result_summary: Some(format!(
+                        "{identifier}: not found at [{}]; nothing written",
+                        misses.join(",")
+                    )),
+                    token_count: None,
+                    duration_ms: Some(started.elapsed().as_millis() as i64),
+                    executor_kind: Some(impel_core::EXECUTOR_DETERMINISTIC.into()),
+                },
+            )?;
+            return Ok(ExecutionOutcome::Complete);
         }
 
         // An arXiv-overlay DOI embeds the arXiv id (The Open Journal of

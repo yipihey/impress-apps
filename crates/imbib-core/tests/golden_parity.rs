@@ -798,11 +798,17 @@ fn the_known_dedup_divergence_is_the_one_documented() {
 fn source_priority_table_matches_the_swift_literals() {
     use imbib_core::deduplication::{dedup_source_priorities, dedup_source_priority};
 
-    // The literal table from `DeduplicationService.sourcePriority`.
-    let expected: [(&str, u32); 7] = [
+    // Recorded from `DeduplicationService.sourcePriority` (crossref 10 …
+    // dblp 70); since the source convention (S6) the table is koine's
+    // `source_priority`, which keeps those seven numbers and slots the two
+    // sources only Swift's plugin metadata ranked: `wos` at 25 (a curated
+    // index, ahead of ADS) and `scix` at 31 (beside ADS, as Swift had it).
+    let expected: [(&str, u32); 9] = [
         ("crossref", 10),
         ("pubmed", 20),
+        ("wos", 25),
         ("ads", 30),
+        ("scix", 31),
         ("semanticscholar", 40),
         ("openalex", 50),
         ("arxiv", 60),

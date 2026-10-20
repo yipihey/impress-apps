@@ -757,54 +757,6 @@ public struct CitationInput: Codable, Sendable {
     }
 }
 
-/// Candidate returned from structured resolution. A ranked version of
-/// `ExternalSearchResult` — carries a confidence score so imprint can
-/// auto-accept the top hit when confidence is high.
-public struct RankedCandidate: Codable, Sendable {
-    public let result: ExternalSearchResult
-    /// 0.0–1.0. Higher = better match to the input `CitationInput`.
-    public let confidence: Double
-
-    public init(result: ExternalSearchResult, confidence: Double) {
-        self.result = result
-        self.confidence = max(0, min(1, confidence))
-    }
-}
-
-/// Outcome of `AutomationService.resolveStructuredCitation(_:library:)`.
-/// Mirrors the JSON emitted by `/api/papers/resolve` when called with
-/// the `citation` field.
-public struct StructuredResolveResult: Codable, Sendable {
-    /// Cascade branch taken, for diagnostics:
-    /// - `local-identifier`
-    /// - `local-text`
-    /// - `imported-identifier`
-    /// - `ads-high-confidence` (top ADS hit ≥ 0.85, auto-accepted)
-    /// - `ads-candidates`
-    /// - `all-sources-fallback`
-    /// - `duplicate`
-    /// - `not-found`
-    public let via: String
-    /// Single paper, present when we auto-accepted or found a local hit.
-    public let paper: PaperResult?
-    /// Ranked candidates, present when the caller must disambiguate.
-    public let candidates: [RankedCandidate]?
-    /// Human-readable reason (for `not-found` or ambiguous cases).
-    public let reason: String?
-
-    public init(
-        via: String,
-        paper: PaperResult? = nil,
-        candidates: [RankedCandidate]? = nil,
-        reason: String? = nil
-    ) {
-        self.via = via
-        self.paper = paper
-        self.candidates = candidates
-        self.reason = reason
-    }
-}
-
 // MARK: - Automation Errors
 
 /// Errors that can occur during automation operations.

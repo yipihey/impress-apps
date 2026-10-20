@@ -50,7 +50,6 @@ pub mod search;
 #[cfg(feature = "native")]
 pub mod smart_search_ffi;
 #[cfg(feature = "native")]
-pub mod sources;
 pub mod text;
 
 // Flagging and tagging (Phase 3)

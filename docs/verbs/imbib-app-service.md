@@ -269,30 +269,26 @@ What the USER was recently working on: papers they viewed or added by hand, most
   {"limit":10,"parent_id":null}
   ```
 
-## `imbib-app-service_resolve-citation`
+## `imbib-app-service_refresh-feeds`
 
-Resolve free text, BibTeX, or structured citation fields through the running app's local/import/search cascade. Candidate order, confidence, `via`, and reason values are preserved. The returned paper and candidate objects use the same open dictionary shape as HTTP.
+Refresh one inbox feed now (`smart_search_id`), or every due one: the running app searches the feed's sources through `imbib-sources-service_search-sources`, filters muted and dismissed papers, and files the new ones into the Inbox (or the feed's own library) with their provenance through `imbib-library-service_import-work`. Answers how many feeds ran and how many papers arrived; `accepted: false` with a reason when the app is not running or the inbox is not started.
 
 - **safety**: `external`
 - **adverbs**: tentatively, with_review, once
-- **reads**: —
-- **writes**: —
-- **reach**: app("imbib")
+- **reads**: "imbib/smart-search", "imbib/bibliography-entry", "imbib/dismissed-paper", "imbib/muted-item"
+- **writes**: "imbib/bibliography-entry", "imbib/smart-search"
+- **reach**: app("imbib"), network
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `bibtex` | — | no | BibTeX fragment, kept private because it may contain unpublished citation data. |
-| `citation` | — | no | Structured fields; kept private for the same reason as the raw citation. |
-| `download_pdfs` | boolean | yes | Whether to fetch a PDF after automatic import. |
-| `library_id` | — | no | Destination library UUID; omit to use the default library. |
-| `query` | — | no | Free-text citation query (kept private because it may contain manuscript text). |
+| `smart_search_id` | — | no | UUID of one inbox feed (smart search) to refresh; omit to refresh every due inbox feed. |
 
 **Examples**
 
-- `host-resolve-local-citation` — Tier B (explicit isolated run):
+- `isolated-refresh-feeds` — Tier B (explicit isolated run):
 
   ```json
-  {"query":"{{state.cite_key}}","download_pdfs":false}
+  {}
   ```
 
 ## `imbib-app-service_resolve-identifier`
@@ -316,30 +312,6 @@ Resolve an identifier — DOI, arXiv id, bibcode — to a paper, fetching its me
 
   ```json
   {"identifier":"10.1038/nphys1170","download_pdfs":false}
-  ```
-
-## `imbib-app-service_search-sources`
-
-Search external academic sources — ADS, arXiv, Crossref and the rest — for papers NOT yet in the library. This is how you find new work; to search papers already saved use the library search tools instead. Results are candidates: import them before citing or tagging. `sources` is a comma-separated subset (e.g. "arxiv,ads"); empty means every configured source. Make ONE broad call rather than several narrow ones.
-
-- **safety**: `external`
-- **adverbs**: tentatively, with_review, once
-- **reads**: —
-- **writes**: —
-- **reach**: app("imbib")
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `limit` | integer | yes | Maximum number of results to return. |
-| `query` | string | yes | Search text sent to the selected academic sources. |
-| `sources` | — | no | Comma-separated source IDs; omit to use configured sources. |
-
-**Examples**
-
-- `isolated-search-sources` — Tier B (explicit isolated run):
-
-  ```json
-  {"query":"spectral line formation","sources":"arxiv","limit":5}
   ```
 
 ## `imbib-app-service_status`

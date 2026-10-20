@@ -8,16 +8,24 @@
 //! - Run the underlying async operation using a single-threaded tokio runtime
 //! - Return results synchronously (the tokio runtime is created per-call)
 //!
+//! What remains here is what the source convention does not cover: the
+//! ADS/SciX *personal libraries* (list, get, create, add, remove, edit,
+//! permissions, transfer) and `scix_count`, the query assistant's result
+//! count. Search, fetch, references/citations/similar/co-reads and BibTeX/RIS
+//! export left with S6: they are koine's `bib-source-service_{search, fetch,
+//! related, export}` over the `source-ads` adapter, reached by the app
+//! through its verb FFI (`SourceClient`) and by every other host alike.
+//!
 //! ## Usage from Swift
 //!
 //! ```swift
 //! import ImpressScixCore
 //!
-//! // Search for papers
-//! let papers = try scixSearch(token: apiKey, query: "dark matter year:2023", maxResults: 50)
+//! // How many results a query would return (the query assistant's preview)
+//! let count = try scixCount(token: apiKey, query: "dark matter year:2023")
 //!
-//! // Export as BibTeX
-//! let bibtex = try scixExportBibtex(token: apiKey, bibcodes: ["2023ApJ...123..456A"])
+//! // The user's ADS libraries
+//! let libraries = try scixListLibraries(token: apiKey)
 //! ```
 
 mod types;
@@ -31,50 +39,6 @@ use scix_client::SciXClient;
 uniffi::setup_scaffolding!();
 
 // ─── Conversions ─────────────────────────────────────────────────────────────
-
-#[cfg(feature = "native")]
-impl From<scix_client::types::Paper> for ScixPaper {
-    fn from(p: scix_client::types::Paper) -> Self {
-        let is_open_access = p
-            .properties
-            .iter()
-            .any(|prop| prop == "OPENACCESS" || prop == "EPRINT_OPENACCESS");
-
-        let pdf_links = p
-            .pdf_links
-            .into_iter()
-            .map(|link| ScixPdfLink {
-                url: link.url,
-                link_type: format!("{:?}", link.link_type),
-                label: link.label,
-            })
-            .collect();
-
-        ScixPaper {
-            bibcode: p.bibcode,
-            title: p.title,
-            authors: p
-                .authors
-                .into_iter()
-                .map(|a| ScixAuthor {
-                    name: a.name,
-                    family_name: a.family_name,
-                    given_name: a.given_name,
-                })
-                .collect(),
-            year: p.year.map(|y| y as i32),
-            publication: p.publication,
-            doi: p.doi,
-            arxiv_id: p.arxiv_id,
-            abstract_text: p.abstract_text,
-            citation_count: p.citation_count.map(|c| c as i32),
-            pdf_links,
-            web_url: p.url,
-            is_open_access,
-            doctype: p.doctype,
-        }
-    }
-}
 
 #[cfg(feature = "native")]
 impl From<scix_client::types::Library> for ScixLibrary {
@@ -152,135 +116,6 @@ pub fn scix_count(token: String, query: String) -> Result<u32, ScixFfiError> {
             .search(&query, 0)
             .await
             .map(|r| r.num_found as u32)
-            .map_err(ScixFfiError::from)
-    })
-}
-
-/// Search NASA ADS / SciX for papers matching a query.
-///
-/// Supports full ADS query syntax:
-/// - `author:"Einstein, A" year:2020-2024 abs:"gravitational waves"`
-/// - `title:dark matter property:refereed`
-/// - `citations(bibcode:2016PhRvL.116f1102A)`
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn scix_search(
-    token: String,
-    query: String,
-    max_results: u32,
-) -> Result<Vec<ScixPaper>, ScixFfiError> {
-    make_runtime()?.block_on(async move {
-        SciXClient::new(&token)
-            .search(&query, max_results)
-            .await
-            .map(|r| r.papers.into_iter().map(ScixPaper::from).collect())
-            .map_err(ScixFfiError::from)
-    })
-}
-
-/// Fetch papers that the given paper references (papers it cites).
-///
-/// Uses ADS `references(bibcode:XXXX)` functional operator.
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn scix_fetch_references(
-    token: String,
-    bibcode: String,
-    max_results: u32,
-) -> Result<Vec<ScixPaper>, ScixFfiError> {
-    make_runtime()?.block_on(async move {
-        SciXClient::new(&token)
-            .references(&bibcode, max_results)
-            .await
-            .map(|r| r.papers.into_iter().map(ScixPaper::from).collect())
-            .map_err(ScixFfiError::from)
-    })
-}
-
-/// Fetch papers that cite the given paper.
-///
-/// Uses ADS `citations(bibcode:XXXX)` functional operator.
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn scix_fetch_citations(
-    token: String,
-    bibcode: String,
-    max_results: u32,
-) -> Result<Vec<ScixPaper>, ScixFfiError> {
-    make_runtime()?.block_on(async move {
-        SciXClient::new(&token)
-            .citations(&bibcode, max_results)
-            .await
-            .map(|r| r.papers.into_iter().map(ScixPaper::from).collect())
-            .map_err(ScixFfiError::from)
-    })
-}
-
-/// Fetch papers with similar content to the given paper.
-///
-/// Uses ADS `similar(bibcode:XXXX)` functional operator.
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn scix_fetch_similar(
-    token: String,
-    bibcode: String,
-    max_results: u32,
-) -> Result<Vec<ScixPaper>, ScixFfiError> {
-    make_runtime()?.block_on(async move {
-        SciXClient::new(&token)
-            .similar(&bibcode, max_results)
-            .await
-            .map(|r| r.papers.into_iter().map(ScixPaper::from).collect())
-            .map_err(ScixFfiError::from)
-    })
-}
-
-/// Fetch papers frequently co-read with the given paper.
-///
-/// Uses ADS `trending(bibcode:XXXX)` functional operator.
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn scix_fetch_coreads(
-    token: String,
-    bibcode: String,
-    max_results: u32,
-) -> Result<Vec<ScixPaper>, ScixFfiError> {
-    make_runtime()?.block_on(async move {
-        SciXClient::new(&token)
-            .coreads(&bibcode, max_results)
-            .await
-            .map(|r| r.papers.into_iter().map(ScixPaper::from).collect())
-            .map_err(ScixFfiError::from)
-    })
-}
-
-// ─── Export ───────────────────────────────────────────────────────────────────
-
-/// Export papers as BibTeX.
-///
-/// Returns a BibTeX string with entries for all provided bibcodes.
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn scix_export_bibtex(token: String, bibcodes: Vec<String>) -> Result<String, ScixFfiError> {
-    make_runtime()?.block_on(async move {
-        let refs: Vec<&str> = bibcodes.iter().map(String::as_str).collect();
-        SciXClient::new(&token)
-            .export_bibtex(&refs)
-            .await
-            .map_err(ScixFfiError::from)
-    })
-}
-
-/// Export papers as RIS format.
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn scix_export_ris(token: String, bibcodes: Vec<String>) -> Result<String, ScixFfiError> {
-    use scix_client::types::ExportFormat;
-    make_runtime()?.block_on(async move {
-        let refs: Vec<&str> = bibcodes.iter().map(String::as_str).collect();
-        SciXClient::new(&token)
-            .export(&refs, ExportFormat::Ris, None)
-            .await
             .map_err(ScixFfiError::from)
     })
 }

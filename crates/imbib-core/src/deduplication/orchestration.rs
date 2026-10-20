@@ -22,9 +22,10 @@
 //!   **off**: turning it on is a real behaviour change (it merges papers that
 //!   share no identifier at all) and must be an explicit decision, not a
 //!   default inherited from a function nobody called.
-//! - Swift carried a numeric [`SOURCE_PRIORITY`] table (crossref 10 … dblp 70,
+//! - Swift carried a numeric source-priority table (crossref 10 … dblp 70,
 //!   unknown 100); Rust carried the same order as a `Vec<String>` position
-//!   lookup. Both orders agree, so the table is now the single spelling and the
+//!   lookup; the Swift plugin metadata carried a third (WoS first). The one
+//!   table is now koine's `source_priority` (source convention S-D6) and the
 //!   config's `source_priority` list overrides it when non-empty.
 //! - Swift short-circuited when every result came from one source (each source
 //!   already dedups internally, and two genuinely distinct papers in one
@@ -34,35 +35,31 @@
 use std::collections::{HashMap, HashSet};
 use strsim::jaro_winkler;
 
-/// Source priority for picking a group's primary result — **lower wins**.
-///
-/// Publisher metadata (Crossref) beats curated indexes (PubMed, ADS), which
-/// beat aggregators, which beat preprint servers. The literal numbers (rather
-/// than 0,1,2,…) leave room to slot a source in without renumbering.
-pub const SOURCE_PRIORITY: [(&str, u32); 7] = [
-    // Publisher source, most authoritative.
-    ("crossref", 10),
-    // Curated.
-    ("pubmed", 20),
-    ("ads", 30),
-    ("semanticscholar", 40),
-    ("openalex", 50),
-    ("arxiv", 60),
-    ("dblp", 70),
+/// The sources the priority table names, highest priority first. The
+/// numbers are koine's (`koine_sources::cascade::source_priority`, the one
+/// table of the source convention S-D6): this crate's own `SOURCE_PRIORITY`
+/// (crossref 10 … dblp 70, no SciX, no WoS) and Swift's
+/// `deduplicationPriority` (WoS first) disagreed; both are gone.
+pub const KNOWN_SOURCES: [&str; 9] = [
+    "crossref",
+    "pubmed",
+    "wos",
+    "ads",
+    "scix",
+    "semanticscholar",
+    "openalex",
+    "arxiv",
+    "dblp",
 ];
 
-/// Priority assigned to a source that is not in [`SOURCE_PRIORITY`] — behind
-/// every known source, but ahead of nothing, so unknown sources tie among
+/// Priority assigned to a source the table does not name — behind every
+/// known source, but ahead of nothing, so unknown sources tie among
 /// themselves and the original result order breaks the tie.
 pub const UNRANKED_SOURCE_PRIORITY: u32 = 100;
 
-/// Priority of `source_id`, or [`UNRANKED_SOURCE_PRIORITY`].
+/// Priority of `source_id` (lower wins), or [`UNRANKED_SOURCE_PRIORITY`].
 pub fn source_priority_rank(source_id: &str) -> u32 {
-    SOURCE_PRIORITY
-        .iter()
-        .find(|(name, _)| *name == source_id)
-        .map(|(_, rank)| *rank)
-        .unwrap_or(UNRANKED_SOURCE_PRIORITY)
+    koine_sources::cascade::source_priority(source_id)
 }
 
 /// A group of deduplicated search results
@@ -87,7 +84,7 @@ pub struct DeduplicationConfig {
     /// on title + author + year. **Off by default** — see the module docs.
     pub use_fuzzy_matching: bool,
     /// Source priority order, highest priority first. Empty (the default) means
-    /// "use [`SOURCE_PRIORITY`]"; a non-empty list overrides it entirely and
+    /// "use the source-priority table"; a non-empty list overrides it entirely and
     /// sources missing from it rank behind every listed one.
     pub source_priority: Vec<String>,
 }
@@ -314,7 +311,7 @@ fn fuzzy_merge_pass(
 }
 
 /// Priority of a source under `config`: the config's explicit order when it has
-/// one, otherwise the [`SOURCE_PRIORITY`] table.
+/// one, otherwise the the source-priority table table.
 fn priority_of(source_id: &str, config: &DeduplicationConfig) -> u32 {
     if config.source_priority.is_empty() {
         return source_priority_rank(source_id);
@@ -336,7 +333,7 @@ pub fn deduplicate_search_results(
     deduplicate_search_results_internal(results, config)
 }
 
-/// One row of the [`SOURCE_PRIORITY`] table, for callers that want to display
+/// One row of the the source-priority table table, for callers that want to display
 /// or assert it rather than re-declare it.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct SourcePriorityRow {
@@ -347,11 +344,11 @@ pub struct SourcePriorityRow {
 }
 
 pub(crate) fn dedup_source_priorities_internal() -> Vec<SourcePriorityRow> {
-    SOURCE_PRIORITY
+    KNOWN_SOURCES
         .iter()
-        .map(|(source_id, priority)| SourcePriorityRow {
+        .map(|source_id| SourcePriorityRow {
             source_id: source_id.to_string(),
-            priority: *priority,
+            priority: source_priority_rank(source_id),
         })
         .collect()
 }

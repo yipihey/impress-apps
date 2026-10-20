@@ -50,8 +50,8 @@ public final class DragDropCoordinator {
     private let pdfImportHandler: PDFImportHandler
     private let bibDropHandler: BibDropHandler
 
-    /// Source manager for URL-based paper imports
-    public var sourceManager: SourceManager?
+    /// Source client (the Rust source verbs) for URL-based paper imports
+    public var sourceClient: SourceClient?
 
     // MARK: - Store
 
@@ -443,13 +443,13 @@ public final class DragDropCoordinator {
             throw DragDropError.urlImportFailed("Unrecognized academic URL: \(url.host ?? url.absoluteString)")
         }
 
-        guard let sourceManager else {
-            Logger.files.errorCapture("URL import: sourceManager not configured", category: "files")
+        guard let sourceClient else {
+            Logger.files.errorCapture("URL import: sourceClient not configured", category: "files")
             throw DragDropError.urlImportFailed("Search sources not available")
         }
 
         let options = SearchOptions(maxResults: 1, sourceIDs: parsed.sourceIDs)
-        let results = try await sourceManager.search(query: parsed.query, options: options)
+        let results = try await sourceClient.search(query: parsed.query, options: options)
 
         guard let result = results.first else {
             throw DragDropError.urlImportFailed("Paper not found for \(parsed.query)")
@@ -468,16 +468,20 @@ public final class DragDropCoordinator {
             libraryID = nil
         }
 
-        // Import using BibTeX from search result
-        let bibtex = result.toBibTeX()
+        // File the record with its provenance (S-D5) through
+        // `imbib-library-service_import-work`: the source's own BibTeX,
+        // `source_id`, `ids_json`; a collection target files it there too.
         var importedIDs: [UUID] = []
         if let libID = libraryID {
-            importedIDs = store.importBibTeX(bibtex, libraryId: libID)
-        }
-
-        // If target is a collection, also add to that collection
-        if case .collection(let collectionID, _) = target, !importedIDs.isEmpty {
-            store.addToCollection(publicationIds: importedIDs, collectionId: collectionID)
+            var collectionID: UUID?
+            if case .collection(let id, _) = target { collectionID = id }
+            let outcome = try await sourceClient.importWork(result, library: libID, collection: collectionID, fetchBibTeX: true)
+            if let id = outcome.importedID {
+                importedIDs = [id]
+            } else if let existing = outcome.existingID {
+                Logger.files.infoCapture("URL import: '\(result.title)' is already in the library (\(existing))", category: "files")
+                importedIDs = [existing]
+            }
         }
 
         let pubID = importedIDs.first ?? UUID()

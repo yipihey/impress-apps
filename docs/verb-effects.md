@@ -121,10 +121,9 @@ catalogue, 168 on the exception table.
 | `imbib-app-service_get-logs` | — | — | app("imbib") | — |
 | `imbib-app-service_get-notes` | — | — | app("imbib") | — |
 | `imbib-app-service_open-manuscript-papers` | — | — | app("imbib") | — |
+| `imbib-app-service_refresh-feeds` | "imbib/smart-search", "imbib/bibliography-entry", "imbib/dismissed-paper", "imbib/muted-item" | "imbib/bibliography-entry", "imbib/smart-search" | app("imbib"), network | — |
 | `imbib-app-service_recent-activity` | — | — | app("imbib") | — |
-| `imbib-app-service_resolve-citation` | — | — | app("imbib") | — |
 | `imbib-app-service_resolve-identifier` | — | — | app("imbib") | — |
-| `imbib-app-service_search-sources` | — | — | app("imbib") | — |
 | `imbib-app-service_status` | — | — | app("imbib") | — |
 | `imbib-app-service_sync-nudge` | — | — | app("imbib") | — |
 | `imbib-app-service_sync-status` | — | — | app("imbib") | — |
@@ -197,6 +196,7 @@ catalogue, 168 on the exception table.
 | `imbib-library-service_import-identifiers` | "imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file" | "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | app("imbib"), network, fs | — |
 | `imbib-library-service_import-papers` | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_import-ris` | "imbib/bibliography-entry", "imbib/library" | "imbib/bibliography-entry" | — | example ×1 |
+| `imbib-library-service_import-work` | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry" | network | — |
 | `imbib-library-service_is-paper-dismissed` | "imbib/dismissed-paper" | — | — | example ×2 |
 | `imbib-library-service_list-assignments` | "imbib/assignment", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-library-service_list-collection-members` | "imbib/collection", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
@@ -237,6 +237,9 @@ catalogue, 168 on the exception table.
 | `imbib-scix-service_list-scix-libraries` | "imbib/scix-library" | — | — | example ×1 |
 | `imbib-scix-service_query-scix-library-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/scix-library" | — | — | example ×1 |
 | `imbib-scix-service_remove-from-scix-library` | "imbib/scix-library" | "imbib/scix-library" | — | example ×1 |
+| `imbib-sources-service_resolve-citation` | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry" | network, app("imbib") | — |
+| `imbib-sources-service_search-sources` | — | — | network | — |
+| `imbib-sources-service_source-status` | — | — | — | example ×1 |
 | `imbib-search-service_create-smart-search` | "imbib/library" | "imbib/smart-search" | — | example ×1 |
 | `imbib-search-service_find-by-arxiv` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-search-service_find-by-bibcode` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
@@ -543,14 +546,20 @@ catalogue, 168 on the exception table.
 | `smart-search-service_rewrite-free-text-query` | — | — | — | example ×1 |
 | `smart-search-service_split-reference-blocks` | — | — | — | example ×1 |
 | `smart-search-service_validate-parsed-reference` | — | — | — | example ×1 |
+| `bib-source-service_explain` | — | — | network | — |
+| `bib-source-service_export` | — | — | network | — |
+| `bib-source-service_fetch` | — | — | network | — |
 | `source-service_get-citation` | "source-citation@1.0.0", "figure-region@1.0.0", "impress/artifact/general" | — | — | example ×1 |
 | `source-service_get-content-chunk` | "content-chunk@1.0.0", "figure-region@1.0.0", "impress/artifact/general" | — | — | example ×1 |
 | `source-service_get-figure-image` | target(source_item_id), "figure-region@1.0.0", "source-citation@1.0.0", "imbib/linked-file" | — | subprocess, fs | — |
 | `source-service_get-page-image` | target(source_item_id), "imbib/linked-file" | — | subprocess, fs | — |
+| `bib-source-service_match-citation` | — | — | network | — |
 | `source-service_put-citation` | "source-citation@1.0.0", "impress/artifact/general" | "source-citation@1.0.0" | — | example ×1 |
 | `source-service_put-content-chunk` | "content-chunk@1.0.0", "extraction-run@1.0.0", "impress/artifact/general", "source-citation@1.0.0" | "content-chunk@1.0.0" | — | example ×1 |
 | `source-service_put-extraction-run` | "extraction-run@1.0.0", "impress/artifact/general" | "extraction-run@1.0.0" | — | example ×1 |
 | `source-service_put-figure-region` | "figure-region@1.0.0", "extraction-run@1.0.0", "impress/artifact/general" | "figure-region@1.0.0" | — | example ×1 |
+| `bib-source-service_related` | — | — | network | — |
+| `bib-source-service_search` | — | — | network | — |
 | `source-service_search-content-chunks` | any("full-text search inspects all indexed kinds before filtering to source chunks") | — | — | example ×1 |
 | `store-query-service_get-item` | target(id) | — | — | — |
 | `store-query-service_list-items` | any("the schema_ref argument names the kind") | — | — | example ×1 |
@@ -637,10 +646,9 @@ when one lands).
 | `imbib-app-service_get-logs` | needs a running app |
 | `imbib-app-service_get-notes` | needs a running app |
 | `imbib-app-service_open-manuscript-papers` | needs a running app |
+| `imbib-app-service_refresh-feeds` | needs a running app |
 | `imbib-app-service_recent-activity` | needs a running app |
-| `imbib-app-service_resolve-citation` | needs a running app |
 | `imbib-app-service_resolve-identifier` | needs a running app |
-| `imbib-app-service_search-sources` | needs a running app |
 | `imbib-app-service_status` | needs a running app |
 | `imbib-app-service_sync-nudge` | needs a running app |
 | `imbib-app-service_sync-status` | needs a running app |
@@ -658,6 +666,7 @@ when one lands).
 | `imbib-library-service_delete-library-undoable` | needs a running app |
 | `imbib-library-service_duplicate-publications` | no example ran |
 | `imbib-library-service_import-identifiers` | needs a running app |
+| `imbib-library-service_import-work` | leaves the process (network) |
 | `imbib-manuscripts-service_compile-manuscript` | needs a running app |
 | `imbib-manuscripts-service_create-manuscript` | needs a running app |
 | `imbib-manuscripts-service_create-manuscript-from-template` | needs a running app |
@@ -668,6 +677,8 @@ when one lands).
 | `imbib-semantic-service_get-paper-chunks` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-semantic-service_list-indexed-papers` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-semantic-service_search-papers` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `imbib-sources-service_resolve-citation` | needs a running app |
+| `imbib-sources-service_search-sources` | leaves the process (network) |
 | `imbib-tags-service_add-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-tags-service_remove-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-undo-service_recent-undo-groups` | exercised, unobserved (example ran, spy saw no declared read or write) |
@@ -761,8 +772,14 @@ when one lands).
 | `settings-service_reset` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `settings-service_set` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `settings-service_surface` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `bib-source-service_explain` | leaves the process (network) |
+| `bib-source-service_export` | leaves the process (network) |
+| `bib-source-service_fetch` | leaves the process (network) |
 | `source-service_get-figure-image` | leaves the process (subprocess, fs) |
 | `source-service_get-page-image` | leaves the process (subprocess, fs) |
+| `bib-source-service_match-citation` | leaves the process (network) |
+| `bib-source-service_related` | leaves the process (network) |
+| `bib-source-service_search` | leaves the process (network) |
 | `store-query-service_get-item` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `store-query-service_related-items` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `surface-demo-service_note-delete` | exercised, unobserved (example ran, spy saw no declared read or write) |

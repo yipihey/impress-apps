@@ -106,7 +106,7 @@ This is the backstop for the retirement: a row that is **deferred** is a decisio
 | `imbib_restore_backup` | covered | `imbib-backup-service_restore-backup` |
 | `imbib_search_artifacts` | covered | `imbib-artifacts-service_search-artifacts` |
 | `imbib_search_library` | covered | `imbib-search-service_full-text-search` |
-| `imbib_search_sources` | covered | `imbib-app-service_search-sources` |
+| `imbib_search_sources` | covered | `imbib-sources-service_search-sources` |
 | `imbib_set_flag` | covered | `imbib-library-service_set-flag` |
 | `imbib_set_tag_color` | covered | `imbib-tags-service_update-tag` |
 | `imbib_starred_papers` | covered | `imbib-library-service_query-starred` |

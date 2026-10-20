@@ -804,6 +804,31 @@ extension FfiConverterCallbackInterfaceImbibNativeCallbacks : FfiConverter {
         writeInt(&buf, lower(v))
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
 private let UNIFFI_RUST_FUTURE_POLL_MAYBE_READY: Int8 = 1
 
@@ -966,6 +991,39 @@ public func registerNativeBackend(callback: ImbibNativeCallbacks)throws  {try ru
 }
 }
 /**
+ * Name the contact the adapters send to polite pools (Crossref `mailto`,
+ * OpenAlex, the arXiv User-Agent): the user's email.
+ */
+public func setSourceContact(contact: String) {try! rustCall() {
+    uniffi_imbib_verbs_ffi_fn_func_set_source_contact(
+        FfiConverterString.lower(contact),$0
+    )
+}
+}
+/**
+ * Hand one source secret to Rust memory (ADR-0029's pattern, for the
+ * source convention's adapters): `name` is koine's (`ads-token`,
+ * `scix-token`, `wos-api-key`, `ncbi-api-key`, `crossref-plus-token`),
+ * `value` the keychain item; an empty value clears it. Never written to a
+ * file.
+ */
+public func setSourceSecret(name: String, value: String) {try! rustCall() {
+    uniffi_imbib_verbs_ffi_fn_func_set_source_secret(
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(value),$0
+    )
+}
+}
+/**
+ * The source ids the adapters answer for, in registration order.
+ */
+public func sourceIds() -> [String] {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_imbib_verbs_ffi_fn_func_source_ids($0
+    )
+})
+}
+/**
  * Descriptors, rather than a Swift method list, identify direct store writes.
  */
 public func verbWritesStore(name: String) -> Bool {
@@ -1001,6 +1059,15 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_verbs_ffi_checksum_func_register_native_backend() != 35043) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_verbs_ffi_checksum_func_set_source_contact() != 9360) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_verbs_ffi_checksum_func_set_source_secret() != 40615) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_verbs_ffi_checksum_func_source_ids() != 19508) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_verbs_ffi_checksum_func_verb_writes_store() != 7311) {

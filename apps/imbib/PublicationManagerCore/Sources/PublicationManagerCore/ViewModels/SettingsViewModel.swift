@@ -39,7 +39,7 @@ public final class SettingsViewModel {
 
     // MARK: - Dependencies
 
-    private let sourceManager: SourceManager
+    private let sourceClient: SourceClient
     private let credentialManager: CredentialManager
     private let enrichmentSettingsStore: EnrichmentSettingsStore
     private let smartSearchSettingsStore: SmartSearchSettingsStore
@@ -48,13 +48,13 @@ public final class SettingsViewModel {
     // MARK: - Initialization
 
     public init(
-        sourceManager: SourceManager = SourceManager(),
+        sourceClient: SourceClient = SourceClient(),
         credentialManager: CredentialManager = .shared,
         enrichmentSettingsStore: EnrichmentSettingsStore = .shared,
         smartSearchSettingsStore: SmartSearchSettingsStore = .shared,
         inboxSettingsStore: InboxSettingsStore = .shared
     ) {
-        self.sourceManager = sourceManager
+        self.sourceClient = sourceClient
         self.credentialManager = credentialManager
         self.enrichmentSettingsStore = enrichmentSettingsStore
         self.smartSearchSettingsStore = smartSearchSettingsStore
@@ -68,7 +68,7 @@ public final class SettingsViewModel {
         defer { Logger.viewModels.exiting() }
 
         isLoading = true
-        sourceCredentials = await sourceManager.credentialStatus()
+        sourceCredentials = await sourceClient.credentialStatus()
         isLoading = false
     }
 
@@ -82,6 +82,7 @@ public final class SettingsViewModel {
         }
 
         try await credentialManager.storeAPIKey(apiKey, for: sourceID)
+        await SourceSecrets.push(credentials: credentialManager)
         await loadCredentialStatus()
     }
 
@@ -93,6 +94,7 @@ public final class SettingsViewModel {
         }
 
         try await credentialManager.storeEmail(email, for: sourceID)
+        await SourceSecrets.push(credentials: credentialManager)
         await loadCredentialStatus()
     }
 
@@ -100,6 +102,7 @@ public final class SettingsViewModel {
         Logger.viewModels.info("Deleting credentials for \(sourceID)")
 
         await credentialManager.deleteAll(for: sourceID)
+        await SourceSecrets.push(credentials: credentialManager)
         await loadCredentialStatus()
     }
 

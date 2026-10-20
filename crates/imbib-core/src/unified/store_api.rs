@@ -13,6 +13,7 @@ use uuid::Uuid;
 use super::conversion;
 use super::schemas;
 use super::shaped_queries::*; // includes ArtifactRow, ArtifactRelation, item_to_artifact_row
+use crate::domain::Identifiers;
 
 /// Error type for the store API, exposed via UniFFI.
 #[derive(Debug, thiserror::Error)]
@@ -4848,6 +4849,162 @@ impl ImbibStore {
 
 // Internal helpers (not exposed via UniFFI)
 impl ImbibStore {
+    /// Import one `bibliographic-work@1.0.0` with its provenance kept
+    /// (source convention S-D5): the row's `source_id` is filled, its
+    /// `produced_by` is the verb call's row when one exists, `raw_bibtex` is
+    /// the source's own text (never a synthesized one), and the full `ids`
+    /// map and the work's `provenance` are stored as JSON beside the
+    /// identifier columns. The dismissed check and the identifier dedup are
+    /// the ones `batch_import_search_results` runs; a work whose DOI, arXiv
+    /// id or bibcode is already in the library answers `existing_id`.
+    ///
+    /// With `collection_id`, the row (new or existing) is filed into that
+    /// collection, as `import_bibtex_into` does for a dropped `.bib`.
+    pub fn import_work(
+        &self,
+        input: WorkImportInput,
+        library_id: String,
+        collection_id: Option<String>,
+    ) -> Result<WorkImportOutcome, StoreApiError> {
+        let parent_uuid = parse_uuid(&library_id)?;
+        let pick = |kind: &str| -> Option<String> {
+            input
+                .ids
+                .get(kind)
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
+        let doi = pick("doi");
+        let arxiv_id = pick("arxiv");
+        let bibcode = pick("bibcode");
+        let as_list = |v: &Option<String>| v.iter().cloned().collect::<Vec<String>>();
+        let (dois, arxivs, bibcodes) = (as_list(&doi), as_list(&arxiv_id), as_list(&bibcode));
+
+        // The dismissed check first: a dismissed paper is never re-imported,
+        // whether or not a row for it still exists.
+        let dismissed = self.load_dismissed_identifiers(&dois, &arxivs, &bibcodes)?;
+        let probe = SearchResultInput {
+            bibtex: String::new(),
+            doi: doi.clone(),
+            arxiv_id: arxiv_id.clone(),
+            bibcode: bibcode.clone(),
+        };
+        if is_input_dismissed(&probe, &dismissed) {
+            return Ok(WorkImportOutcome {
+                dismissed: true,
+                ..Default::default()
+            });
+        }
+
+        // Identifier dedup, whole store: a work already held anywhere is
+        // that row, never a second copy (the same rule `import_bibtex_into`
+        // applies when filing into a collection).
+        let existing = self
+            .find_items_by_identifiers(&dois, &arxivs, &bibcodes)?
+            .into_iter()
+            .next()
+            .map(|item| item.id.to_string());
+        if let Some(existing_id) = existing {
+            let added = match &collection_id {
+                Some(cid) => {
+                    self.add_to_collection(vec![existing_id.clone()], cid.clone())?;
+                    true
+                }
+                None => false,
+            };
+            return Ok(WorkImportOutcome {
+                existing_id: Some(existing_id),
+                added_to_collection: added,
+                ..Default::default()
+            });
+        }
+
+        // The row: parsed from the BibTeX, the identifiers merged in from the
+        // `ids` map (a source's BibTeX often omits the eprint), the
+        // provenance kept.
+        let parsed = crate::bibtex::parse(input.bibtex.clone())
+            .map_err(|e| StoreApiError::InvalidInput(format!("bibtex did not parse: {e:?}")))?;
+        let entry = parsed
+            .entries
+            .into_iter()
+            .next()
+            .ok_or_else(|| StoreApiError::InvalidInput("bibtex has no entry".into()))?;
+        let mut publication = crate::conversions::bibtex_entry_to_publication(entry);
+        let ids = &publication.identifiers;
+        let merged = Identifiers {
+            doi: ids.doi.clone().or(doi),
+            arxiv_id: ids.arxiv_id.clone().or(arxiv_id),
+            pmid: ids.pmid.clone().or_else(|| pick("pmid")),
+            pmcid: ids.pmcid.clone().or_else(|| pick("pmcid")),
+            bibcode: ids.bibcode.clone().or(bibcode),
+            isbn: ids.isbn.clone().or_else(|| pick("isbn")),
+            issn: ids.issn.clone(),
+            orcid: ids.orcid.clone(),
+        };
+        publication.identifiers = merged;
+        for kind in ["openalex", "s2", "mag", "wos", "dblp"] {
+            if let Some(value) = pick(kind) {
+                publication
+                    .extra_fields
+                    .entry(format!("{kind}_id"))
+                    .or_insert(value);
+            }
+        }
+        if publication.abstract_text.is_none() {
+            publication.abstract_text = input.abstract_text.clone();
+        }
+        publication.source_id = Some(input.source_id.clone());
+        publication.raw_bibtex = if input.synthesized {
+            None
+        } else {
+            Some(input.bibtex.clone())
+        };
+        // The dedup the BibTeX funnel runs after parsing: cite key and arXiv
+        // version variants the identifier columns did not catch.
+        if let Some(id) = self.find_existing_publication(&publication, Some(parent_uuid))? {
+            let existing_id = id.to_string();
+            let added = match &collection_id {
+                Some(cid) => {
+                    self.add_to_collection(vec![existing_id.clone()], cid.clone())?;
+                    true
+                }
+                None => false,
+            };
+            return Ok(WorkImportOutcome {
+                existing_id: Some(existing_id),
+                added_to_collection: added,
+                ..Default::default()
+            });
+        }
+        let mut item = conversion::publication_to_item(&publication, Some(parent_uuid));
+        if let Some(provenance) = &input.provenance_json {
+            item.payload
+                .insert("provenance_json".into(), Value::String(provenance.clone()));
+        }
+        if !input.ids.is_empty() {
+            if let Ok(json) = serde_json::to_string(&input.ids) {
+                item.payload.insert("ids_json".into(), Value::String(json));
+            }
+        }
+        item.produced_by = input
+            .produced_by
+            .as_deref()
+            .and_then(|id| Uuid::parse_str(id).ok());
+        let imported_id = self.store.insert(item)?.to_string();
+        let added = match &collection_id {
+            Some(cid) => {
+                self.add_to_collection(vec![imported_id.clone()], cid.clone())?;
+                true
+            }
+            None => false,
+        };
+        Ok(WorkImportOutcome {
+            imported_id: Some(imported_id),
+            added_to_collection: added,
+            ..Default::default()
+        })
+    }
+
     /// Parse RIS and add each entry to a library. Duplicates already in that
     /// library are skipped. The returned ids are only the rows this call created.
     pub fn import_ris(

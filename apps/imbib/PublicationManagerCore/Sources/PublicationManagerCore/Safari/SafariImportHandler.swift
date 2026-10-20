@@ -160,9 +160,8 @@ public actor SafariImportHandler {
             )
         }
 
-        // Create source manager for search execution
-        let sourceManager = SourceManager()
-        await sourceManager.registerBuiltInSources()
+        // The source client for search execution (the Rust verbs).
+        let sourceClient = SourceClient()
 
         // Auto-execute the search to populate results
         guard let smartSearch = smartSearch else {
@@ -171,7 +170,7 @@ public actor SafariImportHandler {
         }
         let provider = SmartSearchProvider(
             from: smartSearch,
-            sourceManager: sourceManager
+            sourceClient: sourceClient
         )
 
         do {
@@ -238,8 +237,8 @@ public actor SafariImportHandler {
             return
         }
 
-        let source = ADSSource()
-        let results = try await source.search(query: "bibcode:\(bibcode)", maxResults: 1)
+        let source = SourceClient()
+        let results = try await source.search(query: "bibcode:\(bibcode)", sourceID: "ads", maxResults: 1)
 
         guard let result = results.first else {
             throw SafariImportError.notFound("ADS bibcode: \(bibcode)")
@@ -258,8 +257,8 @@ public actor SafariImportHandler {
         // Normalize arXiv ID (remove version)
         let normalizedID = arxivID.replacingOccurrences(of: #"v\d+$"#, with: "", options: .regularExpression)
 
-        let source = ArXivSource()
-        let results = try await source.search(query: "id:\(normalizedID)", maxResults: 1)
+        let source = SourceClient()
+        let results = try await source.search(query: "id:\(normalizedID)", sourceID: "arxiv", maxResults: 1)
 
         guard let result = results.first else {
             throw SafariImportError.notFound("arXiv: \(arxivID)")
@@ -276,8 +275,8 @@ public actor SafariImportHandler {
         }
 
         // Use ADS to resolve DOIs - it can search by DOI
-        let source = ADSSource()
-        let results = try await source.search(query: "doi:\(doi)", maxResults: 1)
+        let source = SourceClient()
+        let results = try await source.search(query: "doi:\(doi)", sourceID: "ads", maxResults: 1)
 
         guard let result = results.first else {
             // DOI not found in ADS, fall back to embedded metadata

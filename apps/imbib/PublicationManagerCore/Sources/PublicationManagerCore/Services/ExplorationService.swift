@@ -225,8 +225,7 @@ public final class ExplorationService {
             throw err
         }
 
-        let adsSource = ADSSource()
-        let similar = try await adsSource.fetchSimilar(bibcode: bibcode)
+        let similar = try await SourceClient().related(id: "bibcode:\(bibcode)", relation: .similar)
         guard !similar.isEmpty else {
             let err = ExplorationError.noSimilar
             error = err
@@ -270,8 +269,18 @@ public final class ExplorationService {
             throw err
         }
 
-        let wosSource = WoSSource()
-        let related = try await wosSource.fetchRelatedRecords(doi: doi)
+        // Web of Science "related records" has no verb yet: koine's
+        // `source-wos` adapter declares no `related` operation (its explain
+        // record lists search, fetch, match), and `bib-source-service_related`
+        // takes no source scope, so asking it would answer ADS's `similar`
+        // under a WoS label. The Swift `WoSSource.fetchRelatedRecords` that
+        // served this left with S6; until the adapter walks the relation the
+        // action says so, loudly, rather than showing another source's rows.
+        Logger.sources.warningCapture(
+            "WoS related records for \(doi): not available — koine's source-wos adapter declares no `related` (source convention S7)",
+            category: "sources"
+        )
+        let related: [PaperStub] = []
 
         guard !related.isEmpty else {
             let err = ExplorationError.noWoSRelated
@@ -335,8 +344,7 @@ public final class ExplorationService {
             throw err
         }
 
-        let adsSource = ADSSource()
-        let coReads = try await adsSource.fetchCoReads(bibcode: bibcode)
+        let coReads = try await SourceClient().related(id: "bibcode:\(bibcode)", relation: .coreads)
         guard !coReads.isEmpty else {
             let err = ExplorationError.noCoReads
             error = err

@@ -95,8 +95,34 @@ pub fn initialize_verb_store(path: String) -> Result<(), ImbibVerbStoreError> {
     bind_audit_store(&path).map_err(|message| ImbibVerbStoreError::Initialization { message })?;
     imbib_service::init_imbib_store(PathBuf::from(&path))
         .map_err(|message| ImbibVerbStoreError::Initialization { message })?;
+    // The online databases (source convention S6): the seven adapters, the
+    // kind and the secret source, registered once for this process.
+    imbib_service::sources::link();
     *initialized = Some(path);
     Ok(())
+}
+
+/// Hand one source secret to Rust memory (ADR-0029's pattern, for the
+/// source convention's adapters): `name` is koine's (`ads-token`,
+/// `scix-token`, `wos-api-key`, `ncbi-api-key`, `crossref-plus-token`),
+/// `value` the keychain item; an empty value clears it. Never written to a
+/// file.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn set_source_secret(name: String, value: String) {
+    imbib_service::sources::set_secret(&name, &value);
+}
+
+/// Name the contact the adapters send to polite pools (Crossref `mailto`,
+/// OpenAlex, the arXiv User-Agent): the user's email.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn set_source_contact(contact: String) {
+    imbib_service::sources::set_contact(&contact);
+}
+
+/// The source ids the adapters answer for, in registration order.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn source_ids() -> Vec<String> {
+    imbib_service::sources::sources()
 }
 
 /// Dispatch one registered verb through the shared invoker pipeline.

@@ -102,6 +102,7 @@ public actor HTTPAutomationServer {
         let router = self.router
         do {
             try await MainActor.run { try ImbibNativeVerbs.install(router: router) }
+            await SourceSecrets.push()
         } catch {
             httpLogger.error("Imbib native verbs unavailable: \(error.localizedDescription)")
         }

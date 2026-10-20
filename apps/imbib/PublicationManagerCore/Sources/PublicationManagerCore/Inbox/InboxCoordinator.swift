@@ -67,13 +67,10 @@ public final class InboxCoordinator {
         Logger.inbox.debugCapture("Inbox library initialized", category: "coordinator")
 
         // Create fetch service with shared dependencies
-        let sourceManager = SourceManager(credentialManager: CredentialManager.shared)
-
-        // Register built-in sources if not already done
-        await sourceManager.registerBuiltInSources()
+        let sourceClient = SourceClient()
 
         let fetchService = PaperFetchService(
-            sourceManager: sourceManager
+            sourceClient: sourceClient
         )
         self.paperFetchService = fetchService
         Logger.inbox.debugCapture("PaperFetchService created", category: "coordinator")

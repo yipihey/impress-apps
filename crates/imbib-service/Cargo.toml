@@ -28,6 +28,23 @@ dirs = { workspace = true }
 # The e-ink verbs run the blocking mirror engine off the async executor.
 tokio = { workspace = true }
 uuid = { workspace = true }
+# `sources::fields_of_reference`: the year, surnames and title of a free-text reference.
+regex = { workspace = true }
+# The source convention (koine docs/plan-source-convention.md, S6): the
+# vocabulary (`Work`, the scorer and cascade), the six `bib-source-service_*`
+# verbs, and the seven adapters imbib registers at start (`sources.rs`).
+koine-sources = { workspace = true }
+source-service = { workspace = true }
+source-crossref = { workspace = true }
+source-arxiv = { workspace = true }
+source-ads = { workspace = true }
+source-openalex = { workspace = true }
+source-pubmed = { workspace = true }
+source-wos = { workspace = true }
+source-scix = { workspace = true }
+source-s2 = { workspace = true }
+source-dblp = { workspace = true }
+source-inspire = { workspace = true }
 impress-workspace-hack.workspace = true
 
 [dev-dependencies]

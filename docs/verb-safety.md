@@ -43,11 +43,12 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `docs-import-service` | mutating | 10 | 5 |
 | `history-service` | read_only | 7 | 3 |
 | `imbib-annotations-service` | read_only | 9 | 4 |
-| `imbib-app-service` | external | 17 | 0 |
+| `imbib-app-service` | external | 16 | 0 |
+| `imbib-sources-service` | external | 3 | 0 |
 | `imbib-artifacts-service` | read_only | 9 | 4 |
 | `imbib-backup-service` | destructive | 6 | 4 |
 | `imbib-eink-service` | mutating | 22 | 15 |
-| `imbib-library-service` | read_only | 44 | 19 |
+| `imbib-library-service` | read_only | 45 | 20 |
 | `imbib-manuscripts-service` | external | 7 | 0 |
 | `imbib-scix-service` | read_only | 7 | 3 |
 | `imbib-search-service` | read_only | 10 | 1 |
@@ -75,7 +76,8 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `perf-service` | read_only | 4 | 0 |
 | `settings-service` | read_only | 6 | 2 |
 | `smart-search-service` | read_only | 10 | 0 |
-| `source-service` | mutating | 9 | 5 |
+| `bib-source-service` | external | 6 | 6 |
+| `source-service` | external | 9 | 1 |
 | `store-query-service` | read_only | 4 | 0 |
 | `surface-demo-service` | read_only | 2 | 0 |
 | `surface-selftest-service` | external | 1 | 0 |
@@ -151,10 +153,9 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-app-service_get-logs` | external | E/R: name/doc |
 | `imbib-app-service_get-notes` | external | E/R: name/doc |
 | `imbib-app-service_open-manuscript-papers` | external | E/M: name/doc |
+| `imbib-app-service_refresh-feeds` | external | E/R: name/doc |
 | `imbib-app-service_recent-activity` | external | E/R: name/doc |
-| `imbib-app-service_resolve-citation` | external | name/doc |
 | `imbib-app-service_resolve-identifier` | external | E/M: crates/imbib-service/src/app_service.rs:369 default refuses; HTTP POST /api/papers/resolve (apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Automation/HTTPAutomationRouter.swift:2564-2585 handleResolv… |
-| `imbib-app-service_search-sources` | external | E/R: name/doc |
 | `imbib-app-service_status` | external | E/R: name/doc |
 | `imbib-app-service_sync-nudge` | external | E/M: name/doc |
 | `imbib-app-service_sync-status` | external | E/R: name/doc |
@@ -227,6 +228,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_import-identifiers` | external | name/doc |
 | `imbib-library-service_import-papers` | mutating | crates/imbib-service/src/library_service.rs:1135 -> crates/imbib-core/src/unified/store_api.rs:1335-1499 batch_import_search_results: parses the BibTeX the CALLER supplies, dedups, insert_batch; NO network fetch in th… |
 | `imbib-library-service_import-ris` | mutating | name/doc |
+| `imbib-library-service_import-work` | external | E/R: name/doc |
 | `imbib-library-service_is-paper-dismissed` | read_only | name/doc |
 | `imbib-library-service_list-assignments` | read_only | name/doc |
 | `imbib-library-service_list-collection-members` | read_only | name/doc |
@@ -267,6 +269,9 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-scix-service_list-scix-libraries` | read_only | crates/imbib-service/src/scix_service.rs:121 -> crates/imbib-core/src/unified/store_api.rs:3015 query local imbib/scix-library rows; no ADS/SciX network call. Name suggests remote; fallback description. HTTP backend r… |
 | `imbib-scix-service_query-scix-library-publications` | read_only | crates/imbib-service/src/scix_service.rs:194 -> crates/imbib-core/src/unified/store_api.rs:3115 local query. Fallback description; name suggests remote. HTTP backend routes the same verb to the running app (imbib-serv… |
 | `imbib-scix-service_remove-from-scix-library` | mutating | crates/imbib-service/src/scix_service.rs:177 -> crates/imbib-core/src/unified/store_api.rs:3079 local membership edge removal (no publication deleted); HTTP path DELETE /api/scix-libraries/{id}/papers may push to ADS.… |
+| `imbib-sources-service_resolve-citation` | external | name/doc |
+| `imbib-sources-service_search-sources` | external | E/R: name/doc |
+| `imbib-sources-service_source-status` | read_only | name/doc |
 | `imbib-search-service_create-smart-search` | mutating | name/doc |
 | `imbib-search-service_find-by-arxiv` | read_only | name/doc |
 | `imbib-search-service_find-by-bibcode` | read_only | name/doc |
@@ -573,14 +578,20 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `smart-search-service_rewrite-free-text-query` | read_only | name/doc |
 | `smart-search-service_split-reference-blocks` | read_only | name/doc |
 | `smart-search-service_validate-parsed-reference` | read_only | name/doc |
+| `bib-source-service_explain` | external | E/R: name/doc |
+| `bib-source-service_export` | external | E/R: name/doc |
+| `bib-source-service_fetch` | external | E/R: name/doc |
 | `source-service_get-citation` | read_only | name/doc |
 | `source-service_get-content-chunk` | read_only | name/doc |
 | `source-service_get-figure-image` | external | crates/impress-store-service/src/source_service.rs:1428 render_page -> crates/impress-store-service/src/source_assets.rs:242 spawns `osascript -l JavaScript` (PDFKit) as a subprocess and writes PNGs into the render ca… |
 | `source-service_get-page-image` | external | crates/impress-store-service/src/source_service.rs:70 render_page -> crates/impress-store-service/src/source_assets.rs:242 Command::new("osascript") PDFKit render subprocess on cache miss, PNG written to render-cache… |
+| `bib-source-service_match-citation` | external | E/R: name/doc |
 | `source-service_put-citation` | mutating | name/doc |
 | `source-service_put-content-chunk` | mutating | name/doc |
 | `source-service_put-extraction-run` | mutating | name/doc |
 | `source-service_put-figure-region` | mutating | name/doc |
+| `bib-source-service_related` | external | E/R: name/doc |
+| `bib-source-service_search` | external | E/R: name/doc |
 | `source-service_search-content-chunks` | read_only | name/doc |
 | `store-query-service_get-item` | read_only | name/doc |
 | `store-query-service_list-items` | read_only | name/doc |

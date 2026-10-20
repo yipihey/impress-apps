@@ -8740,7 +8740,7 @@ public struct DeduplicationConfig {
     public var useFuzzyMatching: Bool
     /**
      * Source priority order, highest priority first. Empty (the default) means
-     * "use [`SOURCE_PRIORITY`]"; a non-empty list overrides it entirely and
+     * "use the source-priority table"; a non-empty list overrides it entirely and
      * sources missing from it rank behind every listed one.
      */
     public var sourcePriority: [String]
@@ -8757,7 +8757,7 @@ public struct DeduplicationConfig {
          */useFuzzyMatching: Bool, 
         /**
          * Source priority order, highest priority first. Empty (the default) means
-         * "use [`SOURCE_PRIORITY`]"; a non-empty list overrides it entirely and
+         * "use the source-priority table"; a non-empty list overrides it entirely and
          * sources missing from it rank behind every listed one.
          */sourcePriority: [String]) {
         self.titleThreshold = titleThreshold
@@ -22910,7 +22910,7 @@ public func FfiConverterTypeSmartSearchRow_lower(_ value: SmartSearchRow) -> Rus
 
 
 /**
- * One row of the [`SOURCE_PRIORITY`] table, for callers that want to display
+ * One row of the the source-priority table table, for callers that want to display
  * or assert it rather than re-declare it.
  */
 public struct SourcePriorityRow {
@@ -31556,31 +31556,6 @@ fileprivate struct FfiConverterSequenceTypeSearchHit: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceTypeSearchResult: FfiConverterRustBuffer {
-    typealias SwiftType = [SearchResult]
-
-    public static func write(_ value: [SearchResult], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeSearchResult.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SearchResult] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [SearchResult]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeSearchResult.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceTypeSearchResultInput: FfiConverterRustBuffer {
     typealias SwiftType = [SearchResultInput]
 
@@ -32441,23 +32416,6 @@ public func bibtexParseWithOptions(input: String, expandMacros: Bool, resolveCro
         FfiConverterString.lower(input),
         FfiConverterBool.lower(expandMacros),
         FfiConverterBool.lower(resolveCrossrefs),$0
-    )
-})
-}
-/**
- * Build arXiv API query from user query
- *
- * Supports field prefixes:
- * - cat:cs.LG - Category
- * - au:Author - Author
- * - ti:Title - Title
- * - abs:Abstract - Abstract
- * - id:2301.12345 - arXiv ID
- */
-public func buildApiQuery(userQuery: String) -> String {
-    return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_imbib_core_fn_func_build_api_query(
-        FfiConverterString.lower(userQuery),$0
     )
 })
 }
@@ -33853,16 +33811,6 @@ public func parseArxivQuery(query: String) -> ParsedArXivForm? {
     )
 })
 }
-/**
- * Parse arXiv Atom XML feed to SearchResults (exported for FFI)
- */
-public func parseAtomFeed(xml: String)throws  -> [SearchResult] {
-    return try  FfiConverterSequenceTypeSearchResult.lift(try rustCallWithError(FfiConverterTypeFfiError.lift) {
-    uniffi_imbib_core_fn_func_parse_atom_feed(
-        FfiConverterString.lower(xml),$0
-    )
-})
-}
 public func parseAuthorString(input: String) -> [Author] {
     return try!  FfiConverterSequenceTypeAuthor.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_parse_author_string(
@@ -33877,26 +33825,6 @@ public func parseClassicQuery(query: String) -> ParsedClassicForm? {
     return try!  FfiConverterOptionTypeParsedClassicForm.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_parse_classic_query(
         FfiConverterString.lower(query),$0
-    )
-})
-}
-/**
- * Parse Crossref search response JSON (exported for FFI)
- */
-public func parseCrossrefSearchResponse(json: String)throws  -> [SearchResult] {
-    return try  FfiConverterSequenceTypeSearchResult.lift(try rustCallWithError(FfiConverterTypeFfiError.lift) {
-    uniffi_imbib_core_fn_func_parse_crossref_search_response(
-        FfiConverterString.lower(json),$0
-    )
-})
-}
-/**
- * Parse Crossref single work response JSON (exported for FFI)
- */
-public func parseCrossrefWorkResponse(json: String)throws  -> SearchResult {
-    return try  FfiConverterTypeSearchResult.lift(try rustCallWithError(FfiConverterTypeFfiError.lift) {
-    uniffi_imbib_core_fn_func_parse_crossref_work_response(
-        FfiConverterString.lower(json),$0
     )
 })
 }
@@ -33933,26 +33861,6 @@ public func parsePaperQuery(query: String) -> ParsedPaperForm? {
     return try!  FfiConverterOptionTypeParsedPaperForm.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_parse_paper_query(
         FfiConverterString.lower(query),$0
-    )
-})
-}
-/**
- * Parse PubMed efetch XML response (exported for FFI)
- */
-public func parsePubmedEfetchResponse(xml: String)throws  -> [SearchResult] {
-    return try  FfiConverterSequenceTypeSearchResult.lift(try rustCallWithError(FfiConverterTypeFfiError.lift) {
-    uniffi_imbib_core_fn_func_parse_pubmed_efetch_response(
-        FfiConverterString.lower(xml),$0
-    )
-})
-}
-/**
- * Parse PubMed esearch XML response to get PMIDs (exported for FFI)
- */
-public func parsePubmedEsearchResponse(xml: String)throws  -> [String] {
-    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeFfiError.lift) {
-    uniffi_imbib_core_fn_func_parse_pubmed_esearch_response(
-        FfiConverterString.lower(xml),$0
     )
 })
 }
@@ -34911,9 +34819,6 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_bibtex_parse_with_options() != 20094) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_func_build_api_query() != 24123) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_imbib_core_checksum_func_build_arxiv_author_category_query() != 44263) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -35328,19 +35233,10 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_parse_arxiv_query() != 14449) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_func_parse_atom_feed() != 8901) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_imbib_core_checksum_func_parse_author_string() != 40953) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_parse_classic_query() != 9697) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_imbib_core_checksum_func_parse_crossref_search_response() != 33737) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_imbib_core_checksum_func_parse_crossref_work_response() != 10074) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_parse_entry() != 28990) {
@@ -35350,12 +35246,6 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_parse_paper_query() != 42664) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_imbib_core_checksum_func_parse_pubmed_efetch_response() != 54300) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_imbib_core_checksum_func_parse_pubmed_esearch_response() != 5870) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_parse_reference_filter() != 57764) {

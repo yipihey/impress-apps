@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use imbib_core::enrichment::priority::SourcePriority;
 use impel_core::{create_task_dag, Scheduler, SchedulerConfig, SpawnRule, TaskStoreApi};
-use impel_enrichment::metadata_resolve::ConfiguredSource;
+use impel_enrichment::metadata_resolve::WorkSource;
 use impel_enrichment::{
     classify::HeuristicClassifier, EnrichmentSpawnRule, KeywordTagExecutor,
     MetadataResolveExecutor, BIBLIOGRAPHY_ENTRY_SCHEMA,
@@ -23,54 +23,59 @@ use impress_core::query::ItemQuery;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_core::task::TaskState;
-use impress_sources::types::{author_from_names, PaperMetadata, SearchQuery, SearchResult};
-use impress_sources::{SourceError, SourcePlugin};
+use koine_sources::kind::{Author, Issued, Provenance};
+use koine_sources::Work;
 use uuid::Uuid;
 
 // ── fixtures ───────────────────────────────────────────────────────────
 
-/// Deterministic source: knows one paper by DOI.
+/// Deterministic source: knows one paper by DOI, answered as the source
+/// convention's `bibliographic-work@1.0.0` (what `bib-source-service_fetch`
+/// returns; the resolver asks for `doi:…`).
 struct FakeAds;
 
+fn author(family: &str, given: &str) -> Author {
+    Author {
+        family: Some(family.into()),
+        given: Some(given.into()),
+        orcid: None,
+    }
+}
+
 #[async_trait]
-impl SourcePlugin for FakeAds {
+impl WorkSource for FakeAds {
     fn id(&self) -> &str {
         "ads"
     }
-    fn display_name(&self) -> &str {
-        "Fake ADS"
-    }
-    fn requires_credentials(&self) -> bool {
-        false
-    }
-    async fn search(
-        &self,
-        _query: &SearchQuery,
-        _credentials: Option<&str>,
-    ) -> Result<SearchResult, SourceError> {
-        Err(SourceError::Parse("search not used in this test".into()))
-    }
-    async fn fetch_by_id(
-        &self,
-        id: &str,
-        _credentials: Option<&str>,
-    ) -> Result<PaperMetadata, SourceError> {
-        if id != "10.1000/xyz" {
-            return Err(SourceError::Parse(format!("unknown id {id}")));
+    async fn fetch(&self, id: &str) -> Result<Option<Work>, String> {
+        if id != "doi:10.1000/xyz" {
+            return Err(format!("unknown id {id}"));
         }
-        let mut m = PaperMetadata::with_source_id("2026Fake.....1A");
-        m.doi = Some("10.1000/xyz".into());
-        m.title = "Hydrodynamic simulation of galaxy formation".into();
-        m.authors = vec![
-            author_from_names("Abel", Some("T.".into())),
-            author_from_names("Curie", Some("M.".into())),
-        ];
-        m.abstract_text = Some(
-            "We present a hydrodynamic simulation of galaxy formation with dark energy.".into(),
-        );
-        m.year = Some(2026);
-        m.venue = Some("ApJ".into());
-        Ok(m)
+        let mut ids = BTreeMap::new();
+        ids.insert("doi".to_string(), "10.1000/xyz".to_string());
+        ids.insert("bibcode".to_string(), "2026Fake.....1A".to_string());
+        Ok(Some(Work {
+            ty: "article-journal".into(),
+            title: Some("Hydrodynamic simulation of galaxy formation".into()),
+            author: vec![author("Abel", "T."), author("Curie", "M.")],
+            issued: Some(Issued {
+                date_parts: vec![vec![2026]],
+            }),
+            container_title: Some("ApJ".into()),
+            abstract_: Some(
+                "We present a hydrodynamic simulation of galaxy formation with dark energy.".into(),
+            ),
+            doi: Some("10.1000/xyz".into()),
+            ids,
+            provenance: Some(Provenance {
+                fetched_at: "2026-01-01T00:00:00Z".into(),
+                source: "ads".into(),
+                source_id: "2026Fake.....1A".into(),
+                query: None,
+                sources: vec![],
+            }),
+            ..Default::default()
+        }))
     }
 }
 
@@ -117,10 +122,7 @@ fn pipeline_scheduler(store: Arc<SqliteItemStore>, threshold: f64) -> Scheduler 
         },
     );
     sched.register(Arc::new(MetadataResolveExecutor::new(
-        vec![ConfiguredSource {
-            plugin: Arc::new(FakeAds),
-            credentials: None,
-        }],
+        vec![Arc::new(FakeAds) as Arc<dyn WorkSource>],
         SourcePriority::default(),
     )));
     sched.register(Arc::new(KeywordTagExecutor::new(
@@ -441,10 +443,7 @@ fn band_scheduler(store: Arc<SqliteItemStore>, threshold: f64) -> Scheduler {
         },
     );
     sched.register(Arc::new(MetadataResolveExecutor::new(
-        vec![ConfiguredSource {
-            plugin: Arc::new(FakeAds),
-            credentials: None,
-        }],
+        vec![Arc::new(FakeAds) as Arc<dyn WorkSource>],
         SourcePriority::default(),
     )));
     sched.register(Arc::new(KeywordTagExecutor::new(
@@ -667,10 +666,7 @@ fn tagging_scheduler(
         },
     );
     sched.register(Arc::new(MetadataResolveExecutor::new(
-        vec![ConfiguredSource {
-            plugin: Arc::new(FakeAds),
-            credentials: None,
-        }],
+        vec![Arc::new(FakeAds) as Arc<dyn WorkSource>],
         SourcePriority::default(),
     )));
     sched.register(Arc::new(

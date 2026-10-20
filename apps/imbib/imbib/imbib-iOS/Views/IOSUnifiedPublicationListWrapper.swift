@@ -521,7 +521,7 @@ struct IOSUnifiedPublicationListWrapper: View {
     private func refreshFromSource() async {
         isRefreshing = true
         defer { isRefreshing = false }
-        errorMessage = await core.refreshFromSource(sourceManager: searchViewModel.sourceManager)
+        errorMessage = await core.refreshFromSource(sourceClient: searchViewModel.sourceClient)
     }
 
     // MARK: - Handlers

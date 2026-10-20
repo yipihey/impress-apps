@@ -34,7 +34,7 @@ struct imbibApp: App {
 
         // Use shared credential manager singleton for persistence
         let credentialManager = CredentialManager.shared
-        let sourceManager = SourceManager(credentialManager: credentialManager)
+        let sourceClient = SourceClient()
         let deduplicationService = DeduplicationService()
 
         appLogger.info("Created shared dependencies")
@@ -47,11 +47,11 @@ struct imbibApp: App {
         // Initialize ViewModels
         _libraryViewModel = State(initialValue: LibraryViewModel())
         _searchViewModel = State(initialValue: SearchViewModel(
-            sourceManager: sourceManager,
+            sourceClient: sourceClient,
             deduplicationService: deduplicationService
         ))
         _settingsViewModel = State(initialValue: SettingsViewModel(
-            sourceManager: sourceManager,
+            sourceClient: sourceClient,
             credentialManager: credentialManager
         ))
 
@@ -110,20 +110,17 @@ struct imbibApp: App {
             }()
 
             async let sourcesInit: Void = {
-                await sourceManager.registerBuiltInSources()
-                DragDropCoordinator.shared.sourceManager = sourceManager
-                // Wire the shared AutomationService to the REGISTERED source
-                // manager — macOS has always done this (imbibApp.swift:489);
-                // iOS never did, so AutomationService held an empty default
-                // SourceManager: /api/papers/add and Smart Search's
-                // identifier path (which delegates to the resolve cascade)
-                // failed every external lookup with "Paper not found".
-                await AutomationService.shared.configure(sourceManager: sourceManager)
-                appLogger.info("Built-in sources registered + AutomationService configured")
+                // The online sources are koine's adapters behind the Rust
+                // verbs (source convention S6); the GUI's SourceClient
+                // calls them. Share the one client with drag-drop and the
+                // automation service (which used to hold an empty default).
+                DragDropCoordinator.shared.sourceClient = sourceClient
+                await AutomationService.shared.configure(sourceClient: sourceClient)
+                appLogger.info("Source client shared with drag-drop and automation")
 
                 // Browser URL providers for interactive PDF downloads.
-                await BrowserURLProviderRegistry.shared.register(ArXivSource.self, priority: 20)
-                await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
+                await BrowserURLProviderRegistry.shared.register(ArXivBrowserURLs.self, priority: 20)
+                await BrowserURLProviderRegistry.shared.register(ADSBrowserURLs.self, priority: 10)
                 appLogger.info("BrowserURLProviders registered")
             }()
 
@@ -231,7 +228,7 @@ struct imbibApp: App {
                     if shareExtensionHandler == nil {
                         shareExtensionHandler = ShareExtensionHandler(
                             libraryManager: libraryManager,
-                            sourceManager: searchViewModel.sourceManager
+                            sourceClient: searchViewModel.sourceClient
                         )
                     }
                     // Process any pending shared URLs from share extension

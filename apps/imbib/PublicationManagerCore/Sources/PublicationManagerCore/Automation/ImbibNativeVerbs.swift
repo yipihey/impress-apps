@@ -31,6 +31,7 @@ public enum ImbibNativeVerbs {
             "imbib-search-service", "imbib-undo-service", "imbib-annotations-service",
             "imbib-artifacts-service", "imbib-scix-service", "imbib-manuscripts-service",
             "imbib-backup-service", "imbib-eink-service", "imbib-text-service",
+            "imbib-sources-service",
         ]) { name, argsJSON, callerJSON in
             let result = await dispatchVerbAsync(name: name, argsJson: argsJSON, callerJson: callerJSON)
             if (200..<300).contains(result.status), verbWritesStore(name: name) {
@@ -50,6 +51,44 @@ public enum ImbibNativeVerbs {
             }
             return VerbDispatchResponse(status: Int(result.status), bodyJSON: result.bodyJson)
         }
+    }
+}
+
+/// The source adapters' secrets (koine `bib-source-service`, source convention
+/// S6) are imbib's keychain items, pushed into Rust memory the way AI
+/// provider keys are (ADR-0029): at launch and whenever a credential changes.
+/// Never written to a file; a daemon reads the same items through `security`.
+public enum SourceSecrets {
+    /// koine secret name → imbib source id whose API key holds it.
+    static let items: [(koine: String, source: String)] = [
+        ("ads-token", "ads"),
+        ("scix-token", "scix"),
+        ("wos-api-key", "wos"),
+        ("ncbi-api-key", "pubmed"),
+        ("crossref-plus-token", "crossref"),
+    ]
+
+    /// Push every known key and the polite-pool contact (the email stored
+    /// for OpenAlex or Crossref). An absent key clears the slot.
+    public static func push(credentials: CredentialManager = .shared) async {
+        var present: [String] = []
+        for item in items {
+            let value = await credentials.apiKey(for: item.source) ?? ""
+            setSourceSecret(name: item.koine, value: value)
+            if !value.isEmpty { present.append(item.source) }
+        }
+        var contact: String? = nil
+        for source in ["openalex", "crossref"] {
+            if let email = await credentials.email(for: source), !email.isEmpty {
+                contact = email
+                break
+            }
+        }
+        if let contact { setSourceContact(contact: contact) }
+        Logger.library.infoCapture(
+            "Source secrets handed to Rust: keys for [\(present.joined(separator: ", "))], contact \(contact == nil ? "unset" : "set")",
+            category: "sources"
+        )
     }
 }
 

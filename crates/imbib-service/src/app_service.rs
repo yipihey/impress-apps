@@ -63,6 +63,29 @@ pub struct ExternalPaper {
     /// Which source returned it (`ads`, `arxiv`, `crossref`, …).
     #[serde(default, alias = "sourceID", alias = "source_id")]
     pub source: Option<String>,
+    /// Every identifier any source supplied, by canonical kind (`doi`,
+    /// `arxiv`, `bibcode`, `pmid`, `openalex`, …): the merge key (S-D7).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub ids: std::collections::BTreeMap<String, String>,
+    /// Where and when the row was fetched; `sources` names every source that
+    /// contributed to a merged row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<koine_sources::kind::Provenance>,
+    /// Where the work can be had (`bibliographic-work@1.0.0` `locations`):
+    /// each with its landing `url`, `pdf`, `version`, `license` and
+    /// `oa_status` — what the app's PDF resolver and the search rows' PDF
+    /// links read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub locations: Vec<koine_sources::kind::Location>,
+    /// Citations counted by the row's source (`metrics.cited_by`), when it
+    /// counts them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cited_by: Option<u64>,
+    /// The row's `bibliographic-work@1.0.0` record itself — what
+    /// `imbib-library-service_import-work` takes, so importing what a search
+    /// found is a hand-back, not a re-fetch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work: Option<koine_sources::Work>,
 }
 
 /// Structured bibliographic fields accepted by `/api/papers/resolve`.
@@ -178,6 +201,20 @@ pub struct LogEntry {
     pub message: String,
 }
 
+/// What a feed refresh did.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FeedRefreshResult {
+    /// Whether the app ran the refresh.
+    pub accepted: bool,
+    /// Feeds refreshed (one, or every due inbox feed).
+    pub feeds: u32,
+    /// Papers the refresh added to the inbox or its feed collections.
+    pub new_papers: u32,
+    /// Why not, when `accepted` is false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 /// Whether the sync engine accepted an immediate push+pull.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SyncNudgeResult {
@@ -243,45 +280,6 @@ pub trait ImbibAppService: Send + Sync + 'static {
         download_pdfs: bool,
     ) -> IdentifierImportResult;
 
-    /// Search external academic sources — ADS, arXiv, Crossref and the rest —
-    /// for papers NOT yet in the library. This is how you find new work; to
-    /// search papers already saved use the library search tools instead.
-    /// Results are candidates: import them before citing or tagging.
-    /// `sources` is a comma-separated subset (e.g. "arxiv,ads"); empty means
-    /// every configured source. Make ONE broad call rather than several narrow
-    /// ones.
-    #[impress_method]
-    #[impress_example(
-        name = "isolated-search-sources",
-        args = r##"{"query":"spectral line formation","sources":"arxiv","limit":5}"##,
-        tier = "b"
-    )]
-    async fn search_sources(
-        &self,
-        query: String,
-        sources: Option<String>,
-        limit: u32,
-    ) -> Vec<ExternalPaper>;
-
-    /// Resolve free text, BibTeX, or structured citation fields through the
-    /// running app's local/import/search cascade. Candidate order,
-    /// confidence, `via`, and reason values are preserved. The returned paper
-    /// and candidate objects use the same open dictionary shape as HTTP.
-    #[impress_method(safety = external, effects(reach = [app("imbib")]))]
-    #[impress_example(
-        name = "host-resolve-local-citation",
-        tier = "b",
-        args = r#"{"query":"{{state.cite_key}}","download_pdfs":false}"#
-    )]
-    async fn resolve_citation(
-        &self,
-        query: Option<String>,
-        bibtex: Option<String>,
-        citation: Option<CitationInput>,
-        library_id: Option<String>,
-        download_pdfs: bool,
-    ) -> CitationResolution;
-
     /// What the USER was recently working on: papers they viewed or added by
     /// hand, most recent first, each carrying `activity_kind` and
     /// `activity_at`. This is imbib's "Recent" virtual library and the right
@@ -338,6 +336,17 @@ pub trait ImbibAppService: Send + Sync + 'static {
     #[impress_method]
     #[impress_example(name = "isolated-sync-nudge", args = r##"{}"##, tier = "b")]
     async fn sync_nudge(&self) -> SyncNudgeResult;
+    /// Refresh one inbox feed now (`smart_search_id`), or every due one: the
+    /// running app searches the feed's sources through
+    /// `imbib-sources-service_search-sources`, filters muted and dismissed
+    /// papers, and files the new ones into the Inbox (or the feed's own
+    /// library) with their provenance through
+    /// `imbib-library-service_import-work`. Answers how many feeds ran and
+    /// how many papers arrived; `accepted: false` with a reason when the app
+    /// is not running or the inbox is not started.
+    #[impress_method(safety = external, effects(reads = ["imbib/smart-search", "imbib/bibliography-entry", "imbib/dismissed-paper", "imbib/muted-item"], writes = ["imbib/bibliography-entry", "imbib/smart-search"], reach = [app("imbib"), network]))]
+    #[impress_example(name = "isolated-refresh-feeds", args = r##"{}"##, tier = "b")]
+    async fn refresh_feeds(&self, smart_search_id: Option<String>) -> FeedRefreshResult;
 
     /// The CloudKit sync engine's real state: whether it is on, when it last
     /// pushed and pulled, and the last error if any. Use this to diagnose a
@@ -541,28 +550,6 @@ impl ImbibAppService for DefaultImbibAppService {
         }
     }
 
-    async fn search_sources(
-        &self,
-        _query: String,
-        _sources: Option<String>,
-        _limit: u32,
-    ) -> Vec<ExternalPaper> {
-        refuse("search_sources");
-        vec![]
-    }
-
-    async fn resolve_citation(
-        &self,
-        _query: Option<String>,
-        _bibtex: Option<String>,
-        _citation: Option<CitationInput>,
-        _library_id: Option<String>,
-        _download_pdfs: bool,
-    ) -> CitationResolution {
-        refuse("resolve_citation");
-        CitationResolution::unavailable(NOT_RUNNING)
-    }
-
     async fn recent_activity(&self, _limit: u32, _parent_id: Option<String>) -> Vec<ActivityEntry> {
         refuse("recent_activity");
         vec![]
@@ -581,6 +568,16 @@ impl ImbibAppService for DefaultImbibAppService {
             collection_name: None,
             missing_cite_keys: Vec::new(),
             message: NOT_RUNNING.into(),
+        }
+    }
+
+    async fn refresh_feeds(&self, _smart_search_id: Option<String>) -> FeedRefreshResult {
+        refuse("refresh_feeds");
+        FeedRefreshResult {
+            accepted: false,
+            feeds: 0,
+            new_papers: 0,
+            reason: Some(NOT_RUNNING.into()),
         }
     }
 
@@ -674,26 +671,6 @@ impress_service_impl! {
     impl = DefaultImbibAppService,
     instance = crate::backend::app_service_instance,
     methods = [
-        search_sources(
-            /// Search text sent to the selected academic sources.
-            query: String,
-            /// Comma-separated source IDs; omit to use configured sources.
-            sources: Option<String>,
-            /// Maximum number of results to return.
-            limit: u32
-        ) -> Vec<ExternalPaper>,
-        resolve_citation(
-            /// Free-text citation query (kept private because it may contain manuscript text).
-            #[impress_private] query: Option<String>,
-            /// BibTeX fragment, kept private because it may contain unpublished citation data.
-            #[impress_private] bibtex: Option<String>,
-            /// Structured fields; kept private for the same reason as the raw citation.
-            #[impress_private] citation: Option<CitationInput>,
-            /// Destination library UUID; omit to use the default library.
-            library_id: Option<String>,
-            /// Whether to fetch a PDF after automatic import.
-            download_pdfs: bool
-        ) -> CitationResolution,
         recent_activity(
             /// Maximum number of results to return.
             limit: u32,
@@ -709,6 +686,10 @@ impress_service_impl! {
             manuscript_id: String
         ) -> PapersWindowResult,
         sync_nudge() -> SyncNudgeResult,
+        refresh_feeds(
+            /// UUID of one inbox feed (smart search) to refresh; omit to refresh every due inbox feed.
+            smart_search_id: Option<String>
+        ) -> FeedRefreshResult,
         sync_status() -> AppStatus,
         status() -> AppStatus,
         get_logs(
@@ -828,7 +809,6 @@ mod identifier_import_contract_tests {
 #[cfg(test)]
 mod citation_contract_tests {
     use super::*;
-    use impress_service_core::McpToolDescriptor;
     use serde_json::json;
 
     #[test]
@@ -845,16 +825,5 @@ mod citation_contract_tests {
         assert_eq!(encoded["rawBibtex"], "@article{x}");
         assert_eq!(encoded["freeText"], "citation query");
         assert_eq!(encoded["preferredDatabase"], "physics");
-    }
-
-    #[test]
-    fn resolve_citation_marks_citation_material_private_in_generated_schema() {
-        let tool = McpToolDescriptor::iter()
-            .find(|tool| tool.name == "imbib-app-service_resolve-citation")
-            .expect("resolve-citation is registered");
-        let schema = (tool.input_schema)();
-        for field in ["query", "bibtex", "citation"] {
-            assert_eq!(schema["properties"][field]["x-private"], true, "{field}");
-        }
     }
 }

@@ -22,7 +22,7 @@
     "imbib-app-service_open-manuscript-papers",
     "imbib-app-service_recent-activity",
     "imbib-app-service_resolve-identifier",
-    "imbib-app-service_search-sources",
+    "imbib-sources-service_search-sources",
     "imbib-app-service_status",
     "imbib-app-service_sync-nudge",
     "imbib-app-service_sync-status",

@@ -1588,7 +1588,7 @@ struct CiteKeyFormatHelpView: View {
 #Preview {
     SettingsView()
         .environment(SettingsViewModel(
-            sourceManager: SourceManager(),
+            sourceClient: SourceClient(),
             credentialManager: CredentialManager()
         ))
 }

@@ -33,7 +33,7 @@
 //! | `impress_smart_search::url_extract::decode_html_entities` | 11 | decimal + hex |
 //! | **here** | **41** | decimal + hex |
 //! | `super::scientific_parser::decode_html_entities` | 6 | none |
-//! | `impress-sources/src/crossref.rs::clean_html_tags` | 5 | none |
+//! | `impress-sources/src/crossref.rs::clean_html_tags` (crate deleted with S6; koine `source-crossref` cleans its own) | 5 | none |
 //!
 //! `url_extract`'s is the highest-fidelity *numeric* half and this port wanted
 //! to call it. It cannot, for one concrete reason: that function applies its own

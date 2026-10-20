@@ -366,13 +366,16 @@ struct GoldenCorpusParityTests {
         }
     }
 
+    // The table is koine's `source_priority` (source convention S-D6): the
+    // seven numbers Swift recorded, with `wos` (25) and `scix` (31) — the two
+    // sources only the Swift plugin metadata ranked — slotted in.
     @Test("The source-priority table is the Rust one")
     func deduplicationSourcePriority() {
         #expect(
             DeduplicationService.sourcePriorities.map(\.sourceID)
-                == ["crossref", "pubmed", "ads", "semanticscholar", "openalex", "arxiv", "dblp"]
+                == ["crossref", "pubmed", "wos", "ads", "scix", "semanticscholar", "openalex", "arxiv", "dblp"]
         )
-        #expect(DeduplicationService.sourcePriorities.map(\.priority) == [10, 20, 30, 40, 50, 60, 70])
+        #expect(DeduplicationService.sourcePriorities.map(\.priority) == [10, 20, 25, 30, 31, 40, 50, 60, 70])
         #expect(DeduplicationService.priority(forSource: "europepmc") == 100)
     }
 

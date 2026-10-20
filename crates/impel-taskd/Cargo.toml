@@ -17,7 +17,9 @@ impel-memory = { workspace = true }
 impress-ai = { workspace = true, features = ["executor"] }
 impress-ai-tools = { workspace = true }
 imprint-service = { workspace = true }
-impress-sources = { workspace = true }
+# The adapters' secrets and contact (`IMPEL_ADS_TOKEN`, `IMPEL_CROSSREF_EMAIL`)
+# are handed to the source convention through imbib's secret source.
+imbib-service = { workspace = true }
 imbib-core = { workspace = true, features = ["native"] }
 # W2: the fourth spawn rule — `impress-workflow-service::WorkflowEngine`
 # plans and runs due workflows; `impress-capabilities` (`full`, the same set

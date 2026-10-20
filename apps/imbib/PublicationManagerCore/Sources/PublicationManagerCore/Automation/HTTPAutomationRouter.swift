@@ -1385,51 +1385,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
-    /// GET /api/search/external?q=...&source=...&limit=...
-    /// Search external sources (ADS, arXiv, Crossref, etc.) for papers.
-    private func handleSearchExternal(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let query = request.queryParams["q"], !query.isEmpty else {
-            return .badRequest("Missing required 'q' parameter")
-        }
-        let source = request.queryParams["source"]
-        let limit = request.queryParams["limit"].flatMap { Int($0) } ?? 20
-
-        do {
-            let results = try await automationService.searchExternal(query: query, source: source, maxResults: limit)
-
-            let resultDicts: [[String: Any]] = results.map { r in
-                var dict: [String: Any] = [
-                    "title": r.title,
-                    "authors": r.authors,
-                    "venue": r.venue,
-                    "abstract": r.abstract,
-                    "sourceID": r.sourceID,
-                    "identifier": r.bestIdentifier,
-                ]
-                if let year = r.year { dict["year"] = year }
-                if let doi = r.doi { dict["doi"] = doi }
-                if let arxiv = r.arxivID { dict["arxivID"] = arxiv }
-                if let bib = r.bibcode { dict["bibcode"] = bib }
-                return dict
-            }
-
-            let response: [String: Any] = [
-                "status": "ok",
-                "query": query,
-                "source": source ?? "all",
-                "count": results.count,
-                "results": resultDicts
-            ]
-
-            return .json(response)
-
-        } catch AutomationOperationError.unauthorized {
-            return .forbidden("Automation API is disabled")
-        } catch {
-            return .serverError(error.localizedDescription)
-        }
-    }
-
     /// GET /api/papers/{citeKey}
     /// Get a single paper by cite key.
     private func handleGetPaper(citeKey: String) async -> HTTPResponse {
@@ -2330,321 +2285,38 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
-    /// POST /api/papers/resolve
-    /// Atomic citation resolution for agents. Two request shapes:
-    ///
-    /// **Free-text** (original):
-    /// `{"query": "...", "bibtex"?: "...", "library"?: "<uuid>", "download_pdfs"?: false}`
-    /// Cascade: extract identifier → local lookup → import → local text
-    /// search → external all-sources fan-out.
-    ///
-    /// **Structured** (new — for callers with parsed bibliographic fields):
-    /// `{"citation": {"authors": [...], "title": "...", "year": Y,
-    /// "journal": "...", "volume": "...", "pages": "...", "doi"?: "...",
-    /// "arxiv"?: "...", "bibcode"?: "...", "rawBibtex"?: "...",
-    /// "freeText"?: "...", "preferredDatabase"?: "astronomy"|"physics"|"all"},
-    /// "library"?: "<uuid>", "download_pdfs"?: false}`
-    /// Cascade: identifier → local → import → structured ADS search via
-    /// `SearchFormQueryBuilder` + relevance scoring → auto-accept if
-    /// confidence ≥ 0.85 → ranked candidates → all-sources fallback.
-    ///
-    /// Response shape (both paths): `{"status": "ok", "via": "<path>",
-    /// "paper": {...}?, "candidates": [...]?, "reason": "..."?}`. The
-    /// structured path's candidates include a `confidence` field (0.0–1.0).
-    private func handleResolvePaper(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let json = parseJSONBody(request) else {
-            return .badRequest("Invalid JSON body")
-        }
-        let query = (json["query"] as? String) ?? ""
-        let bibtex = (json["bibtex"] as? String) ?? ""
-        let libraryID = (json["library"] as? String).flatMap { UUID(uuidString: $0) }
-        let downloadPDFs = json["download_pdfs"] as? Bool ?? false
-
-        // Structured-citation path — a caller (e.g. imprint with a parsed
-        // LaTeX `\bibitem`) may pass `citation: {...}` with all the fields
-        // the classic-form query builder needs. This skips the free-text
-        // cascade below and delegates to `resolveStructuredCitation`.
-        if let citationDict = json["citation"] as? [String: Any] {
-            return await handleStructuredResolve(
-                citationDict: citationDict,
-                library: libraryID,
-                downloadPDFs: downloadPDFs
-            )
-        }
-
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !bibtex.isEmpty else {
-            return .badRequest("Provide at least 'query', 'bibtex', or 'citation'")
-        }
-
-        // Step 1: try to extract an identifier from the inputs.
-        let identifier: PaperIdentifier? = Self.extractIdentifier(query: trimmed, bibtex: bibtex)
-
-        do {
-            // Step 2: local lookup by identifier (fast path).
-            if let id = identifier {
-                if let paper = try await automationService.getPaper(identifier: id) {
-                    return .json([
-                        "status": "ok",
-                        "via": "local-identifier",
-                        "paper": paperToDict(paper)
-                    ])
-                }
-            }
-
-            // Step 3: resolve exact local cite keys before full-text search.
-            // Cite keys are not indexed as searchable publication text, so
-            // falling straight through could send an imported key to a network source.
-            if !trimmed.isEmpty {
-                if let paper = try await automationService.getPaper(identifier: .citeKey(trimmed)) {
-                    return .json([
-                        "status": "ok",
-                        "via": "local-search",
-                        "paper": paperToDict(paper)
-                    ])
-                }
-                let filters = SearchFilters(limit: 5)
-                let hits = try await automationService.searchLibrary(query: trimmed, filters: filters)
-                if hits.count == 1 {
-                    return .json([
-                        "status": "ok",
-                        "via": "local-search",
-                        "paper": paperToDict(hits[0])
-                    ])
-                } else if hits.count > 1 {
-                    return .json([
-                        "status": "ok",
-                        "via": "local-search-ambiguous",
-                        "candidates": hits.map { paperToDict($0) },
-                        "reason": "\(hits.count) library papers matched; caller should pick one"
-                    ])
-                }
-            }
-
-            // Step 4: if we have a strong identifier, import it.
-            if let id = identifier {
-                let result = try await automationService.addPapers(
-                    identifiers: [id],
-                    collection: nil,
-                    library: libraryID,
-                    downloadPDFs: downloadPDFs
-                )
-                if let added = result.added.first {
-                    return .json([
-                        "status": "ok",
-                        "via": "imported-identifier",
-                        "paper": paperToDict(added),
-                        "identifier": ["kind": id.typeName, "value": id.value]
-                    ])
-                }
-                if !result.duplicates.isEmpty {
-                    return .json([
-                        "status": "ok",
-                        "via": "duplicate",
-                        "duplicates": result.duplicates,
-                        "reason": "imbib reports the paper is already present"
-                    ])
-                }
-            }
-
-            // Step 5: external search for human-readable queries.
-            if !trimmed.isEmpty {
-                let external = try await automationService.searchExternal(query: trimmed, source: nil, maxResults: 10)
-                if external.isEmpty {
-                    return .json([
-                        "status": "ok",
-                        "via": "not-found",
-                        "reason": "No local or external matches for '\(trimmed)'"
-                    ])
-                }
-                let candidates: [[String: Any]] = external.map { r in
-                    var dict: [String: Any] = [
-                        "title": r.title,
-                        "authors": r.authors,
-                        "venue": r.venue,
-                        "abstract": r.abstract,
-                        "sourceID": r.sourceID,
-                        "identifier": r.bestIdentifier
-                    ]
-                    if let year = r.year { dict["year"] = year }
-                    if let doi = r.doi { dict["doi"] = doi }
-                    if let arxiv = r.arxivID { dict["arxivID"] = arxiv }
-                    if let bib = r.bibcode { dict["bibcode"] = bib }
-                    return dict
-                }
-                return .json([
-                    "status": "ok",
-                    "via": "external-candidates",
-                    "candidates": candidates,
-                    "reason": "\(candidates.count) external match(es); caller should pick an identifier and call /api/papers/add"
-                ])
-            }
-
-            return .json([
-                "status": "ok",
-                "via": "not-found",
-                "reason": "No identifier extracted and no query provided"
-            ])
-        } catch {
-            return mapError(error)
-        }
+    /// One verb call as the person, through the app's verb FFI. `ok` is the
+    /// pipeline's; a refusal becomes the HTTP response its code maps to.
+    struct VerbAnswer {
+        let ok: Bool
+        let body: Any
+        let refusal: HTTPResponse
     }
 
-    /// Serve the structured-citation branch of `/api/papers/resolve`.
-    ///
-    /// Input JSON mirrors `CitationInput` from AutomationTypes. Output is
-    /// the same shape as the rest of `handleResolvePaper`: `via`, `paper`,
-    /// `candidates`, `reason`.
-    private func handleStructuredResolve(
-        citationDict: [String: Any],
-        library: UUID?,
-        downloadPDFs: Bool
-    ) async -> HTTPResponse {
-        // Decode JSON dict → CitationInput manually so we tolerate missing /
-        // mistyped fields and return structured errors rather than crashing.
-        let authors: [String] = {
-            if let arr = citationDict["authors"] as? [String] { return arr }
-            if let s = citationDict["authors"] as? String {
-                return s.components(separatedBy: CharacterSet(charactersIn: ",;&\n"))
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
-            }
-            return []
-        }()
-        let input = CitationInput(
-            authors: authors,
-            title: citationDict["title"] as? String,
-            year: citationDict["year"] as? Int,
-            journal: citationDict["journal"] as? String,
-            volume: citationDict["volume"] as? String,
-            pages: citationDict["pages"] as? String,
-            doi: citationDict["doi"] as? String,
-            arxiv: citationDict["arxiv"] as? String,
-            bibcode: citationDict["bibcode"] as? String,
-            rawBibtex: citationDict["rawBibtex"] as? String ?? citationDict["bibtex"] as? String,
-            freeText: citationDict["freeText"] as? String,
-            preferredDatabase: citationDict["preferredDatabase"] as? String
+    static func callVerb(_ name: String, _ args: [String: Any]) async -> VerbAnswer {
+        let argsData = (try? JSONSerialization.data(withJSONObject: args)) ?? Data("{}".utf8)
+        let caller = "{\"kind\":\"person\",\"name\":\"imbib-http\",\"trace_id\":\"\(UUID().uuidString)\"}"
+        let result = await dispatchVerbAsync(
+            name: name,
+            argsJson: String(decoding: argsData, as: UTF8.self),
+            callerJson: caller
         )
-        // Tolerance: if the citation is completely empty, don't 400 —
-        // return a friendly `not-found` 200 so the client's picker can
-        // show "No candidates" instead of an HTTP error toast. Callers
-        // like imprint call this for every cited paper; a transient
-        // parse miss shouldn't look like a hard failure.
-        if input.authors.isEmpty
-            && (input.title ?? "").isEmpty
-            && !input.hasIdentifier
-            && (input.rawBibtex ?? "").isEmpty
-            && (input.freeText ?? "").isEmpty {
-            Logger.sources.warningCapture(
-                "resolveStructured: empty citation input — returning not-found 200 instead of 400",
-                category: "citations"
-            )
-            return .json([
-                "status": "ok",
-                "via": "not-found",
-                "reason": "Citation had no authors, title, identifier, rawBibtex, or freeText — nothing to search with"
-            ])
+        let body = (try? JSONSerialization.jsonObject(
+            with: Data(result.bodyJson.utf8), options: [.fragmentsAllowed])) ?? NSNull()
+        if (200..<300).contains(Int(result.status)),
+           !((body as? [String: Any])?["ok"] as? Bool == false) {
+            return VerbAnswer(ok: true, body: body, refusal: .json(["status": "ok"]))
         }
-
-        do {
-            let resolved = try await automationService.resolveStructuredCitation(
-                input,
-                library: library,
-                downloadPDFs: downloadPDFs
-            )
-
-            var response: [String: Any] = [
-                "status": "ok",
-                "via": resolved.via
-            ]
-            if let paper = resolved.paper {
-                response["paper"] = paperToDict(paper)
-            }
-            if let candidates = resolved.candidates {
-                response["candidates"] = candidates.map { candidate in
-                    Self.rankedCandidateToDict(candidate)
-                }
-            }
-            if let reason = resolved.reason {
-                response["reason"] = reason
-            }
-            return .json(response)
-        } catch {
-            return mapError(error)
-        }
-    }
-
-    private static func rankedCandidateToDict(_ candidate: RankedCandidate) -> [String: Any] {
-        let r = candidate.result
-        var dict: [String: Any] = [
-            "title": r.title,
-            "authors": r.authors,
-            "venue": r.venue,
-            "abstract": r.abstract,
-            "sourceID": r.sourceID,
-            "identifier": r.bestIdentifier,
-            "confidence": candidate.confidence
-        ]
-        if let year = r.year { dict["year"] = year }
-        if let doi = r.doi { dict["doi"] = doi }
-        if let arxiv = r.arxivID { dict["arxivID"] = arxiv }
-        if let bib = r.bibcode { dict["bibcode"] = bib }
-        return dict
-    }
-
-    /// Extract a paper identifier (DOI / arXiv / bibcode / PMID) from a
-    /// free-form query string or a BibTeX fragment. Returns the strongest
-    /// match found, or `nil`. Consistent with imprint's `CitationResolver`.
-    private static func extractIdentifier(query: String, bibtex: String) -> PaperIdentifier? {
-        // Direct parse of the query first.
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !q.isEmpty {
-            let candidate = PaperIdentifier.fromString(q)
-            switch candidate {
-            case .doi, .arxiv, .bibcode, .pmid:
-                return candidate
-            default:
-                break
-            }
-        }
-        // Fall back to scanning the BibTeX fragment.
-        guard !bibtex.isEmpty else { return nil }
-        if let doi = firstMatch(in: bibtex, pattern: #"(?i)\bdoi\s*=\s*[{"]?\s*(?:https?://(?:dx\.)?doi\.org/)?(10\.[^\s",}]+)"#) {
-            return .doi(doi)
-        }
-        if let doi = firstMatch(in: bibtex, pattern: #"(?i)https?://(?:dx\.)?doi\.org/(10\.[^\s",}]+)"#) {
-            return .doi(doi)
-        }
-        let archiveIsArxiv = bibtex.range(of: #"(?i)archivePrefix\s*=\s*[{"]?\s*arxiv"#, options: .regularExpression) != nil
-        if let eprint = firstMatch(in: bibtex, pattern: #"(?i)\beprint\s*=\s*[{"]?\s*([^\s",}]+)"#) {
-            let looksLikeArxiv = eprint.range(of: #"^(\d{4}\.\d{4,5}|[a-z\-]+/\d{7})$"#, options: .regularExpression) != nil
-            if archiveIsArxiv || looksLikeArxiv {
-                return .arxiv(eprint)
-            }
-        }
-        if let arxiv = firstMatch(in: bibtex, pattern: #"(?i)https?://arxiv\.org/abs/([^\s",}]+)"#) {
-            return .arxiv(arxiv)
-        }
-        if let bibcode = firstMatch(in: bibtex, pattern: #"(?i)\bbibcode\s*=\s*[{"]?\s*([0-9]{4}[A-Za-z0-9.&]{14,19})"#) {
-            return .bibcode(bibcode)
-        }
-        if let pmid = firstMatch(in: bibtex, pattern: #"(?i)\bpmid\s*=\s*[{"]?\s*(\d+)"#) {
-            return .pmid(pmid)
-        }
-        return nil
-    }
-
-    private static func firstMatch(in text: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let range = NSRange(text.startIndex..., in: text)
-        guard let m = regex.firstMatch(in: text, range: range),
-              m.numberOfRanges > 1,
-              let r = Range(m.range(at: 1), in: text) else {
-            return nil
-        }
-        return String(text[r])
-            .trimmingCharacters(in: .whitespaces)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "{}\""))
+        let object = body as? [String: Any] ?? [:]
+        let code = object["code"] as? String ?? "verb-failed"
+        let message = object["message"] as? String ?? "\(name) refused"
+        let status = (300...599).contains(Int(result.status)) ? Int(result.status) : 500
+        return VerbAnswer(ok: false, body: body, refusal: HTTPResponse(
+            status: status,
+            statusText: code,
+            headers: ["Content-Type": "application/json"],
+            body: (try? JSONSerialization.data(withJSONObject: ["status": "error", "code": code, "message": message])) ?? Data()
+        ))
     }
 
     /// POST /api/collections
@@ -5206,19 +4878,6 @@ extension HTTPAutomationRouter {
                       let failed = value["failed"] as? [String: String] else { return nil }
                 return ["added": added, "duplicates": duplicates, "failed": failed]
             }
-        case "search_sources":
-            guard let query = string("query") else { return nativeFailure(400, "invalid-args", "Missing query") }
-            var q = ["q": query, "limit": String((args["limit"] as? Int) ?? 20)]
-            if let sources = string("sources") { q["source"] = sources }
-            response = await handleSearchExternal(request("GET", query: q))
-            return nativeMapped(response) { body in
-                guard let results = body["results"] as? [[String: Any]] else { return nil }
-                return results.map { item -> [String: Any] in
-                    var paper = item
-                    paper["abstract_text"] = item["abstract"]
-                    return paper
-                }
-            }
         case "recent_activity":
             var q = ["limit": String((args["limit"] as? Int) ?? 0)]
             if let parent = string("parent_id") { q["parentId"] = parent }
@@ -5238,6 +4897,32 @@ extension HTTPAutomationRouter {
                 return nativeSuccess(body)
             }
             return nativeMapped(response) { $0 }
+        case "refresh_feeds":
+            // `imbib-app-service_refresh-feeds`: one feed, or every due one.
+            let coordinator = InboxCoordinator.shared
+            guard let fetchService = await coordinator.paperFetchService else {
+                return nativeSuccess(["accepted": false, "feeds": 0, "new_papers": 0,
+                                      "reason": "the inbox has not started"])
+            }
+            if let id = uuid("smart_search_id") {
+                do {
+                    let count = try await fetchService.fetchForFeed(smartSearchID: id)
+                    return nativeSuccess(["accepted": true, "feeds": 1, "new_papers": count])
+                } catch {
+                    return nativeSuccess(["accepted": false, "feeds": 0, "new_papers": 0,
+                                          "reason": error.localizedDescription])
+                }
+            }
+            // Every inbox feed, due or not (the scheduler's own cycle only
+            // runs the due ones).
+            let feeds = await MainActor.run { RustStoreAdapter.shared.listSmartSearches().filter(\.feedsToInbox).count }
+            do {
+                let count = try await fetchService.refreshAllInboxFeeds()
+                return nativeSuccess(["accepted": true, "feeds": feeds, "new_papers": count])
+            } catch {
+                return nativeSuccess(["accepted": false, "feeds": feeds, "new_papers": 0,
+                                      "reason": error.localizedDescription])
+            }
         case "sync_nudge":
             response = await handleSyncNudge()
             return nativeMapped(response) { ["accepted": $0["accepted"] ?? false, "reason": $0["reason"] ?? NSNull()] }
@@ -5282,24 +4967,14 @@ extension HTTPAutomationRouter {
             return await setNativeArtifactTags(id: id, tags: tags)
         case "resolve_identifier":
             guard let identifier = string("identifier") else { return nativeFailure(400, "invalid-args", "Missing identifier") }
-            response = await handleResolvePaper(request("POST", [
-                "query": identifier, "download_pdfs": (args["download_pdfs"] as? Bool) ?? false]))
-            return Self.nativeResolveIdentifierResult(response)
-        case "resolve_citation":
-            var body: [String: Any] = ["download_pdfs": (args["download_pdfs"] as? Bool) ?? false]
-            if let query = string("query") { body["query"] = query }
-            if let bibtex = string("bibtex") { body["bibtex"] = bibtex }
-            if let library = string("library_id") { body["library"] = library }
-            if let citation = args["citation"] as? [String: Any] { body["citation"] = citation }
-            response = await handleResolvePaper(request("POST", body))
-            return nativeMapped(response) { body in
-                guard let via = body["via"] as? String else { return nil }
-                var result: [String: Any] = ["via": via]
-                for key in ["paper", "candidates", "reason"] {
-                    if let value = body[key] { result[key] = value }
-                }
-                return result
-            }
+            // The cascade is Rust's (`imbib-sources-service_resolve-citation`,
+            // source convention S6); this app-owned verb keeps its contract
+            // (a cite key, or a refusal naming why) over that answer.
+            let answer = await Self.callVerb("imbib-sources-service_resolve-citation", [
+                "query": identifier, "download_pdfs": (args["download_pdfs"] as? Bool) ?? false])
+            guard answer.ok, var body = answer.body as? [String: Any] else { return nativeMapped(answer.refusal) { $0 } }
+            body["status"] = "ok"
+            return Self.nativeResolveIdentifierResult(.json(body))
         case "add_to_library":
             guard let ids = strings("publication_ids"), let library = string("library_id") else {
                 return nativeFailure(400, "invalid-args", "Missing publication_ids or library_id")

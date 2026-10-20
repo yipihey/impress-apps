@@ -145,6 +145,8 @@ pub mod library_service;
 pub mod manuscripts_service;
 pub mod scix_service;
 pub mod search_service;
+pub mod sources;
+pub mod sources_service;
 pub mod store_singleton;
 pub mod tags_service;
 pub mod undo_service;
@@ -174,6 +176,7 @@ pub use library_service::{
 };
 pub use scix_service::{DefaultImbibScixService, ImbibScixService, SciXLibraryRecord};
 pub use search_service::{DefaultImbibSearchService, ImbibSearchService, SmartSearchRecord};
+pub use sources_service::{DefaultImbibSourcesService, ImbibSourcesService};
 pub use store_singleton::{init_imbib_store, store_instance};
 pub use tags_service::{DefaultImbibTagsService, ImbibTagsService, TagRecord, TagWithCount};
 pub use undo_service::{DefaultImbibUndoService, ImbibUndoService, UndoGroupRecord};
@@ -246,6 +249,7 @@ mod tests {
             "imbib-artifacts-service_",
             "imbib-scix-service_",
             "imbib-eink-service_",
+            "imbib-sources-service_",
         ] {
             assert!(
                 names.iter().any(|n| n.starts_with(prefix)),

@@ -130,7 +130,24 @@ use serde_json::Value;
 // TR-D9), whose only example revokes a missing rule as an agent (refused), so
 // the spy sees nothing. Its positive evidence is koine-tasks
 // `tests/consent.rs`, which remembers, lists, revokes and re-asks.
-const EXCEPTION_CEILING: usize = 175;
+// 175 → 182: imbib adopts koine's source convention (S6). The six
+// `bib-source-service_*` verbs and `imbib-library-service_import-work` reach the
+// network, so the default implementation cannot run them headless; seven rows
+// join the table (the two verbs moved from the app-gated `imbib-app-service` to
+// `imbib-sources-service`, so `search-sources` leaves and re-enters the table
+// under the new name and `leaves the process (network)`). Their positive evidence is koine
+// `source-service/src/selftest.rs` (every verb over stub adapters: federation,
+// identifier merge, timeouts, etiquette) and `imbib-service/src/sources.rs`
+// tests (`import_work_keeps_provenance_dedups_by_identifier_and_honours_dismissal`
+// drives the store half on a scratch store).
+// 182 → 183: S6's GUI port adds `imbib-app-service_refresh-feeds`, the one
+// feed-refresh entry point an agent can drive (the feed pipeline runs in the
+// app: muted/dismissed filters, inbox filing, feed-collection links). It is
+// app-gated like the rest of its namespace, so the default implementation
+// refuses headless. Its positive evidence is the Tier B example against the
+// running app and `PaperFetchService`'s inbox/feed paths, which now file rows
+// through `imbib-library-service_import-work` (`fetch_bibtex: false`).
+const EXCEPTION_CEILING: usize = 183;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave

@@ -36,7 +36,7 @@ use impel_core::{
     TaskStoreApi, TASK_SCHEMA,
 };
 use impel_enrichment::classify::{Classifier, HeuristicClassifier};
-use impel_enrichment::metadata_resolve::ConfiguredSource;
+use impel_enrichment::metadata_resolve::{BibSource, WorkSource};
 use impel_enrichment::{
     EnrichmentSpawnRule, KeywordTagExecutor, MetadataResolveExecutor, BIBLIOGRAPHY_ENTRY_SCHEMA,
 };
@@ -59,9 +59,6 @@ use impress_core::query::{ItemQuery, Predicate};
 use impress_core::reference::EdgeType;
 use impress_core::sqlite_store::{SqliteItemStore, StoreConfig};
 use impress_core::store::ItemStore;
-use impress_sources::arxiv::ArxivSource;
-use impress_sources::crossref::CrossrefSource;
-use impress_sources::openalex::OpenAlexSource;
 use impress_workflow_service::WorkflowEngine;
 use tokio::sync::RwLock;
 
@@ -685,6 +682,9 @@ fn accumulate_pass(status: &mut WorkerStatusSnapshot, report: &PassReport) {
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() {
     let args = parse_args();
+    // The linked inventory, so every `*-service` verb (and the source
+    // adapters imbib registers through it) is available to the executors.
+    impress_capabilities::force_link();
     let (store, store_path) = open_store(&args);
     let workspace = store_path
         .parent()
@@ -725,30 +725,27 @@ async fn main() {
         }
     });
 
-    // Executors: credential-free sources by default; ADS joins when a
-    // token is supplied (IMPEL_ADS_TOKEN).
-    let mut sources = vec![
-        ConfiguredSource {
-            plugin: Arc::new(ArxivSource::new()),
-            credentials: None,
-        },
-        ConfiguredSource {
-            plugin: Arc::new(CrossrefSource::new()),
-            credentials: std::env::var("IMPEL_CROSSREF_EMAIL").ok(),
-        },
-        ConfiguredSource {
-            plugin: Arc::new(OpenAlexSource::new()),
-            credentials: None,
-        },
-    ];
+    // Executors: the metadata resolver asks the source convention's
+    // adapters (koine `bib-source-service_fetch`, registered by
+    // `imbib_service::sources::link()`). The credential-free sources run by
+    // default; ADS joins when its token is held — by the keychain (imbib's
+    // item, read through `security`), `KOINE_SECRET_ADS_TOKEN`, or the
+    // daemon's own `IMPEL_ADS_TOKEN`, which is pushed into the same memory
+    // slot the app uses. `IMPEL_CROSSREF_EMAIL` is the polite-pool contact.
+    imbib_service::sources::link();
     if let Ok(token) = std::env::var("IMPEL_ADS_TOKEN") {
-        sources.insert(
-            0,
-            ConfiguredSource {
-                plugin: Arc::new(impress_sources::ads::AdsSource::new()),
-                credentials: Some(token),
-            },
-        );
+        imbib_service::sources::set_secret("ads-token", &token);
+    }
+    if let Ok(email) = std::env::var("IMPEL_CROSSREF_EMAIL") {
+        imbib_service::sources::set_contact(&email);
+    }
+    let mut sources: Vec<Arc<dyn WorkSource>> = vec![
+        Arc::new(BibSource::new("arxiv")),
+        Arc::new(BibSource::new("crossref")),
+        Arc::new(BibSource::new("openalex")),
+    ];
+    if impress_service_core::secrets::get("ads-token").is_some() {
+        sources.insert(0, Arc::new(BibSource::new("ads")));
     }
 
     let mut scheduler = Scheduler::new(

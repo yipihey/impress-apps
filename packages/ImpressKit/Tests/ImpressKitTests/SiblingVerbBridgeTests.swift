@@ -346,7 +346,7 @@ final class SiblingVerbBridgeTests: XCTestCase {
     }
     func testExternalSearchUsesGeneratedVerbAndPreservesImportIdentifier() async throws {
         let bridge = makeBridge { request in
-            XCTAssertEqual(request.url?.path, "/api/verb/imbib-app-service_search-sources")
+            XCTAssertEqual(request.url?.path, "/api/verb/imbib-sources-service_search-sources")
             let body = try self.requestObject(request)
             XCTAssertEqual(body["query"] as? String, "dark matter")
             XCTAssertEqual(body["sources"] as? String, "arxiv")
@@ -400,7 +400,7 @@ final class SiblingVerbBridgeTests: XCTestCase {
         let library = try XCTUnwrap(UUID(uuidString: "11111111-2222-4333-8444-555555555555"))
         let input = ImbibCitationInput(authors: ["Doe, Jane"], title: "A cited paper", year: 2026, doi: "10.1234/cite")
         let bridge = makeBridge { request in
-            XCTAssertEqual(request.url?.path, "/api/verb/imbib-app-service_resolve-citation")
+            XCTAssertEqual(request.url?.path, "/api/verb/imbib-sources-service_resolve-citation")
             let body = try self.requestObject(request)
             XCTAssertNil(body["query"] as? String)
             XCTAssertNil(body["bibtex"] as? String)

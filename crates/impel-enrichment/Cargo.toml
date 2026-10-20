@@ -7,7 +7,9 @@ description = "ADR-0005 §9 reference implementation: the imbib enrichment pipel
 [dependencies]
 impress-core = { workspace = true, features = ["sqlite"] }
 impel-core = { workspace = true }
-impress-sources = { workspace = true }
+# The source convention (koine): `Work` and `bib-source-service_fetch`.
+koine-sources = { workspace = true }
+source-service = { workspace = true }
 imbib-core = { workspace = true, features = ["native"] }
 im-identifiers = { workspace = true }
 # Tag-path canonicalization: proposals from a model arrive in whatever case

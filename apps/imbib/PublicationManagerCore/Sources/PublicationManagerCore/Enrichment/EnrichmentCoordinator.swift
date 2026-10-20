@@ -39,7 +39,7 @@ public actor EnrichmentCoordinator {
     // MARK: - Properties
 
     private let service: EnrichmentService
-    private let adsSource: ADSSource
+    private let adsSource: SourceEnrichmentPlugin
     private let scheduler: BackgroundScheduler
     private var isStarted = false
 
@@ -75,8 +75,10 @@ public actor EnrichmentCoordinator {
         credentialManager: CredentialManager = .shared,
         settingsProvider: EnrichmentSettingsProvider = EnrichmentSettingsStore.shared
     ) {
-        // Create enrichment plugins - ADS only
-        let ads = ADSSource(credentialManager: credentialManager)
+        // Create enrichment plugins - ADS only, through the Rust source
+        // verbs (the token is the one `SourceSecrets.push` handed to Rust).
+        _ = credentialManager
+        let ads = SourceEnrichmentPlugin(sourceID: "ads")
         self.adsSource = ads
 
         let settings = settingsProvider

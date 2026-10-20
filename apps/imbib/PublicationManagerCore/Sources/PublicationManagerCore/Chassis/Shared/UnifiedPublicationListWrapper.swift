@@ -1057,7 +1057,7 @@ struct UnifiedPublicationListWrapper: View {
             // and fetched nothing. The sequence lives in
             // `PublicationListCore.pullSmartSearch` so both hosts run it.
             if let failure = await PublicationListCore.pullSmartSearch(
-                id, sourceManager: searchViewModel.sourceManager)
+                id, sourceClient: searchViewModel.sourceClient)
             {
                 self.error = failure
             }

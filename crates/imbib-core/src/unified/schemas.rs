@@ -51,6 +51,11 @@ pub fn bibliography_entry_schema() -> Schema {
             optional_string("enrichment_date"),
             optional_string("raw_bibtex"),
             optional_string("raw_ris"),
+            // Source-convention provenance (S-D5): the work's `provenance`
+            // object and its full `ids` map, each as JSON text. Written by
+            // `ImbibStore::import_work`; absent on rows the older funnels made.
+            optional_string("provenance_json"),
+            optional_string("ids_json"),
             // Structured data as JSON objects
             field("keywords", FieldType::StringArray, false),
             optional_string("authors_json"),
@@ -157,8 +162,13 @@ pub fn smart_search_schema() -> Schema {
         version: "1.0.0".into(),
         fields: vec![
             required_string("name"),
-            required_string("query"),
+            // Older rows: the text and the source list as two fields. Newer
+            // rows: the one `query_json` (`{"query": <koine Query>,
+            // "sources": [...]}`, source convention S-D10); a reader derives
+            // the text and sources from it when the pair is absent.
+            optional_string("query"),
             optional_string("source_ids_json"),
+            optional_string("query_json"),
             optional_int("max_results"),
             field("feeds_to_inbox", FieldType::Bool, false),
             field("auto_refresh_enabled", FieldType::Bool, false),

@@ -16,7 +16,7 @@ import OSLog
 ///
 /// Example (ADS):
 /// ```swift
-/// extension ADSSource: BrowserURLProvider {
+/// enum ADSBrowserURLs: BrowserURLProvider {
 ///     public static var sourceID: String { "ads" }
 ///
 ///     public static func browserPDFURL(for publication: PublicationModel) -> URL? {
@@ -47,8 +47,8 @@ public protocol BrowserURLProvider {
 /// Usage:
 /// ```swift
 /// // On app startup:
-/// await BrowserURLProviderRegistry.shared.register(ADSSource.self)
-/// await BrowserURLProviderRegistry.shared.register(CrossrefSource.self)
+/// await BrowserURLProviderRegistry.shared.register(ADSBrowserURLs.self)
+/// await BrowserURLProviderRegistry.shared.register(ArXivBrowserURLs.self)
 ///
 /// // When opening browser:
 /// let url = await BrowserURLProviderRegistry.shared.browserURL(for: publication)
@@ -190,6 +190,78 @@ public struct DefaultBrowserURLProvider: BrowserURLProvider {
             return url
         }
 
+        return nil
+    }
+}
+
+// MARK: - The suite's providers
+
+/// NASA ADS: DOI resolver → ADS abstract page → arXiv PDF.
+public enum ADSBrowserURLs: BrowserURLProvider {
+    public static var sourceID: String { "ads" }
+
+    public static func browserPDFURL(for publication: PublicationModel) -> URL? {
+        if let doi = publication.doi, !doi.isEmpty {
+            Logger.pdfBrowser.debug("ADS: Using DOI resolver for: \(doi)")
+            return URL(string: "https://doi.org/\(doi)")
+        }
+        if let bibcode = publication.bibcode {
+            Logger.pdfBrowser.debug("ADS: Using abstract page for bibcode: \(bibcode)")
+            return URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)/abstract")
+        }
+        if let arxivID = publication.arxivID, !arxivID.isEmpty {
+            Logger.pdfBrowser.debug("ADS: Using arXiv PDF for: \(arxivID)")
+            return URL(string: "https://arxiv.org/pdf/\(arxivID).pdf")
+        }
+        return nil
+    }
+}
+
+/// SciX: DOI resolver → SciX abstract page.
+public enum SciXBrowserURLs: BrowserURLProvider {
+    public static var sourceID: String { "scix" }
+
+    public static func browserPDFURL(for publication: PublicationModel) -> URL? {
+        if let doi = publication.doi, !doi.isEmpty {
+            Logger.pdfBrowser.debug("SciX: Using DOI resolver for: \(doi)")
+            return URL(string: "https://doi.org/\(doi)")
+        }
+        if let bibcode = publication.bibcode {
+            Logger.pdfBrowser.debug("SciX: Using abstract page for bibcode: \(bibcode)")
+            return URL(string: "https://scixplorer.org/abs/\(bibcode)/abstract")
+        }
+        return nil
+    }
+}
+
+/// arXiv: the PDF directly.
+public enum ArXivBrowserURLs: BrowserURLProvider {
+    public static var sourceID: String { "arxiv" }
+
+    public static func browserPDFURL(for publication: PublicationModel) -> URL? {
+        guard let arxivID = publication.arxivID, !arxivID.isEmpty else { return nil }
+        let cleanID = arxivID.trimmingCharacters(in: .whitespaces)
+        Logger.pdfBrowser.debug("ArXiv: Using direct PDF URL for: \(cleanID)")
+        return URL(string: "https://arxiv.org/pdf/\(cleanID).pdf")
+    }
+}
+
+/// OpenAlex: DOI resolver → the work page → the record's URL.
+public enum OpenAlexBrowserURLs: BrowserURLProvider {
+    public static var sourceID: String { "openalex" }
+
+    public static func browserPDFURL(for publication: PublicationModel) -> URL? {
+        if let doi = publication.doi, !doi.isEmpty {
+            Logger.pdfBrowser.debug("OpenAlex: Using DOI resolver for: \(doi)")
+            return URL(string: "https://doi.org/\(doi)")
+        }
+        if let openAlexID = publication.fields["openalex_id"] {
+            Logger.pdfBrowser.debug("OpenAlex: Using work page for: \(openAlexID)")
+            return URL(string: "https://openalex.org/works/\(openAlexID)")
+        }
+        if let urlString = publication.url, let url = URL(string: urlString) {
+            return url
+        }
         return nil
     }
 }

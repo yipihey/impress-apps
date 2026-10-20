@@ -520,7 +520,7 @@ public actor OpenAlexQueryAssistant: QueryAssistant {
         }
 
         let decoder = JSONDecoder()
-        let searchResponse = try decoder.decode(OpenAlexSearchResponse.self, from: data)
+        let searchResponse = try decoder.decode(OpenAlexCountResponse.self, from: data)
 
         let duration = Date().timeIntervalSince(startTime)
 
@@ -531,4 +531,11 @@ public actor OpenAlexQueryAssistant: QueryAssistant {
             message: nil
         )
     }
+}
+
+/// The one field the preview reads from an OpenAlex works response: the
+/// match count (`meta.count`).
+private struct OpenAlexCountResponse: Decodable {
+    struct Meta: Decodable { let count: Int }
+    let meta: Meta
 }
