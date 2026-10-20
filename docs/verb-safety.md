@@ -76,7 +76,8 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `perf-service` | read_only | 4 | 0 |
 | `settings-service` | read_only | 6 | 2 |
 | `smart-search-service` | read_only | 10 | 0 |
-| `source-service` | external | 15 | 7 |
+| `bib-source-service` | external | 6 | 6 |
+| `source-service` | external | 9 | 1 |
 | `store-query-service` | read_only | 4 | 0 |
 | `surface-demo-service` | read_only | 2 | 0 |
 | `surface-selftest-service` | external | 1 | 0 |
@@ -575,20 +576,20 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `smart-search-service_rewrite-free-text-query` | read_only | name/doc |
 | `smart-search-service_split-reference-blocks` | read_only | name/doc |
 | `smart-search-service_validate-parsed-reference` | read_only | name/doc |
-| `source-service_explain` | external | E/R: name/doc |
-| `source-service_export` | external | E/R: name/doc |
-| `source-service_fetch` | external | E/R: name/doc |
+| `bib-source-service_explain` | external | E/R: name/doc |
+| `bib-source-service_export` | external | E/R: name/doc |
+| `bib-source-service_fetch` | external | E/R: name/doc |
 | `source-service_get-citation` | read_only | name/doc |
 | `source-service_get-content-chunk` | read_only | name/doc |
 | `source-service_get-figure-image` | external | crates/impress-store-service/src/source_service.rs:1428 render_page -> crates/impress-store-service/src/source_assets.rs:242 spawns `osascript -l JavaScript` (PDFKit) as a subprocess and writes PNGs into the render ca… |
 | `source-service_get-page-image` | external | crates/impress-store-service/src/source_service.rs:70 render_page -> crates/impress-store-service/src/source_assets.rs:242 Command::new("osascript") PDFKit render subprocess on cache miss, PNG written to render-cache… |
-| `source-service_match-citation` | external | E/R: name/doc |
+| `bib-source-service_match-citation` | external | E/R: name/doc |
 | `source-service_put-citation` | mutating | name/doc |
 | `source-service_put-content-chunk` | mutating | name/doc |
 | `source-service_put-extraction-run` | mutating | name/doc |
 | `source-service_put-figure-region` | mutating | name/doc |
-| `source-service_related` | external | E/R: name/doc |
-| `source-service_search` | external | E/R: name/doc |
+| `bib-source-service_related` | external | E/R: name/doc |
+| `bib-source-service_search` | external | E/R: name/doc |
 | `source-service_search-content-chunks` | read_only | name/doc |
 | `store-query-service_get-item` | read_only | name/doc |
 | `store-query-service_list-items` | read_only | name/doc |

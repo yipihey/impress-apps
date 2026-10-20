@@ -7,6 +7,7 @@ Examples with scratch identifiers or `{{fixture...}}` placeholders require the o
 Tier A runs without an app or external service. Tier B requires an explicit isolated run with the native host, model, device, or credentials named by the verb's reach. A Tier B label describes the required environment; it does not mean the example ran in the headless suite.
 
 - [agent-service](agent-service.md) (12 verbs)
+- [bib-source-service](bib-source-service.md) (6 verbs)
 - [capabilities-service](capabilities-service.md) (4 verbs)
 - [collection-service](collection-service.md) (12 verbs)
 - [docs-import-service](docs-import-service.md) (10 verbs)
@@ -48,7 +49,7 @@ Tier A runs without an app or external service. Tier B requires an explicit isol
 - [review-service](review-service.md) (6 verbs)
 - [settings-service](settings-service.md) (6 verbs)
 - [smart-search-service](smart-search-service.md) (10 verbs)
-- [source-service](source-service.md) (15 verbs)
+- [source-service](source-service.md) (9 verbs)
 - [store-query-service](store-query-service.md) (4 verbs)
 - [surface-demo-service](surface-demo-service.md) (11 verbs)
 - [surface-selftest-service](surface-selftest-service.md) (1 verbs)

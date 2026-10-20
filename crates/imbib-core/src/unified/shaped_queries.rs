@@ -24,7 +24,7 @@ pub struct SearchResultInput {
 /// UniFFI record: the GUI reaches this through the verb, never directly.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct WorkImportInput {
-    /// The source's own BibTeX (`source-service_export bibtex`), or one the
+    /// The source's own BibTeX (`bib-source-service_export bibtex`), or one the
     /// caller synthesized when the source exports none — `synthesized` says
     /// which.
     pub bibtex: String,

@@ -1,7 +1,7 @@
 //! imbib's adoption of the source convention (koine
 //! docs/plan-source-convention.md S-D9, S-D10; work package S6).
 //!
-//! One path to every online database: koine's `source-service` over the
+//! One path to every online database: koine's `bib-source-service` over the
 //! seven adapters, the scorer and cascade of `koine-sources`, and the
 //! federation's identifier-only merge. This module is what imbib adds on
 //! top of that, and nothing more:
@@ -38,7 +38,7 @@ use koine_sources::kind::{Author, Issued, Location, Provenance, Version};
 use koine_sources::{CitationInput as ScorerInput, Query, Scorer, Work};
 use serde_json::{json, Value};
 use source_service::adapter::ExportFormat;
-use source_service::service::{DefaultSourceService, SourceService};
+use source_service::service::{BibSourceService, DefaultBibSourceService};
 
 use imbib_core::unified::shaped_queries::{BibliographyRow, WorkImportInput, WorkImportOutcome};
 use imbib_core::unified::store_api::ImbibStore;
@@ -405,7 +405,7 @@ pub async fn search_sources(
     let wanted = split_sources(sources);
     let canonical = query_for(&text);
     tracing::info!(target: "sources", "search_sources: query={:?} sources={:?} limit={limit}", text, wanted);
-    let service = DefaultSourceService::new();
+    let service = DefaultBibSourceService::new();
     let result = service
         .search(canonical, wanted, Some(limit), None, None, None)
         .await;
@@ -472,7 +472,7 @@ impl LocalLookup for StoreLookup {
 /// methods drive the async service from there.
 struct RemoteSources {
     handle: tokio::runtime::Handle,
-    service: DefaultSourceService,
+    service: DefaultBibSourceService,
     sources: Option<Vec<String>>,
 }
 
@@ -858,7 +858,7 @@ pub async fn resolve_citation(
         };
         let remote = RemoteSources {
             handle,
-            service: DefaultSourceService::new(),
+            service: DefaultBibSourceService::new(),
             sources: None,
         };
         cascade::resolve(&Scorer::legacy(), &cascade_input, &local, &remote)
@@ -1057,7 +1057,7 @@ pub fn synthesize_bibtex(work: &Work) -> String {
     format!("@{ty}{{{key},\n{}\n}}\n", body.join(",\n"))
 }
 
-/// The source's own BibTeX for a work (`source-service_export bibtex`): the
+/// The source's own BibTeX for a work (`bib-source-service_export bibtex`): the
 /// id its own source claims first, then any other. `None` when no source
 /// exported one.
 pub async fn source_bibtex(work: &Work) -> Option<String> {
@@ -1085,7 +1085,7 @@ pub async fn source_bibtex(work: &Work) -> Option<String> {
             push("pmid");
         }
     }
-    let service = DefaultSourceService::new();
+    let service = DefaultBibSourceService::new();
     for id in ids {
         let result = service.export(vec![id.clone()], ExportFormat::Bibtex).await;
         if let Some(answer) = result.answer {
@@ -1312,7 +1312,7 @@ mod tests {
     /// Tier A for `import-work`'s store half: the row carries `source_id`,
     /// the source's own BibTeX, the full `ids` map and the provenance; a
     /// second import of the same work is `existing_id`; a dismissed work is
-    /// never written. (The network half — `source-service_export` for the
+    /// never written. (The network half — `bib-source-service_export` for the
     /// BibTeX — is the adapters' own Tier A in koine.)
     #[test]
     fn import_work_keeps_provenance_dedups_by_identifier_and_honours_dismissal() {

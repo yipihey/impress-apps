@@ -54,7 +54,7 @@ public enum ImbibNativeVerbs {
     }
 }
 
-/// The source adapters' secrets (koine `source-service`, source convention
+/// The source adapters' secrets (koine `bib-source-service`, source convention
 /// S6) are imbib's keychain items, pushed into Rust memory the way AI
 /// provider keys are (ADR-0029): at launch and whenever a credential changes.
 /// Never written to a file; a daemon reads the same items through `security`.

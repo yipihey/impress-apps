@@ -33,6 +33,7 @@ read.
 | Service | Crate | Verbs | Real description | Args (required) | Args described | Strict |
 |---|---|---:|---:|---:|---:|---:|
 | `agent-service` | koine-agent | 12 | 12 | 23 (11) | 23 | 12 |
+| `bib-source-service` | source-service | 6 | 6 | 19 (7) | 19 | 6 |
 | `capabilities-service` | capabilities-service | 4 | 4 | 5 (1) | 5 | 4 |
 | `collection-service` | koine-collections | 12 | 12 | 25 (22) | 25 | 12 |
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 38 | 10 |
@@ -74,7 +75,7 @@ read.
 | `provider-service` | koine-providers | 2 | 2 | 2 (2) | 2 | 2 |
 | `settings-service` | koine-settings-service | 6 | 6 | 6 (5) | 6 | 6 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 28 | 10 |
-| `source-service` | source-service | 15 | 15 | 40 (17) | 40 | 15 |
+| `source-service` | impress-store-service | 9 | 9 | 21 (10) | 21 | 9 |
 | `store-query-service` | koine-store-query | 4 | 4 | 8 (8) | 8 | 4 |
 | `surface-demo-service` | surface-demo-service | 11 | 11 | 16 (14) | 16 | 11 |
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 1 | 1 |
@@ -82,7 +83,7 @@ read.
 | `review-service` | koine-tasks | 6 | 6 | 10 (4) | 10 | 6 |
 | `triage-service` | koine-triage | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 24 | 15 |
-| **Total** | 21 crates, 46 services | **491** | **491** | **1126 (728)** | **1126** | **491** |
+| **Total** | 21 crates, 47 services | **491** | **491** | **1126 (728)** | **1126** | **491** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -187,7 +188,7 @@ and the implore owner decides between verbs and deletion.
 | `impress-remarkable` | library | covered-through | `imbib-eink-service` reaches it through `imbib-core::eink`; `rm::parse_rm` (strokes of a page) has no verb |
 | `impress-smart-search` | library | covered-through | `smart-search-service` exposes it; `url_extract::extract_title` only indirectly |
 | `impress-smart-search-service` | verb-crate | verb-crate | |
-| `impress-sources` | library | should-be-verb | superseded by koine `source-service` and its seven adapters (S6: `search_sources`, `resolve_citation` and `import-work` run there, app open or closed); this crate's `SourcePlugin` now serves only impel-enrichment's metadata resolver and impel-taskd, and leaves with that repoint |
+| `impress-sources` | library | should-be-verb | superseded by koine `bib-source-service` and its seven adapters (S6: `search_sources`, `resolve_citation` and `import-work` run there, app open or closed); this crate's `SourcePlugin` now serves only impel-enrichment's metadata resolver and impel-taskd, and leaves with that repoint |
 | `impress-store-ffi` | ffi | internal | `SharedStore::{upsert_item, upsert_items, add_reference, set_parent, delete_item}` are Swift-only generic writes; `store-service` has the per-kind verbs |
 | `impress-store-service` | verb-crate | verb-crate | |
 | `impress-toolbox` | binary | internal | `execute::{handle_execute, handle_execute_file}` run a local command — deliberately unsandboxed, deliberately no verb |

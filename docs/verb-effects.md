@@ -544,20 +544,20 @@ catalogue, 168 on the exception table.
 | `smart-search-service_rewrite-free-text-query` | — | — | — | example ×1 |
 | `smart-search-service_split-reference-blocks` | — | — | — | example ×1 |
 | `smart-search-service_validate-parsed-reference` | — | — | — | example ×1 |
-| `source-service_explain` | — | — | network | — |
-| `source-service_export` | — | — | network | — |
-| `source-service_fetch` | — | — | network | — |
+| `bib-source-service_explain` | — | — | network | — |
+| `bib-source-service_export` | — | — | network | — |
+| `bib-source-service_fetch` | — | — | network | — |
 | `source-service_get-citation` | "source-citation@1.0.0", "figure-region@1.0.0", "impress/artifact/general" | — | — | example ×1 |
 | `source-service_get-content-chunk` | "content-chunk@1.0.0", "figure-region@1.0.0", "impress/artifact/general" | — | — | example ×1 |
 | `source-service_get-figure-image` | target(source_item_id), "figure-region@1.0.0", "source-citation@1.0.0", "imbib/linked-file" | — | subprocess, fs | — |
 | `source-service_get-page-image` | target(source_item_id), "imbib/linked-file" | — | subprocess, fs | — |
-| `source-service_match-citation` | — | — | network | — |
+| `bib-source-service_match-citation` | — | — | network | — |
 | `source-service_put-citation` | "source-citation@1.0.0", "impress/artifact/general" | "source-citation@1.0.0" | — | example ×1 |
 | `source-service_put-content-chunk` | "content-chunk@1.0.0", "extraction-run@1.0.0", "impress/artifact/general", "source-citation@1.0.0" | "content-chunk@1.0.0" | — | example ×1 |
 | `source-service_put-extraction-run` | "extraction-run@1.0.0", "impress/artifact/general" | "extraction-run@1.0.0" | — | example ×1 |
 | `source-service_put-figure-region` | "figure-region@1.0.0", "extraction-run@1.0.0", "impress/artifact/general" | "figure-region@1.0.0" | — | example ×1 |
-| `source-service_related` | — | — | network | — |
-| `source-service_search` | — | — | network | — |
+| `bib-source-service_related` | — | — | network | — |
+| `bib-source-service_search` | — | — | network | — |
 | `source-service_search-content-chunks` | any("full-text search inspects all indexed kinds before filtering to source chunks") | — | — | example ×1 |
 | `store-query-service_get-item` | target(id) | — | — | — |
 | `store-query-service_list-items` | any("the schema_ref argument names the kind") | — | — | example ×1 |
@@ -769,14 +769,14 @@ when one lands).
 | `settings-service_reset` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `settings-service_set` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `settings-service_surface` | exercised, unobserved (example ran, spy saw no declared read or write) |
-| `source-service_explain` | leaves the process (network) |
-| `source-service_export` | leaves the process (network) |
-| `source-service_fetch` | leaves the process (network) |
+| `bib-source-service_explain` | leaves the process (network) |
+| `bib-source-service_export` | leaves the process (network) |
+| `bib-source-service_fetch` | leaves the process (network) |
 | `source-service_get-figure-image` | leaves the process (subprocess, fs) |
 | `source-service_get-page-image` | leaves the process (subprocess, fs) |
-| `source-service_match-citation` | leaves the process (network) |
-| `source-service_related` | leaves the process (network) |
-| `source-service_search` | leaves the process (network) |
+| `bib-source-service_match-citation` | leaves the process (network) |
+| `bib-source-service_related` | leaves the process (network) |
+| `bib-source-service_search` | leaves the process (network) |
 | `store-query-service_get-item` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `store-query-service_related-items` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `surface-demo-service_note-delete` | exercised, unobserved (example ran, spy saw no declared read or write) |

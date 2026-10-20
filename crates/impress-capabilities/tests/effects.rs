@@ -131,7 +131,7 @@ use serde_json::Value;
 // the spy sees nothing. Its positive evidence is koine-tasks
 // `tests/consent.rs`, which remembers, lists, revokes and re-asks.
 // 175 → 182: imbib adopts koine's source convention (S6). The six
-// `source-service_*` verbs and `imbib-library-service_import-work` reach the
+// `bib-source-service_*` verbs and `imbib-library-service_import-work` reach the
 // network, so the default implementation cannot run them headless; seven rows
 // join the table (the two verbs moved from the app-gated `imbib-app-service` to
 // `imbib-sources-service`, so `search-sources` leaves and re-enters the table
