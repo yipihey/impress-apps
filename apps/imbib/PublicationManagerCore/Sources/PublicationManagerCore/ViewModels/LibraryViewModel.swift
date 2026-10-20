@@ -278,8 +278,7 @@ public final class LibraryViewModel {
         Logger.viewModels.infoCapture("Importing paper stub: \(stub.title)", category: "import")
 
         let bibcode = stub.id
-        let adsSource = ADSSource()
-        let entry = try await adsSource.fetchBibTeX(bibcode: bibcode)
+        let entry = try await SourceClient().fetchBibTeX(id: "bibcode:\(bibcode)")
 
         let bibtex = entry.rawBibTeX ?? entry.synthesizeBibTeX()
         let ids = store.importBibTeX(bibtex, libraryId: toLibraryId)

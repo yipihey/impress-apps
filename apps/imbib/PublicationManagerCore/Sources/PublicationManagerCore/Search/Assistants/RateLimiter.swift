@@ -6,6 +6,32 @@
 //
 
 import Foundation
+
+// MARK: - Rate Limit
+
+/// Rate limiting configuration for a query assistant.
+public struct RateLimit: Sendable, Equatable {
+
+    /// Maximum requests per interval
+    public let requestsPerInterval: Int
+
+    /// Time interval in seconds
+    public let intervalSeconds: TimeInterval
+
+    public init(requestsPerInterval: Int, intervalSeconds: TimeInterval) {
+        self.requestsPerInterval = requestsPerInterval
+        self.intervalSeconds = intervalSeconds
+    }
+
+    /// No rate limiting
+    public static let none = RateLimit(requestsPerInterval: Int.max, intervalSeconds: 1)
+
+    /// Minimum delay between requests
+    public var minDelay: TimeInterval {
+        guard requestsPerInterval > 0 else { return 0 }
+        return intervalSeconds / Double(requestsPerInterval)
+    }
+}
 import OSLog
 
 // MARK: - Rate Limiter

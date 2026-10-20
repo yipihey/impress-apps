@@ -140,7 +140,14 @@ use serde_json::Value;
 // identifier merge, timeouts, etiquette) and `imbib-service/src/sources.rs`
 // tests (`import_work_keeps_provenance_dedups_by_identifier_and_honours_dismissal`
 // drives the store half on a scratch store).
-const EXCEPTION_CEILING: usize = 182;
+// 182 → 183: S6's GUI port adds `imbib-app-service_refresh-feeds`, the one
+// feed-refresh entry point an agent can drive (the feed pipeline runs in the
+// app: muted/dismissed filters, inbox filing, feed-collection links). It is
+// app-gated like the rest of its namespace, so the default implementation
+// refuses headless. Its positive evidence is the Tier B example against the
+// running app and `PaperFetchService`'s inbox/feed paths, which now file rows
+// through `imbib-library-service_import-work` (`fetch_bibtex: false`).
+const EXCEPTION_CEILING: usize = 183;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave

@@ -13,8 +13,7 @@ import XCTest
 final class SettingsViewModelTests: XCTestCase {
 
     private var mockCredentialManager: MockCredentialManager!
-    private var sourceManager: SourceManager!
-    private var mockSource: MockSourcePlugin!
+    private var sourceClient: SourceClient!
     private var viewModel: SettingsViewModel!
 
     override func setUp() async throws {
@@ -26,26 +25,29 @@ final class SettingsViewModelTests: XCTestCase {
         // Use a unique prefix to avoid test pollution
         let testPrefix = "test.\(UUID().uuidString)"
         let credentialManager = CredentialManager(keyPrefix: testPrefix)
-        sourceManager = SourceManager(credentialManager: credentialManager)
 
-        // Register mock source requiring API key
-        mockSource = MockSourcePlugin(
-            id: "test-source",
-            name: "Test Source",
-            credentialRequirement: .apiKey
-        )
-        await sourceManager.register(mockSource)
+        // A stubbed `imbib-sources-service_source-status`: one source whose
+        // required key is missing (what the verb answers before any secret
+        // is pushed), so the view model's status pipeline is exercised
+        // without the FFI store.
+        sourceClient = SourceClient(call: { verb, _ in
+            XCTAssertEqual(verb, "imbib-sources-service_source-status")
+            return VerbReply(ok: true, bodyJSON: """
+            [{"id": "test-source", "name": "Test Source", "requirement": "api-key", "status": "missing",
+              "secrets": ["test-token"], "secrets_present": [], "wants_contact": false, "contact_set": false,
+              "registration_url": "https://example.test/token", "operations": ["search"]}]
+            """)
+        })
 
         viewModel = SettingsViewModel(
-            sourceManager: sourceManager,
+            sourceClient: sourceClient,
             credentialManager: credentialManager
         )
     }
 
     override func tearDown() async throws {
         viewModel = nil
-        sourceManager = nil
-        mockSource = nil
+        sourceClient = nil
         mockCredentialManager = nil
         try await super.tearDown()
     }
@@ -72,6 +74,8 @@ final class SettingsViewModelTests: XCTestCase {
         let testSource = viewModel.sourceCredentials.first { $0.sourceID == "test-source" }
         XCTAssertNotNil(testSource)
         XCTAssertEqual(testSource?.status, .missing)
+        XCTAssertEqual(testSource?.requirement, .apiKey)
+        XCTAssertEqual(testSource?.registrationURL?.absoluteString, "https://example.test/token")
     }
 
     // MARK: - Save API Key Tests

@@ -8,9 +8,9 @@
 //   1. IntentClassifier categorises the input (deterministic, no LLM).
 //   2. Dispatch by intent:
 //      - .identifier  → AutomationService.resolveStructuredCitation
-//      - .fielded     → SourceManager.search(sourceID: "ads") passthrough
+//      - .fielded     → SourceClient.search(sourceID: "ads") passthrough
 //      - .reference   → ReferenceParser → resolveStructuredCitation per block
-//      - .freeText    → FreeTextQueryRewriter → SourceManager.search
+//      - .freeText    → FreeTextQueryRewriter → SourceClient.search
 //   3. Render candidates inline. NO auto-import.
 //   4. User picks 1+ → AutomationService.addPapers(identifiers:)
 //
@@ -166,26 +166,26 @@ public final class SmartSearchService {
     // MARK: Dependencies
 
     private let automation: AutomationService
-    private let sourceManager: SourceManager
+    private let sourceClient: SourceClient
     private let engine: SmartSearchEngine
 
     /// In-flight task for cancellation.
     private var currentTask: Task<Void, Never>?
 
-    /// Whether `sourceManager.registerBuiltInSources()` has been called.
+    /// Whether the registered sources were logged once.
     /// Done lazily on first submit since init can't be async.
-    private var sourceManagerReady = false
+    private var sourceClientReady = false
 
     // MARK: Init
 
     public init(
         automation: AutomationService = .shared,
-        sourceManager: SourceManager = SourceManager(),
+        sourceClient: SourceClient = SourceClient(),
         libraryManager: LibraryManager? = nil,
         cloudRunner: ImpressSmartSearch.ReferenceParser.CloudRunner? = nil
     ) {
         self.automation = automation
-        self.sourceManager = sourceManager
+        self.sourceClient = sourceClient
         self.libraryManager = libraryManager
         self.engine = SmartSearchEngine(cloudRunner: cloudRunner)
     }
@@ -327,12 +327,12 @@ public final class SmartSearchService {
         )
     }
 
-    /// Idempotent registration of built-in source plugins. Logs once.
+    /// Logs the registered sources once (the adapters are koine's, behind
+    /// the Rust verbs; nothing to register here).
     private func prepareSources() async {
-        guard !sourceManagerReady else { return }
-        await sourceManager.registerBuiltInSources()
-        sourceManagerReady = true
-        let available = await sourceManager.availableSources.map { $0.id }
+        guard !sourceClientReady else { return }
+        sourceClientReady = true
+        let available = await sourceClient.availableSources.map { $0.id }
         Logger.smartSearch.infoCapture(
             "smartsearch: registered sources [\(available.joined(separator: ", "))]",
             category: "smartsearch"
@@ -363,7 +363,7 @@ public final class SmartSearchService {
         state = .resolving(detail: "Searching \(Self.sourceLabelFor(primarySourceID))…")
         Logger.smartSearch.infoCapture("smartsearch: fielded query '\(query)'", category: "smartsearch")
         do {
-            let results = try await sourceManager.search(
+            let results = try await sourceClient.search(
                 query: query,
                 sourceID: primarySourceID,
                 maxResults: maxResultsPerSource
@@ -393,7 +393,7 @@ public final class SmartSearchService {
         state = .resolving(detail: "Searching \(Self.sourceLabelFor(primarySourceID))…")
         var primaryResults: [SearchResult] = []
         do {
-            primaryResults = try await sourceManager.search(
+            primaryResults = try await sourceClient.search(
                 query: plan.query,
                 sourceID: primarySourceID,
                 maxResults: maxResultsPerSource
@@ -458,7 +458,7 @@ public final class SmartSearchService {
 
         var aggregated: [SearchResult] = []
         let totalCap = maxResultsPerSource * (1 + fallbackSourceIDs.count)
-        let sourceManagerLocal = sourceManager
+        let sourceClientLocal = sourceClient
         let perSourceMax = maxResultsPerSource
 
         await withTaskGroup(of: (sourceID: String, results: [SearchResult]).self) { group in
@@ -467,7 +467,7 @@ public final class SmartSearchService {
                 let entrySourceID = entry.sourceID
                 group.addTask { @Sendable in
                     do {
-                        let r = try await sourceManagerLocal.search(
+                        let r = try await sourceClientLocal.search(
                             query: entryQuery,
                             sourceID: entrySourceID,
                             maxResults: perSourceMax

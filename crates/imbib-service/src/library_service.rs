@@ -1039,6 +1039,8 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// after the dismissed check. A work whose DOI, arXiv id or bibcode the
     /// library already holds answers `existing_id` and writes nothing.
     /// `library` defaults to the default library; `collection` files the row.
+    /// `fetch_bibtex: false` skips the export call and synthesizes the
+    /// BibTeX from the record (marked as such) — a feed filing many rows.
     #[impress_method(safety = external, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper"], writes = ["imbib/bibliography-entry"], reach = [network]))]
     #[impress_example(
         name = "import-a-work-into-a-library",
@@ -1049,6 +1051,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         work: koine_sources::Work,
         library: Option<String>,
         collection: Option<String>,
+        fetch_bibtex: Option<bool>,
     ) -> imbib_core::unified::shaped_queries::WorkImportOutcome;
     /// Resolve each identifier in the running app, importing fetched records
     /// and preserving per-identifier duplicate/failure outcomes.
@@ -2522,8 +2525,9 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
         work: koine_sources::Work,
         library: Option<String>,
         collection: Option<String>,
+        fetch_bibtex: Option<bool>,
     ) -> imbib_core::unified::shaped_queries::WorkImportOutcome {
-        crate::sources::import_work(work, library, collection).await
+        crate::sources::import_work(work, library, collection, fetch_bibtex.unwrap_or(true)).await
     }
 
     async fn import_identifiers(
@@ -3263,7 +3267,9 @@ impress_service_impl! {
             /// UUID of the library receiving the row; omit for the default library.
             library: Option<String>,
             /// UUID of a collection to file the row into; omit for none.
-            collection: Option<String>
+            collection: Option<String>,
+            /// Ask the source for its own BibTeX (default true); false synthesizes it from the record without a network call.
+            fetch_bibtex: Option<bool>
         ) -> imbib_core::unified::shaped_queries::WorkImportOutcome,
         import_identifiers(
             /// Paper identifiers accepted by imbib, in caller order.

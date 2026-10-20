@@ -1283,11 +1283,11 @@ private struct FileHandlers: ViewModifier {
         .environment(LibraryManager())
         .environment(LibraryViewModel())
         .environment(SearchViewModel(
-            sourceManager: SourceManager(),
+            sourceClient: SourceClient(),
             deduplicationService: DeduplicationService()
         ))
         .environment(SettingsViewModel(
-            sourceManager: SourceManager(),
+            sourceClient: SourceClient(),
             credentialManager: CredentialManager()
         ))
 }

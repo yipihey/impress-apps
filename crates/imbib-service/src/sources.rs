@@ -288,6 +288,13 @@ pub fn work_to_external_paper(work: &Work) -> ExternalPaper {
         source: Some(source_of(work)),
         ids: work.ids.clone(),
         provenance: work.provenance.clone(),
+        locations: work.locations.clone(),
+        cited_by: work
+            .metrics
+            .as_ref()
+            .and_then(|m| m.cited_by.as_ref())
+            .map(|c| c.value),
+        work: Some(work.clone()),
     }
 }
 
@@ -394,7 +401,9 @@ pub async fn search_sources(
     query: String,
     sources: Option<String>,
     limit: u32,
+    sort: Option<String>,
 ) -> Vec<ExternalPaper> {
+    use imbib_core::unified::smart_search_query::{arxiv_query_of, looks_arxiv, sort_of};
     link();
     let text = query.trim().to_string();
     if text.is_empty() {
@@ -404,10 +413,22 @@ pub async fn search_sources(
     let limit = limit.clamp(1, source_service::service::MAX_LIMIT);
     let wanted = split_sources(sources);
     let canonical = query_for(&text);
-    tracing::info!(target: "sources", "search_sources: query={:?} sources={:?} limit={limit}", text, wanted);
+    if looks_arxiv(&text) {
+        // A feed saved in arXiv's own syntax: say which of its clauses the
+        // convention has no index for, since the feed no longer filters on
+        // them (never a silent fallback to words).
+        for dropped in arxiv_query_of(&text).dropped {
+            tracing::warn!(target: "sources", "search_sources: arXiv clause dropped: {dropped}");
+        }
+    }
+    let sort = sort
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .or_else(|| sort_of(&text).map(str::to_string));
+    tracing::info!(target: "sources", "search_sources: query={:?} sources={:?} limit={limit} sort={:?}", text, wanted, sort);
     let service = DefaultBibSourceService::new();
     let result = service
-        .search(canonical, wanted, Some(limit), None, None, None)
+        .search(canonical, wanted, Some(limit), None, sort, None)
         .await;
     if !result.outcome.ok {
         report_refusal(
@@ -431,6 +452,103 @@ pub async fn search_sources(
     let rows: Vec<ExternalPaper> = answer.rows.iter().map(work_to_external_paper).collect();
     tracing::info!(target: "sources", "search_sources: {} row(s) from {} source(s)", rows.len(), answer.diagnostics.iter().filter(|d| d.status == koine_sources::Status::Done).count());
     rows
+}
+
+// ── status ──────────────────────────────────────────────────────────────────
+
+/// Where a user registers for a source's key — a fact about the source,
+/// shown beside a missing credential.
+pub fn registration_url(source: &str) -> Option<&'static str> {
+    match source {
+        "ads" => Some("https://ui.adsabs.harvard.edu/user/settings/token"),
+        "scix" => Some("https://scixplorer.org/user/settings/token"),
+        "wos" => Some("https://developer.clarivate.com/apis/wos-starter"),
+        "pubmed" => Some("https://www.ncbi.nlm.nih.gov/account/settings/"),
+        "crossref" => Some("https://www.crossref.org/documentation/metadata-plus/"),
+        "openalex" => {
+            Some("https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication")
+        }
+        _ => None,
+    }
+}
+
+/// Secrets a source works without — a key that only raises its rate limit
+/// (Crossref Plus, NCBI). Every other declared secret is required.
+pub const OPTIONAL_SECRETS: &[&str] = &["crossref-plus-token", "ncbi-api-key"];
+
+/// `imbib-sources-service_source-status`: every registered source with its
+/// credential state, read from the explain record's `secrets` and
+/// etiquette against the installed secret source — what Settings shows and
+/// what the search form lists.
+pub fn source_status() -> Vec<crate::sources_service::SourceStatus> {
+    link();
+    let contact_set = source_service::etiquette::contact().is_some();
+    let mut out = Vec::new();
+    for adapter in source_service::registry::global().adapters() {
+        let record = adapter.explain();
+        let secrets = record.secrets.clone();
+        let present: Vec<String> = secrets
+            .iter()
+            .filter(|name| impress_service_core::secrets::get(name).is_some())
+            .cloned()
+            .collect();
+        let secret_source = secrets
+            .iter()
+            .find_map(|name| impress_service_core::secrets::installed().source_of(name))
+            .map(str::to_string);
+        let wants_contact = source_service::etiquette::wants_contact(&record);
+        let required: Vec<&String> = secrets
+            .iter()
+            .filter(|s| !OPTIONAL_SECRETS.contains(&s.as_str()))
+            .collect();
+        let (requirement, status) = if !required.is_empty() {
+            let all = required.iter().all(|s| present.contains(s));
+            ("api-key", if all { "valid" } else { "missing" })
+        } else if !secrets.is_empty() {
+            (
+                "api-key-optional",
+                if present.is_empty() {
+                    "optional-missing"
+                } else {
+                    "optional-valid"
+                },
+            )
+        } else if wants_contact {
+            (
+                "email-optional",
+                if contact_set {
+                    "optional-valid"
+                } else {
+                    "optional-missing"
+                },
+            )
+        } else {
+            ("none", "not-required")
+        };
+        out.push(crate::sources_service::SourceStatus {
+            id: record.source.clone(),
+            name: record.name.clone(),
+            requirement: requirement.into(),
+            status: status.into(),
+            secrets,
+            secrets_present: present,
+            secret_source,
+            wants_contact,
+            contact_set,
+            registration_url: registration_url(&record.source).map(str::to_string),
+            operations: record.operations.clone(),
+        });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    tracing::info!(
+        target: "sources",
+        "source_status: {}",
+        out.iter()
+            .map(|s| format!("{}={}", s.id, s.status))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    out
 }
 
 // ── resolve ─────────────────────────────────────────────────────────────────
@@ -950,7 +1068,7 @@ pub async fn resolve_citation(
                 };
             }
             // A remote hit: import it with its provenance (S-D5).
-            let outcome = import_work(candidate.work.clone(), library_id, None).await;
+            let outcome = import_work(candidate.work.clone(), library_id, None, true).await;
             let (via_name, id) = match (via, outcome.imported_id, outcome.existing_id) {
                 (_, _, Some(existing)) => ("duplicate", Some(existing)),
                 (Via::Identifier, Some(id), _) => ("imported-identifier", Some(id)),
@@ -1131,11 +1249,16 @@ pub fn work_import_input(
 }
 
 /// `imbib-library-service_import-work` (S-D5): the row is made here, with
-/// its provenance. `library` defaults to the default library.
+/// its provenance. `library` defaults to the default library. With
+/// `fetch_bibtex` false the source is not asked for its BibTeX — the row's
+/// `raw_bibtex` is synthesized from the record and marked so — which is
+/// what a feed refresh wants: fifty rows filed without fifty export calls,
+/// provenance (`source_id`, `ids_json`, `provenance_json`) kept all the same.
 pub async fn import_work(
     work: Work,
     library_id: Option<String>,
     collection_id: Option<String>,
+    fetch_bibtex: bool,
 ) -> WorkImportOutcome {
     link();
     if let Err(message) = work.validate() {
@@ -1163,9 +1286,14 @@ pub async fn import_work(
         work.ids,
         work.title.as_deref().unwrap_or("")
     );
-    let (bibtex, synthesized) = match source_bibtex(&work).await {
-        Some(text) => (text, false),
-        None => (synthesize_bibtex(&work), true),
+    let (bibtex, synthesized) = if fetch_bibtex {
+        match source_bibtex(&work).await {
+            Some(text) => (text, false),
+            None => (synthesize_bibtex(&work), true),
+        }
+    } else {
+        tracing::info!(target: "sources", "import: bibtex synthesized (fetch_bibtex=false)");
+        (synthesize_bibtex(&work), true)
     };
     let input = work_import_input(
         &work,

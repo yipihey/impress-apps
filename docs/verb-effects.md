@@ -121,6 +121,7 @@ catalogue, 168 on the exception table.
 | `imbib-app-service_get-logs` | — | — | app("imbib") | — |
 | `imbib-app-service_get-notes` | — | — | app("imbib") | — |
 | `imbib-app-service_open-manuscript-papers` | — | — | app("imbib") | — |
+| `imbib-app-service_refresh-feeds` | "imbib/smart-search", "imbib/bibliography-entry", "imbib/dismissed-paper", "imbib/muted-item" | "imbib/bibliography-entry", "imbib/smart-search" | app("imbib"), network | — |
 | `imbib-app-service_recent-activity` | — | — | app("imbib") | — |
 | `imbib-app-service_resolve-identifier` | — | — | app("imbib") | — |
 | `imbib-app-service_status` | — | — | app("imbib") | — |
@@ -238,6 +239,7 @@ catalogue, 168 on the exception table.
 | `imbib-scix-service_remove-from-scix-library` | "imbib/scix-library" | "imbib/scix-library" | — | example ×1 |
 | `imbib-sources-service_resolve-citation` | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry" | network, app("imbib") | — |
 | `imbib-sources-service_search-sources` | — | — | network | — |
+| `imbib-sources-service_source-status` | — | — | — | example ×1 |
 | `imbib-search-service_create-smart-search` | "imbib/library" | "imbib/smart-search" | — | example ×1 |
 | `imbib-search-service_find-by-arxiv` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-search-service_find-by-bibcode` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
@@ -644,6 +646,7 @@ when one lands).
 | `imbib-app-service_get-logs` | needs a running app |
 | `imbib-app-service_get-notes` | needs a running app |
 | `imbib-app-service_open-manuscript-papers` | needs a running app |
+| `imbib-app-service_refresh-feeds` | needs a running app |
 | `imbib-app-service_recent-activity` | needs a running app |
 | `imbib-app-service_resolve-identifier` | needs a running app |
 | `imbib-app-service_status` | needs a running app |

@@ -43,8 +43,8 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `docs-import-service` | mutating | 10 | 5 |
 | `history-service` | read_only | 7 | 3 |
 | `imbib-annotations-service` | read_only | 9 | 4 |
-| `imbib-app-service` | external | 15 | 0 |
-| `imbib-sources-service` | external | 2 | 0 |
+| `imbib-app-service` | external | 16 | 0 |
+| `imbib-sources-service` | external | 3 | 0 |
 | `imbib-artifacts-service` | read_only | 9 | 4 |
 | `imbib-backup-service` | destructive | 6 | 4 |
 | `imbib-eink-service` | mutating | 22 | 15 |
@@ -153,6 +153,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-app-service_get-logs` | external | E/R: name/doc |
 | `imbib-app-service_get-notes` | external | E/R: name/doc |
 | `imbib-app-service_open-manuscript-papers` | external | E/M: name/doc |
+| `imbib-app-service_refresh-feeds` | external | E/R: name/doc |
 | `imbib-app-service_recent-activity` | external | E/R: name/doc |
 | `imbib-app-service_resolve-identifier` | external | E/M: crates/imbib-service/src/app_service.rs:369 default refuses; HTTP POST /api/papers/resolve (apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Automation/HTTPAutomationRouter.swift:2564-2585 handleResolv… |
 | `imbib-app-service_status` | external | E/R: name/doc |
@@ -270,6 +271,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-scix-service_remove-from-scix-library` | mutating | crates/imbib-service/src/scix_service.rs:177 -> crates/imbib-core/src/unified/store_api.rs:3079 local membership edge removal (no publication deleted); HTTP path DELETE /api/scix-libraries/{id}/papers may push to ADS.… |
 | `imbib-sources-service_resolve-citation` | external | name/doc |
 | `imbib-sources-service_search-sources` | external | E/R: name/doc |
+| `imbib-sources-service_source-status` | read_only | name/doc |
 | `imbib-search-service_create-smart-search` | mutating | name/doc |
 | `imbib-search-service_find-by-arxiv` | read_only | name/doc |
 | `imbib-search-service_find-by-bibcode` | read_only | name/doc |

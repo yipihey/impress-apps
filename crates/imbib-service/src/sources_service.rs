@@ -15,6 +15,46 @@ use impress_service_macros::{impress_service, impress_service_impl};
 
 pub use crate::app_service::{CitationInput, CitationResolution, ExternalPaper};
 
+/// One registered source and the state of what it needs (source convention
+/// S-D1: the explain record's `secrets` and etiquette, against the
+/// installed secret source).
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct SourceStatus {
+    /// The source id (`ads`, `arxiv`, …).
+    pub id: String,
+    /// Its display name.
+    pub name: String,
+    /// `api-key` (the record names a secret the source cannot work
+    /// without), `api-key-optional` (a key that only raises its limits:
+    /// Crossref Plus, NCBI), `email-optional` (a polite pool wants a
+    /// contact) or `none`.
+    pub requirement: String,
+    /// `valid` | `missing` (every required secret present, or not);
+    /// `optional-valid` | `optional-missing` (an optional key or the
+    /// contact); `not-required`.
+    pub status: String,
+    /// The koine secret names the source declares.
+    #[serde(default)]
+    pub secrets: Vec<String>,
+    /// Those of them the installed secret source holds.
+    #[serde(default)]
+    pub secrets_present: Vec<String>,
+    /// Which layer answers for the first present secret: `app` (pushed from
+    /// the keychain at launch), `env` (`KOINE_SECRET_*`) or `keychain`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_source: Option<String>,
+    /// Whether the source's etiquette asks for a contact (polite pool).
+    pub wants_contact: bool,
+    /// Whether a contact is set for the process.
+    pub contact_set: bool,
+    /// Where to register for a key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registration_url: Option<String>,
+    /// The operations the record declares (`search`, `fetch`, `related`, …).
+    #[serde(default)]
+    pub operations: Vec<String>,
+}
+
 #[impress_service]
 pub trait ImbibSourcesService: Send + Sync + 'static {
     /// Search external academic sources — ADS, arXiv, Crossref, OpenAlex,
@@ -27,8 +67,10 @@ pub trait ImbibSourcesService: Send + Sync + 'static {
     /// an identifier, or an ADS-native string (`author:"Abel" year:2002`);
     /// `sources` is a comma-separated subset (e.g. "arxiv,ads"); empty means
     /// every source that covers the query. Rows from different sources that
-    /// share an identifier are one row. Make ONE broad call rather than
-    /// several narrow ones.
+    /// share an identifier are one row. `sort` is `year`, `cited_by` or
+    /// `relevance` (an arXiv `cat:` feed defaults to `year`: newest first);
+    /// omit it to keep the first source's order. Make ONE broad call rather
+    /// than several narrow ones.
     #[impress_method(safety = external, effects(reach = [network]))]
     #[impress_example(
         name = "isolated-search-sources",
@@ -40,7 +82,19 @@ pub trait ImbibSourcesService: Send + Sync + 'static {
         query: String,
         sources: Option<String>,
         limit: u32,
+        sort: Option<String>,
     ) -> Vec<ExternalPaper>;
+
+    /// Every registered online source with the state of what it needs:
+    /// which secrets its explain record names and which are present (and
+    /// from where: the app's keychain push, `KOINE_SECRET_*`, or the
+    /// keychain itself), whether its polite pool wants a contact and
+    /// whether one is set, and where to register for a key. No network: it
+    /// reads the records and the installed secret source. This is what
+    /// imbib's Settings > Sources shows and what the search form lists.
+    #[impress_method(safety = read_only, effects(reach = []))]
+    #[impress_example(name = "inventory", args = r#"{}"#)]
+    async fn source_status(&self) -> Vec<SourceStatus>;
 
     /// Resolve free text, BibTeX, or structured citation fields through the
     /// scored cascade (identifier → the library → the online sources), with
@@ -81,8 +135,13 @@ impl ImbibSourcesService for DefaultImbibSourcesService {
         query: String,
         sources: Option<String>,
         limit: u32,
+        sort: Option<String>,
     ) -> Vec<ExternalPaper> {
-        crate::sources::search_sources(query, sources, limit).await
+        crate::sources::search_sources(query, sources, limit, sort).await
+    }
+
+    async fn source_status(&self) -> Vec<SourceStatus> {
+        crate::sources::source_status()
     }
 
     async fn resolve_citation(
@@ -124,8 +183,11 @@ impress_service_impl! {
             /// Comma-separated source IDs; omit to use configured sources.
             sources: Option<String>,
             /// Maximum number of results to return.
-            limit: u32
+            limit: u32,
+            /// `year`, `cited_by` or `relevance`; omit for the source's order (an arXiv `cat:` feed sorts by year).
+            sort: Option<String>
         ) -> Vec<ExternalPaper>,
+        source_status() -> Vec<SourceStatus>,
         resolve_citation(
             /// Free-text citation query (kept private because it may contain manuscript text).
             #[impress_private] query: Option<String>,

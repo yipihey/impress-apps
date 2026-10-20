@@ -418,7 +418,7 @@ public actor WoSQueryAssistant: QueryAssistant {
 
         // Parse response to get total count
         let decoder = JSONDecoder()
-        guard let searchResponse = try? decoder.decode(WoSSearchResponse.self, from: data) else {
+        guard let searchResponse = try? decoder.decode(WoSCountResponse.self, from: data) else {
             throw QueryAssistantError.invalidResponse
         }
 
@@ -429,4 +429,12 @@ public actor WoSQueryAssistant: QueryAssistant {
             fetchDuration: duration
         )
     }
+}
+
+/// The one field the preview reads from a Web of Science response: the
+/// match count (`queryResult.recordsFound`, the spelling the retired
+/// `WoSSearchResponse` decoded).
+private struct WoSCountResponse: Decodable {
+    struct QueryResult: Decodable { let recordsFound: Int }
+    let queryResult: QueryResult
 }

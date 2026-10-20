@@ -227,10 +227,10 @@ public final class PublicationListCore {
     ///   the message instead of storing it keeps the error's PRESENTATION with
     ///   the host (macOS renders a retry `ContentUnavailableView`, iOS an alert).
     @discardableResult
-    public func refreshFromSource(sourceManager: SourceManager) async -> String? {
+    public func refreshFromSource(sourceClient: SourceClient) async -> String? {
         switch source {
         case .smartSearch(let id):
-            return await refreshSmartSearch(id, sourceManager: sourceManager)
+            return await refreshSmartSearch(id, sourceClient: sourceClient)
         case .scixLibrary(let id):
             return await refreshSciXLibrary(id)
         case .library, .inbox, .collection, .flagged, .unread, .starred, .tag, .dismissed,
@@ -243,9 +243,9 @@ public final class PublicationListCore {
 
     private func refreshSmartSearch(
         _ smartSearchID: UUID,
-        sourceManager: SourceManager
+        sourceClient: SourceClient
     ) async -> String? {
-        let failure = await Self.pullSmartSearch(smartSearchID, sourceManager: sourceManager)
+        let failure = await Self.pullSmartSearch(smartSearchID, sourceClient: sourceClient)
         // Reload from the store after refresh, whether or not it errored — a
         // partial refresh still landed rows.
         reload()
@@ -268,7 +268,7 @@ public final class PublicationListCore {
     ///   no longer exists — there is nothing to pull, and that is not an error).
     public static func pullSmartSearch(
         _ smartSearchID: UUID,
-        sourceManager: SourceManager
+        sourceClient: SourceClient
     ) async -> Error? {
         guard let smartSearch = RustStoreAdapter.shared.getSmartSearch(id: smartSearchID) else {
             return nil
@@ -284,7 +284,7 @@ public final class PublicationListCore {
             }
         } else if let provider = await SmartSearchProviderCache.shared.getOrCreateByID(
             smartSearchID: smartSearchID,
-            sourceManager: sourceManager
+            sourceClient: sourceClient
         ) {
             do {
                 try await provider.refresh()

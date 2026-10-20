@@ -24,7 +24,7 @@ public actor SmartSearchProvider {
     private let query: String
     private let sourceIDs: [String]
     private let maxResults: Int
-    private let sourceManager: SourceManager
+    private let sourceClient: SourceClient
     private let feedsToInbox: Bool
 
     private var lastFetched: Date?
@@ -45,7 +45,7 @@ public actor SmartSearchProvider {
         query: String,
         sourceIDs: [String],
         maxResults: Int = 50,
-        sourceManager: SourceManager,
+        sourceClient: SourceClient,
         feedsToInbox: Bool = false,
         refreshIntervalSeconds: Int = 86400,
         lastExecuted: Date? = nil
@@ -55,20 +55,20 @@ public actor SmartSearchProvider {
         self.query = query
         self.sourceIDs = sourceIDs
         self.maxResults = maxResults
-        self.sourceManager = sourceManager
+        self.sourceClient = sourceClient
         self.feedsToInbox = feedsToInbox
         self.refreshIntervalSeconds = refreshIntervalSeconds
         self.lastFetched = lastExecuted
     }
 
     /// Create from a SmartSearch domain model
-    public init(from model: SmartSearch, sourceManager: SourceManager) {
+    public init(from model: SmartSearch, sourceClient: SourceClient) {
         self.id = model.id
         self.name = model.name
         self.query = model.query
         self.sourceIDs = model.sourceIDs
         self.maxResults = model.maxResults
-        self.sourceManager = sourceManager
+        self.sourceClient = sourceClient
         self.feedsToInbox = model.feedsToInbox
         self.refreshIntervalSeconds = model.refreshIntervalSeconds
         self.lastFetched = model.lastExecuted
@@ -128,7 +128,7 @@ public actor SmartSearchProvider {
 
         do {
             let searchStart = CFAbsoluteTimeGetCurrent()
-            let results = try await sourceManager.search(
+            let results = try await sourceClient.search(
                 query: query,
                 options: options
             )
@@ -511,8 +511,8 @@ public final class SmartSearchRepository {
         smartSearches.first { $0.id == id }
     }
 
-    public func createProviders(sourceManager: SourceManager) -> [SmartSearchProvider] {
-        smartSearches.map { SmartSearchProvider(from: $0, sourceManager: sourceManager) }
+    public func createProviders(sourceClient: SourceClient) -> [SmartSearchProvider] {
+        smartSearches.map { SmartSearchProvider(from: $0, sourceClient: sourceClient) }
     }
 
     public func smartSearches(for libraryID: UUID) -> [SmartSearch] {

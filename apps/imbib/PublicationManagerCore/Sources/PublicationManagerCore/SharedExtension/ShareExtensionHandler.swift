@@ -18,16 +18,16 @@ public final class ShareExtensionHandler {
     // MARK: - Dependencies
 
     private let libraryManager: LibraryManager
-    private let sourceManager: SourceManager
+    private let sourceClient: SourceClient
 
     // MARK: - Initialization
 
     public init(
         libraryManager: LibraryManager,
-        sourceManager: SourceManager
+        sourceClient: SourceClient
     ) {
         self.libraryManager = libraryManager
-        self.sourceManager = sourceManager
+        self.sourceClient = sourceClient
     }
 
     // MARK: - Darwin Notification Observer
@@ -182,7 +182,7 @@ public final class ShareExtensionHandler {
 
         // Search for the paper using the appropriate source
         let options = SearchOptions(maxResults: 1, sortOrder: .relevance, sourceIDs: [sourceID])
-        let results = try await sourceManager.search(query: searchQuery, options: options)
+        let results = try await sourceClient.search(query: searchQuery, options: options)
 
         guard let firstResult = results.first else {
             throw ShareExtensionError.paperNotFound
@@ -190,25 +190,31 @@ public final class ShareExtensionHandler {
 
         let store = RustStoreAdapter.shared
 
-        // Import to library or Inbox via BibTeX
-        let bibtex = firstResult.toBibTeX()
-        if let libraryID = item.libraryID,
-           let libraryModel = libraryManager.find(id: libraryID) {
-            // Import to specific library
-            let ids = store.importBibTeX(bibtex, libraryId: libraryModel.id)
-            // Sharing a paper into imbib is a deliberate user act — Recent.
-            store.recordRecentAdd(ids: ids)
-            Logger.shareExtension.infoCapture("Imported paper \(identifier) to library \(libraryModel.name) (ids: \(ids.count))", category: "shareext")
+        // The target: the named library, else the Inbox.
+        let target: (id: UUID, name: String)?
+        if let libraryID = item.libraryID, let libraryModel = libraryManager.find(id: libraryID) {
+            target = (libraryModel.id, libraryModel.name)
+        } else if let inboxLib = store.getInboxLibrary() {
+            target = (inboxLib.id, "Inbox")
         } else {
-            // Import to Inbox library
-            if let inboxLib = store.getInboxLibrary() {
-                let ids = store.importBibTeX(bibtex, libraryId: inboxLib.id)
-                store.recordRecentAdd(ids: ids)
-                Logger.shareExtension.infoCapture("Imported paper \(identifier) to Inbox (ids: \(ids.count))", category: "shareext")
-            } else {
-                Logger.shareExtension.errorCapture("No inbox library available for import", category: "shareext")
-            }
+            target = nil
         }
+        guard let target else {
+            Logger.shareExtension.errorCapture("No inbox library available for import", category: "shareext")
+            return
+        }
+
+        // File the record with its provenance (S-D5) through
+        // `imbib-library-service_import-work`: the source's own BibTeX as
+        // `raw_bibtex`, `source_id`, `ids_json`.
+        let outcome = try await sourceClient.importWork(firstResult, library: target.id, fetchBibTeX: true)
+        let ids = [outcome.importedID].compactMap { $0 }
+        // Sharing a paper into imbib is a deliberate user act — Recent.
+        store.recordRecentAdd(ids: ids)
+        Logger.shareExtension.infoCapture(
+            "Imported paper \(identifier) to \(target.name) (imported: \(ids.count), existing: \(outcome.existingID == nil ? 0 : 1), dismissed: \(outcome.dismissed))",
+            category: "shareext"
+        )
     }
 
     /// Import papers from a docs() selection to Inbox
@@ -227,7 +233,7 @@ public final class ShareExtensionHandler {
 
         do {
             Logger.shareExtension.debugCapture("Querying source for docs() selection...", category: "shareext")
-            let results = try await sourceManager.search(query: query, options: options)
+            let results = try await sourceClient.search(query: query, options: options)
             Logger.shareExtension.infoCapture("Search returned \(results.count) results", category: "shareext")
 
             guard !results.isEmpty else {

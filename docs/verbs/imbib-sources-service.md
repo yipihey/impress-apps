@@ -31,7 +31,7 @@ Resolve free text, BibTeX, or structured citation fields through the scored casc
 
 ## `imbib-sources-service_search-sources`
 
-Search external academic sources — ADS, arXiv, Crossref, OpenAlex, PubMed, Web of Science, SciX — for papers NOT yet in the library, with the app open or closed (the adapters are koine's `source-service`). This is how you find new work; to search papers already saved use the library search tools instead. Results are candidates, each with its `ids` and `provenance`: import them (`imbib-library-service_import-work` or `import-identifiers`) before citing or tagging. `query` is words, an identifier, or an ADS-native string (`author:"Abel" year:2002`); `sources` is a comma-separated subset (e.g. "arxiv,ads"); empty means every source that covers the query. Rows from different sources that share an identifier are one row. Make ONE broad call rather than several narrow ones.
+Search external academic sources — ADS, arXiv, Crossref, OpenAlex, PubMed, Web of Science, SciX — for papers NOT yet in the library, with the app open or closed (the adapters are koine's `source-service`). This is how you find new work; to search papers already saved use the library search tools instead. Results are candidates, each with its `ids` and `provenance`: import them (`imbib-library-service_import-work` or `import-identifiers`) before citing or tagging. `query` is words, an identifier, or an ADS-native string (`author:"Abel" year:2002`); `sources` is a comma-separated subset (e.g. "arxiv,ads"); empty means every source that covers the query. Rows from different sources that share an identifier are one row. `sort` is `year`, `cited_by` or `relevance` (an arXiv `cat:` feed defaults to `year`: newest first); omit it to keep the first source's order. Make ONE broad call rather than several narrow ones.
 
 - **safety**: `external`
 - **adverbs**: tentatively, with_review, once
@@ -43,6 +43,7 @@ Search external academic sources — ADS, arXiv, Crossref, OpenAlex, PubMed, Web
 |---|---|---|---|
 | `limit` | integer | yes | Maximum number of results to return. |
 | `query` | string | yes | Search text sent to the selected academic sources. |
+| `sort` | — | no | `year`, `cited_by` or `relevance`; omit for the source's order (an arXiv `cat:` feed sorts by year). |
 | `sources` | — | no | Comma-separated source IDs; omit to use configured sources. |
 
 **Examples**
@@ -51,5 +52,25 @@ Search external academic sources — ADS, arXiv, Crossref, OpenAlex, PubMed, Web
 
   ```json
   {"query":"spectral line formation","sources":"arxiv","limit":5}
+  ```
+
+## `imbib-sources-service_source-status`
+
+Every registered online source with the state of what it needs: which secrets its explain record names and which are present (and from where: the app's keychain push, `KOINE_SECRET_*`, or the keychain itself), whether its polite pool wants a contact and whether one is set, and where to register for a key. No network: it reads the records and the installed secret source. This is what imbib's Settings > Sources shows and what the search form lists.
+
+- **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
+- **reads**: —
+- **writes**: —
+- **reach**: —
+
+Takes no arguments.
+
+**Examples**
+
+- `inventory` — Tier A:
+
+  ```json
+  {}
   ```
 

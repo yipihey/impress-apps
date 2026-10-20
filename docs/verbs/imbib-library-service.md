@@ -824,7 +824,7 @@ Parse RIS and add each entry to a library. Returns the ids of the papers created
 
 ## `imbib-library-service_import-work`
 
-Import one `bibliographic-work@1.0.0` record — a row of `bib-source-service_search`, `bib-source-service_fetch` or `imbib-sources-service_search-sources` — into a library with its provenance kept (source convention S-D5): `source_id` filled, `produced_by` set to this call, the source's OWN BibTeX as `raw_bibtex` (fetched through `bib-source-service_export`; never synthesized), the full `ids` map stored, after the dismissed check. A work whose DOI, arXiv id or bibcode the library already holds answers `existing_id` and writes nothing. `library` defaults to the default library; `collection` files the row.
+Import one `bibliographic-work@1.0.0` record — a row of `bib-source-service_search`, `bib-source-service_fetch` or `imbib-sources-service_search-sources` — into a library with its provenance kept (source convention S-D5): `source_id` filled, `produced_by` set to this call, the source's OWN BibTeX as `raw_bibtex` (fetched through `bib-source-service_export`; never synthesized), the full `ids` map stored, after the dismissed check. A work whose DOI, arXiv id or bibcode the library already holds answers `existing_id` and writes nothing. `library` defaults to the default library; `collection` files the row. `fetch_bibtex: false` skips the export call and synthesizes the BibTeX from the record (marked as such) — a feed filing many rows.
 
 - **safety**: `external`
 - **adverbs**: tentatively, with_review, once
@@ -835,6 +835,7 @@ Import one `bibliographic-work@1.0.0` record — a row of `bib-source-service_se
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `collection` | — | no | UUID of a collection to file the row into; omit for none. |
+| `fetch_bibtex` | — | no | Ask the source for its own BibTeX (default true); false synthesizes it from the record without a network call. |
 | `library` | — | no | UUID of the library receiving the row; omit for the default library. |
 | `work` | — | yes | A `bibliographic-work@1.0.0` record: CSL-JSON (`type`, `title`, `author`, `issued`, `container-title`, …) plus `ids`, `locations`, `provenance`. |
 

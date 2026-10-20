@@ -5,7 +5,7 @@
 //  Created by Claude on 2026-01-16.
 //
 //  Actor implementing AutomationOperations protocol (ADR-018).
-//  Calls RustStoreAdapter and SourceManager directly for rich data returns.
+//  Calls RustStoreAdapter and the SourceClient (the Rust source verbs) directly for rich data returns.
 //
 
 import Foundation
@@ -41,22 +41,22 @@ public actor AutomationService: AutomationOperations {
 
     // MARK: - Dependencies
 
-    private var sourceManager: SourceManager
+    private var sourceClient: SourceClient
     private let settingsStore: AutomationSettingsStore
 
     // MARK: - Initialization
 
     public init(
-        sourceManager: SourceManager = SourceManager(),
+        sourceClient: SourceClient = SourceClient(),
         settingsStore: AutomationSettingsStore = .shared
     ) {
-        self.sourceManager = sourceManager
+        self.sourceClient = sourceClient
         self.settingsStore = settingsStore
     }
 
-    /// Configure with the app's shared SourceManager (which has plugins registered).
-    public func configure(sourceManager: SourceManager) {
-        self.sourceManager = sourceManager
+    /// Configure with the app's shared SourceClient.
+    public func configure(sourceClient: SourceClient) {
+        self.sourceClient = sourceClient
     }
 
     // MARK: - Authorization Check
@@ -88,11 +88,11 @@ public actor AutomationService: AutomationOperations {
 
         let results: [SearchResult]
         if let sourceID = source {
-            results = try await sourceManager.search(query: query, sourceID: sourceID, maxResults: maxResults)
+            results = try await sourceClient.search(query: query, sourceID: sourceID, maxResults: maxResults)
         } else {
             // Search all available sources in parallel
             let options = SearchOptions(maxResults: maxResults)
-            results = try await sourceManager.search(query: query, options: options)
+            results = try await sourceClient.search(query: query, options: options)
         }
 
         return results.map { result in
@@ -248,14 +248,14 @@ public actor AutomationService: AutomationOperations {
             sourceIDs: sources
         )
 
-        let results = try await sourceManager.search(query: query, options: options)
+        let results = try await sourceClient.search(query: query, options: options)
 
         // Get actual source IDs used
         let actualSources: [String]
         if let sources = sources {
             actualSources = sources
         } else {
-            actualSources = await sourceManager.availableSources.map { $0.id }
+            actualSources = await sourceClient.availableSources.map { $0.id }
         }
 
         // Convert SearchResult to PaperResult
@@ -393,27 +393,26 @@ public actor AutomationService: AutomationOperations {
                 // Try to fetch from external source based on identifier type
                 let searchResult = try await fetchFromExternal(identifier: identifier)
 
-                // Get BibTeX from source (or synthesize it)
-                let bibtex: String
-                do {
-                    let entry = try await sourceManager.fetchBibTeX(for: searchResult)
-                    bibtex = entry.rawBibTeX ?? entry.synthesizeBibTeX()
-                } catch {
-                    // Synthesize BibTeX from search result metadata
-                    bibtex = searchResult.toBibTeX()
+                // File the record with its provenance (S-D5) through
+                // `imbib-library-service_import-work`: the source's own
+                // BibTeX as `raw_bibtex`, `source_id`, `ids_json`.
+                let outcome = try await sourceClient.importWork(
+                    searchResult,
+                    library: targetLibraryID,
+                    collection: collection,
+                    fetchBibTeX: true
+                )
+                if let existing = outcome.existingID {
+                    duplicates.append(identifier.value)
+                    existingToAssignIDs.append(existing)
+                    logger.debug("Duplicate found by the store for: \(identifier.value)")
+                    continue
                 }
-
-                // Import via Rust store
-                let importedIDs = await withStore { store in
-                    store.importBibTeX(bibtex, libraryId: targetLibraryID)
+                if outcome.dismissed {
+                    failed[identifier.value] = "dismissed earlier; not re-imported"
+                    continue
                 }
-
-                // Add to collection if specified
-                if let collectionID = collection, !importedIDs.isEmpty {
-                    await withStore { store in
-                        store.addToCollection(publicationIds: importedIDs, collectionId: collectionID)
-                    }
-                }
+                let importedIDs = outcome.importedID.map { [$0] } ?? []
 
                 // Download PDFs if requested — in the background, so the
                 // add returns as soon as the papers exist. (This used to post
@@ -553,7 +552,7 @@ public actor AutomationService: AutomationOperations {
         // Try each source in order until one returns a result
         for sq in queries {
             do {
-                let results = try await sourceManager.search(
+                let results = try await sourceClient.search(
                     query: sq.query,
                     sourceID: sq.sourceID,
                     maxResults: 5
@@ -1153,11 +1152,11 @@ public actor AutomationService: AutomationOperations {
     public func listSources() async throws -> [(id: String, name: String, hasCredentials: Bool)] {
         try await checkAuthorization()
 
-        let sources = await sourceManager.availableSources
+        let sources = await sourceClient.availableSources
         var results: [(id: String, name: String, hasCredentials: Bool)] = []
 
         for source in sources {
-            let hasCredentials = await sourceManager.hasValidCredentials(for: source.id)
+            let hasCredentials = await sourceClient.hasValidCredentials(for: source.id)
             results.append((id: source.id, name: source.name, hasCredentials: hasCredentials))
         }
 

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use imbib_service::app_service::{
-    ActivityEntry, AppStatus, IdentifierImportResult, ImbibAppService, LogEntry,
+    ActivityEntry, AppStatus, FeedRefreshResult, IdentifierImportResult, ImbibAppService, LogEntry,
     PapersWindowResult, SyncNudgeResult,
 };
 use imbib_service::manuscripts_service::{
@@ -123,6 +123,19 @@ impl ImbibAppService for NativeImbibAppService {
             collection_name: None,
             missing_cite_keys: vec![],
             message: String::new(),
+        })
+    }
+    async fn refresh_feeds(&self, smart_search_id: Option<String>) -> FeedRefreshResult {
+        self.invoke(
+            "refresh_feeds",
+            json!({ "smart_search_id": smart_search_id }),
+        )
+        .await
+        .unwrap_or(FeedRefreshResult {
+            accepted: false,
+            feeds: 0,
+            new_papers: 0,
+            reason: Some("the app did not answer".into()),
         })
     }
     async fn sync_nudge(&self) -> SyncNudgeResult {

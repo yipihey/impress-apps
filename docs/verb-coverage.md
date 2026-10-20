@@ -39,14 +39,14 @@ read.
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 38 | 10 |
 | `history-service` | koine-notebook | 7 | 7 | 15 (9) | 15 | 7 |
 | `imbib-annotations-service` | imbib-service | 10 | 10 | 28 (16) | 28 | 10 |
-| `imbib-app-service` | imbib-service | 16 | 16 | 21 (17) | 21 | 16 |
+| `imbib-app-service` | imbib-service | 17 | 17 | 22 (17) | 22 | 17 |
 | `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 36 | 9 |
 | `imbib-backup-service` | imbib-service | 6 | 6 | 8 (7) | 8 | 6 |
 | `imbib-eink-service` | imbib-service | 22 | 22 | 35 (15) | 35 | 22 |
-| `imbib-library-service` | imbib-service | 57 | 57 | 117 (85) | 117 | 57 |
+| `imbib-library-service` | imbib-service | 57 | 57 | 118 (85) | 118 | 57 |
 | `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 9 | 7 |
 | `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 17 | 7 |
-| `imbib-sources-service` | imbib-service | 2 | 2 | 9 (3) | 9 | 2 |
+| `imbib-sources-service` | imbib-service | 3 | 3 | 10 (3) | 10 | 3 |
 | `imbib-search-service` | imbib-service | 10 | 10 | 23 (18) | 23 | 10 |
 | `imbib-semantic-service` | imbib-semantic-service | 3 | 3 | 4 (2) | 4 | 3 |
 | `imbib-tags-service` | imbib-service | 11 | 11 | 22 (14) | 22 | 11 |
@@ -83,7 +83,7 @@ read.
 | `review-service` | koine-tasks | 6 | 6 | 10 (4) | 10 | 6 |
 | `triage-service` | koine-triage | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 24 | 15 |
-| **Total** | 21 crates, 47 services | **491** | **491** | **1126 (728)** | **1126** | **491** |
+| **Total** | 21 crates, 47 services | **493** | **493** | **1129 (728)** | **1129** | **493** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -188,7 +188,6 @@ and the implore owner decides between verbs and deletion.
 | `impress-remarkable` | library | covered-through | `imbib-eink-service` reaches it through `imbib-core::eink`; `rm::parse_rm` (strokes of a page) has no verb |
 | `impress-smart-search` | library | covered-through | `smart-search-service` exposes it; `url_extract::extract_title` only indirectly |
 | `impress-smart-search-service` | verb-crate | verb-crate | |
-| `impress-sources` | library | should-be-verb | superseded by koine `bib-source-service` and its seven adapters (S6: `search_sources`, `resolve_citation` and `import-work` run there, app open or closed); this crate's `SourcePlugin` now serves only impel-enrichment's metadata resolver and impel-taskd, and leaves with that repoint |
 | `impress-store-ffi` | ffi | internal | `SharedStore::{upsert_item, upsert_items, add_reference, set_parent, delete_item}` are Swift-only generic writes; `store-service` has the per-kind verbs |
 | `impress-store-service` | verb-crate | verb-crate | |
 | `impress-toolbox` | binary | internal | `execute::{handle_execute, handle_execute_file}` run a local command — deliberately unsandboxed, deliberately no verb |
@@ -198,7 +197,7 @@ and the implore owner decides between verbs and deletion.
 | `imprint-selftest` | verb-crate | verb-crate | |
 | `imprint-service` | verb-crate | verb-crate | |
 | `imprint-verbs-ffi` | ffi | internal | imprint's native app dispatcher over its service inventory; no independent capability |
-| `scix-client-ffi` | ffi | should-be-verb | `scix_search`, `scix_count`, `scix_fetch_{references, citations, similar, coreads}` — the ADS citation graph, 19 exports, all Swift-only |
+| `scix-client-ffi` | ffi | should-be-verb | `scix_count` (the query assistant's preview count) and the ADS personal-library calls (list/get/create/add/remove/edit/permissions/transfer), 12 exports, all Swift-only; the search, fetch, references/citations/similar/co-reads and export paths left with S6 — they are koine `bib-source-service_{search, fetch, related, export}` over `source-ads` |
 | `uniffi-bindgen` | tooling | internal | the bindgen binary |
 | `vw-domain` | library | covered-through | `vw-diagnostic-service` exposes it |
 | `vw-impress-adapter` | verb-crate | verb-crate | |

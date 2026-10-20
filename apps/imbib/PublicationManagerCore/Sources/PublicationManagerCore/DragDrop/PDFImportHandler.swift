@@ -273,8 +273,8 @@ public final class PDFImportHandler {
         Logger.files.infoCapture("Enriching from arXiv: \(arxivID)", category: "files")
 
         do {
-            let arxiv = ArXivSource()
-            let results = try await arxiv.search(query: arxivID)
+            let arxiv = SourceClient()
+            let results = try await arxiv.search(query: "id:\(arxivID)", sourceID: "arxiv", maxResults: 1)
             if let result = results.first {
                 let bibtexEntry = try? await arxiv.fetchBibTeX(for: result)
                 let bibtexString: String?
@@ -305,8 +305,8 @@ public final class PDFImportHandler {
         Logger.files.infoCapture("Enriching from ADS bibcode: \(bibcode)", category: "files")
 
         do {
-            let ads = ADSSource()
-            let results = try await ads.search(query: "bibcode:\(bibcode)")
+            let ads = SourceClient()
+            let results = try await ads.search(query: "bibcode:\(bibcode)", sourceID: "ads", maxResults: 1)
             if let result = results.first {
                 let bibtexEntry = try? await ads.fetchBibTeX(for: result)
                 let bibtexString: String?
@@ -343,7 +343,7 @@ public final class PDFImportHandler {
         Logger.files.infoCapture("Searching ADS by title/author/year: \(title.prefix(50))...", category: "files")
 
         do {
-            let ads = ADSSource()
+            let ads = SourceClient()
 
             var queryParts: [String] = []
 
@@ -366,7 +366,7 @@ public final class PDFImportHandler {
             let query = queryParts.joined(separator: " ")
             Logger.files.debugCapture("ADS query: \(query)", category: "files")
 
-            let results = try await ads.search(query: query, maxResults: 5)
+            let results = try await ads.search(query: query, sourceID: "ads", maxResults: 5)
 
             for result in results {
                 let titleSimilarity = calculateTitleSimilarity(title, result.title)
@@ -412,7 +412,7 @@ public final class PDFImportHandler {
     /// Build EnrichedMetadata from an ADS SearchResult.
     private func buildEnrichedMetadata(
         from result: SearchResult,
-        using ads: ADSSource,
+        using ads: SourceClient,
         source: String
     ) async -> EnrichedMetadata {
         let bibtexString: String?

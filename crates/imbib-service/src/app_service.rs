@@ -71,6 +71,21 @@ pub struct ExternalPaper {
     /// contributed to a merged row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<koine_sources::kind::Provenance>,
+    /// Where the work can be had (`bibliographic-work@1.0.0` `locations`):
+    /// each with its landing `url`, `pdf`, `version`, `license` and
+    /// `oa_status` — what the app's PDF resolver and the search rows' PDF
+    /// links read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub locations: Vec<koine_sources::kind::Location>,
+    /// Citations counted by the row's source (`metrics.cited_by`), when it
+    /// counts them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cited_by: Option<u64>,
+    /// The row's `bibliographic-work@1.0.0` record itself — what
+    /// `imbib-library-service_import-work` takes, so importing what a search
+    /// found is a hand-back, not a re-fetch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work: Option<koine_sources::Work>,
 }
 
 /// Structured bibliographic fields accepted by `/api/papers/resolve`.
@@ -184,6 +199,20 @@ pub struct LogEntry {
     pub category: Option<String>,
     #[serde(default)]
     pub message: String,
+}
+
+/// What a feed refresh did.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FeedRefreshResult {
+    /// Whether the app ran the refresh.
+    pub accepted: bool,
+    /// Feeds refreshed (one, or every due inbox feed).
+    pub feeds: u32,
+    /// Papers the refresh added to the inbox or its feed collections.
+    pub new_papers: u32,
+    /// Why not, when `accepted` is false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// Whether the sync engine accepted an immediate push+pull.
@@ -307,6 +336,17 @@ pub trait ImbibAppService: Send + Sync + 'static {
     #[impress_method]
     #[impress_example(name = "isolated-sync-nudge", args = r##"{}"##, tier = "b")]
     async fn sync_nudge(&self) -> SyncNudgeResult;
+    /// Refresh one inbox feed now (`smart_search_id`), or every due one: the
+    /// running app searches the feed's sources through
+    /// `imbib-sources-service_search-sources`, filters muted and dismissed
+    /// papers, and files the new ones into the Inbox (or the feed's own
+    /// library) with their provenance through
+    /// `imbib-library-service_import-work`. Answers how many feeds ran and
+    /// how many papers arrived; `accepted: false` with a reason when the app
+    /// is not running or the inbox is not started.
+    #[impress_method(safety = external, effects(reads = ["imbib/smart-search", "imbib/bibliography-entry", "imbib/dismissed-paper", "imbib/muted-item"], writes = ["imbib/bibliography-entry", "imbib/smart-search"], reach = [app("imbib"), network]))]
+    #[impress_example(name = "isolated-refresh-feeds", args = r##"{}"##, tier = "b")]
+    async fn refresh_feeds(&self, smart_search_id: Option<String>) -> FeedRefreshResult;
 
     /// The CloudKit sync engine's real state: whether it is on, when it last
     /// pushed and pulled, and the last error if any. Use this to diagnose a
@@ -531,6 +571,16 @@ impl ImbibAppService for DefaultImbibAppService {
         }
     }
 
+    async fn refresh_feeds(&self, _smart_search_id: Option<String>) -> FeedRefreshResult {
+        refuse("refresh_feeds");
+        FeedRefreshResult {
+            accepted: false,
+            feeds: 0,
+            new_papers: 0,
+            reason: Some(NOT_RUNNING.into()),
+        }
+    }
+
     async fn sync_nudge(&self) -> SyncNudgeResult {
         refuse("sync_nudge");
         SyncNudgeResult {
@@ -636,6 +686,10 @@ impress_service_impl! {
             manuscript_id: String
         ) -> PapersWindowResult,
         sync_nudge() -> SyncNudgeResult,
+        refresh_feeds(
+            /// UUID of one inbox feed (smart search) to refresh; omit to refresh every due inbox feed.
+            smart_search_id: Option<String>
+        ) -> FeedRefreshResult,
         sync_status() -> AppStatus,
         status() -> AppStatus,
         get_logs(

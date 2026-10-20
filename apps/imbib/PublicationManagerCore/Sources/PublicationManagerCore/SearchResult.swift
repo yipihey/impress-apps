@@ -107,6 +107,14 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
     /// All categories including cross-listed (e.g., ["cs.LG", "stat.ML"])
     public let categories: [String]?
 
+    /// Citations counted by the source (`metrics.cited_by` of the record), when it counts them.
+    public let citationCount: Int?
+
+    /// The `bibliographic-work@1.0.0` record this result was read from, as
+    /// JSON — what `imbib-library-service_import-work` takes, so importing a
+    /// result hands the record back instead of re-fetching it.
+    public let workJSON: String?
+
     // MARK: - URLs
 
     /// All available PDF links with type information
@@ -137,6 +145,8 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
         openAlexID: String? = nil,
         primaryCategory: String? = nil,
         categories: [String]? = nil,
+        citationCount: Int? = nil,
+        workJSON: String? = nil,
         pdfLinks: [PDFLink] = [],
         webURL: URL? = nil,
         bibtexURL: URL? = nil
@@ -156,6 +166,8 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
         self.openAlexID = openAlexID
         self.primaryCategory = primaryCategory
         self.categories = categories
+        self.citationCount = citationCount
+        self.workJSON = workJSON
         self.pdfLinks = pdfLinks
         self.webURL = webURL
         self.bibtexURL = bibtexURL
@@ -178,6 +190,8 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
         openAlexID: String? = nil,
         primaryCategory: String? = nil,
         categories: [String]? = nil,
+        citationCount: Int? = nil,
+        workJSON: String? = nil,
         pdfURL: URL?,
         webURL: URL? = nil,
         bibtexURL: URL? = nil
@@ -197,6 +211,8 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
         self.openAlexID = openAlexID
         self.primaryCategory = primaryCategory
         self.categories = categories
+        self.citationCount = citationCount
+        self.workJSON = workJSON
         // Convert single URL to pdfLinks array with default type
         if let url = pdfURL {
             self.pdfLinks = [PDFLink(url: url, type: .publisher)]

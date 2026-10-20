@@ -25,14 +25,18 @@ public actor GroupFeedRefreshService {
     // MARK: - Configuration
 
     /// Delay between author searches (in seconds)
-    private let staggerDelaySeconds: TimeInterval = 2
+    /// koine's arXiv adapter declares `1 per 3s` and its etiquette gate
+    /// REFUSES a call inside the window (a `rate_limited` diagnostic, nothing
+    /// sent) rather than waiting as the old Swift limiter did — so one author
+    /// search every two seconds answered zero rows for every second author.
+    private let staggerDelaySeconds: TimeInterval = 3.5
 
     /// Maximum results per author search
     private let maxResultsPerAuthor: Int = 100
 
     // MARK: - Dependencies
 
-    private let arxivSource: ArXivSource
+    private let sourceClient: SourceClient
 
     // MARK: - Store Access
 
@@ -55,9 +59,9 @@ public actor GroupFeedRefreshService {
     // MARK: - Initialization
 
     public init(
-        arxivSource: ArXivSource = ArXivSource()
+        sourceClient: SourceClient = SourceClient()
     ) {
-        self.arxivSource = arxivSource
+        self.sourceClient = sourceClient
     }
 
     // MARK: - State Access
@@ -242,7 +246,14 @@ public actor GroupFeedRefreshService {
             )
 
             do {
-                let results = try await arxivSource.search(query: query, maxResults: maxResultsPerAuthor, daysBack: 90)
+                // Newest first through the verb (`sort: year`); the old
+                // 90-day window is the newest `maxResultsPerAuthor`
+                // submissions now — the arXiv adapter has a year range, not
+                // a day one.
+                let results = try await sourceClient.search(
+                    query: query,
+                    options: SearchOptions(maxResults: maxResultsPerAuthor, sortOrder: .dateDescending, sourceIDs: ["arxiv"])
+                )
 
                 let exactMatches = results.filter { result in
                     authorMatchesExactly(author, in: result.authors)

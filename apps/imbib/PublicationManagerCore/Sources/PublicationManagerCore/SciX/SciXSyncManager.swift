@@ -331,7 +331,7 @@ public actor SciXSyncManager {
     private func fetchPapersFromADS(bibcodes: [String]) async throws -> [SearchResult] {
         guard !bibcodes.isEmpty else { return [] }
 
-        let source = ADSSource(credentialManager: CredentialManager.shared)
+        let source = SourceClient()
         let chunkSize = 50
         var allResults: [SearchResult] = []
 
@@ -343,7 +343,7 @@ public actor SciXSyncManager {
                 .map { "identifier:\"\($0)\"" }
                 .joined(separator: " OR ")
 
-            let results = try await source.search(query: query)
+            let results = try await source.search(query: query, sourceID: "ads", maxResults: batch.count)
             allResults.append(contentsOf: results)
 
             Logger.scix.debug("SciX sync: fetched batch \(chunk/chunkSize + 1) — \(results.count) papers for \(batch.count) bibcodes")

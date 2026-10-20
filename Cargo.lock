@@ -4139,12 +4139,13 @@ dependencies = [
  "impel-core",
  "impress-ai",
  "impress-core",
- "impress-sources",
  "impress-tags",
  "impress-workspace-hack",
+ "koine-sources",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "source-service",
  "tokio",
  "uuid",
 ]
@@ -4194,6 +4195,7 @@ dependencies = [
  "chrono",
  "dirs",
  "imbib-core",
+ "imbib-service",
  "impel-core",
  "impel-enrichment",
  "impel-throughline",
@@ -4203,7 +4205,6 @@ dependencies = [
  "impress-core",
  "impress-item",
  "impress-service-core",
- "impress-sources",
  "impress-workflow",
  "impress-workflow-service",
  "impress-workspace-hack",
@@ -4945,26 +4946,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
-]
-
-[[package]]
-name = "impress-sources"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "impress-domain",
- "impress-workspace-hack",
- "lazy_static",
- "mockito",
- "quick-xml 0.38.4",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "url",
- "urlencoding",
 ]
 
 [[package]]

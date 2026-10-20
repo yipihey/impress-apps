@@ -67,7 +67,7 @@ Cross-platform (macOS/iOS) scientific publication manager. BibTeX/BibDesk-compat
 | Data | Rust graph store (SQLite) | All access via `RustStoreAdapter.shared`; Core Data is migration-only legacy |
 | BibTeX | Source of truth | Round-trip fidelity, `Bdsk-File-*` support, cite keys: `{LastName}{Year}{TitleWord}` |
 | PDFs | Human-readable names | `Author_Year_Title.pdf`, relative paths from .bib location |
-| Sources | koine `bib-source-service` (Rust) | arXiv, Crossref, ADS, SciX, OpenAlex, PubMed, Web of Science are koine adapters (`crates/source-*`); `imbib-app-service_{search-sources,resolve-citation}` and `imbib-library-service_import-work` work with the app closed. Semantic Scholar and DBLP have no adapter yet (S-D9 names them next). The Swift `SourcePlugin` tree still serves the GUI's inbox feeds, identifier import, share/Safari/drag-drop paths until those call the verbs |
+| Sources | koine `bib-source-service` (Rust) | arXiv, Crossref, ADS, SciX, OpenAlex, PubMed, Web of Science are koine adapters (`crates/source-*`); `imbib-sources-service_{search-sources,resolve-citation,source-status}`, `bib-source-service_{fetch,related,export,explain}` and `imbib-library-service_import-work` work with the app closed. The GUI's one client is `Sources/SourceClient.swift` (verb calls through the app's FFI, `SearchResult`/`PaperStub` read back from `bibliographic-work@1.0.0` rows): feeds, identifier import, share/Safari/drag-drop, the citation explorer, ADS enrichment (`SourceEnrichmentPlugin`), the OpenAlex OA-PDF resolver and Settings > Sources all go through it. The Swift `SourcePlugin` tree and `scix-client-ffi`'s ADS search/fetch/export exports are gone (S6). Still Swift and network-touching, deliberately: the query assistants' previews and OpenAlex autocomplete (`Search/Assistants/`) — query assistance, not a source operation. koine's S7 adapters (Semantic Scholar, DBLP, INSPIRE) are not registered in `imbib_service::sources::link()` yet |
 | Papers | Unified model (ADR-016) | All papers are CDPublication, search results auto-import |
 | Formats | BibTeX + RIS | First-class RIS support with bidirectional conversion |
 | Automation | URL schemes + AppIntents | `imbib://...` for AI agents, Siri Shortcuts, CLI tool |
@@ -133,11 +133,14 @@ label-keyed) + freeform markdown. Read and write it through
 CDPublication: NSManagedObject  // Core Data model (citeKey, entryType, rawBibTeX, relationships)
 BibTeXEntry: Sendable           // Interchange (citeKey, entryType, fields, rawBibTeX)
 RISEntry: Sendable              // RIS format (type, tags, rawRIS)
-SearchResult: Sendable          // Cross-source (id, title, authors, year, sourceID, pdfURL)
+SearchResult: Sendable          // Cross-source (id, title, authors, year, sourceID, pdfURL, citationCount)
 
-protocol SourcePlugin: Sendable {
-    func search(query: String) async throws -> [SearchResult]
-    func fetchBibTeX(for: SearchResult) async throws -> BibTeXEntry
+actor SourceClient {            // the GUI's client of the Rust source verbs (S6)
+    func search(query: String, options: SearchOptions) async throws -> [SearchResult]   // imbib-sources-service_search-sources
+    func fetchWork(id: String, sources: [String]?) async throws -> SearchResult?        // bib-source-service_fetch
+    func fetchBibTeX(for: SearchResult) async throws -> BibTeXEntry                      // bib-source-service_export
+    func related(id: String, relation: RelatedRelation) async throws -> [PaperStub]      // bib-source-service_related
+    func credentialStatus() async -> [SourceCredentialInfo]                               // imbib-sources-service_source-status
 }
 ```
 
@@ -227,12 +230,14 @@ POST /api/papers/resolve
 }
 ```
 
-Cascade (implemented in `AutomationService.resolveStructuredCitation`):
+Cascade (since S6 it is koine's `koine_sources::cascade::resolve` behind
+`imbib-sources-service_resolve-citation`, with the legacy scorer; the steps
+below are the contract it keeps):
 
 1. Identifier from DOI/arXiv/bibcode (or scanned from `rawBibtex`) → local lookup → return `via: "local-identifier"`. If missing locally: `addPapers(...)` → `via: "imported-identifier"`.
 2. Local title search → `via: "local-text"` when unique.
 3. Structured ADS query via `SearchFormQueryBuilder.buildClassicQuery(...)`; score each hit by (author+year+journal+page match); auto-accept ≥ 0.85 confidence → `via: "ads-high-confidence"` (auto-imported). Otherwise return top N ranked candidates → `via: "ads-candidates"`.
-4. If ADS returns zero: all-sources fan-out via `SourceManager.search(query: freeText, options:)`, dedup by identifier, rank → `via: "all-sources-fallback"`.
+4. If ADS returns zero: all-sources fan-out (`bib-source-service_search` over every adapter), dedup by identifier, rank → `via: "all-sources-fallback"`.
 5. No hits anywhere → `via: "not-found"`.
 
 Response shape:
@@ -430,6 +435,8 @@ easy to get wrong in the generalized shape:
   `@MainActor`. Read the published snapshot; do not `assumeIsolated`.
 
 ### Critical Invariants
+
+- **Every online-source call in the GUI is a Rust verb through `SourceClient`; no Swift HTTP client for a source.** (S6, 2026-10-19.) The adapters are koine's `source-*` crates registered by `imbib_service::sources::link()`; their secrets reach them only through `SourceSecrets.push` (keychain → Rust memory, ADR-0029) and never as a Swift-side credential check. A feed's saved query is passed verbatim: an ADS-native string goes through as `native`, an arXiv API string (`cat:… AND au:…`) is translated clause by clause by `imbib_core::unified::smart_search_query::arxiv_query_of` (what the adapter has no index for — `jr:`, `co:`, `rn:` — is dropped and logged under `sources`, never sent as words), and a `cat:` feed sorts newest-first (`sort_of`). `bib-source-service_related` is the citation graph; Web of Science declares no `related`, so "WoS Related" asks and gets an `unsupported` diagnostic (logged) rather than a silent empty collection. The three-point trace of every search, fetch, export and related walk is in the Console under `sources`, on both sides of the FFI.
 
 - **Native callbacks preserve canonical refusal codes.** When adapting a
   legacy HTTP failure, map its status to the shared refusal code rather than

@@ -269,6 +269,28 @@ What the USER was recently working on: papers they viewed or added by hand, most
   {"limit":10,"parent_id":null}
   ```
 
+## `imbib-app-service_refresh-feeds`
+
+Refresh one inbox feed now (`smart_search_id`), or every due one: the running app searches the feed's sources through `imbib-sources-service_search-sources`, filters muted and dismissed papers, and files the new ones into the Inbox (or the feed's own library) with their provenance through `imbib-library-service_import-work`. Answers how many feeds ran and how many papers arrived; `accepted: false` with a reason when the app is not running or the inbox is not started.
+
+- **safety**: `external`
+- **adverbs**: tentatively, with_review, once
+- **reads**: "imbib/smart-search", "imbib/bibliography-entry", "imbib/dismissed-paper", "imbib/muted-item"
+- **writes**: "imbib/bibliography-entry", "imbib/smart-search"
+- **reach**: app("imbib"), network
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `smart_search_id` | — | no | UUID of one inbox feed (smart search) to refresh; omit to refresh every due inbox feed. |
+
+**Examples**
+
+- `isolated-refresh-feeds` — Tier B (explicit isolated run):
+
+  ```json
+  {}
+  ```
+
 ## `imbib-app-service_resolve-identifier`
 
 Resolve an identifier — DOI, arXiv id, bibcode — to a paper, fetching its metadata from the outside world if the library does not have it yet. Unlike the find-by-* searches, which only look locally, this one can go and get it.

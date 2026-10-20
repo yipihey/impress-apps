@@ -23,14 +23,14 @@ public actor SmartSearchProviderCache {
     /// Get an existing provider or create a new one for the smart search.
     public func getOrCreate(
         for smartSearch: SmartSearch,
-        sourceManager: SourceManager
+        sourceClient: SourceClient
     ) -> SmartSearchProvider {
         if let existing = providers[smartSearch.id] {
             return existing
         }
         let provider = SmartSearchProvider(
             from: smartSearch,
-            sourceManager: sourceManager
+            sourceClient: sourceClient
         )
         providers[smartSearch.id] = provider
         return provider
@@ -52,7 +52,7 @@ public actor SmartSearchProviderCache {
     /// making it safe to call from non-main-actor contexts.
     public func getOrCreateByID(
         smartSearchID: UUID,
-        sourceManager: SourceManager
+        sourceClient: SourceClient
     ) async -> SmartSearchProvider? {
         // Check cache first
         if let existing = providers[smartSearchID] {
@@ -68,7 +68,7 @@ public actor SmartSearchProviderCache {
 
         let provider = SmartSearchProvider(
             from: smartSearch,
-            sourceManager: sourceManager
+            sourceClient: sourceClient
         )
 
         providers[smartSearchID] = provider

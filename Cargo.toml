@@ -80,8 +80,6 @@ members = [
     "crates/impress-store-ffi",
     # scix-client-ffi - UniFFI bindings for scix-client (NASA ADS/SciX API)
     "crates/scix-client-ffi",
-    # impress-sources - HTTP clients for arXiv/Crossref/ADS/OpenAlex/etc
-    "crates/impress-sources",
     # impress-smart-search - deterministic Cmd+S search core (intent
     # classification, ADS query normalization/rewriting, reference validation,
     # page identifier extraction). Ported from the ImpressSmartSearch Swift
@@ -251,7 +249,6 @@ koine-settings-service = { git = "https://github.com/yipihey/koine", rev = "3774
 # KM5: the embedding stack, memory kernel/verbs and executors are koine's;
 # the old names stay as aliases so no `use` changes.
 impress-embeddings = { package = "koine-embeddings", git = "https://github.com/yipihey/koine", rev = "37749038fcbd4e78c572dc79b81c21f2f2681b87", default-features = false }
-impress-sources = { path = "crates/impress-sources" }
 impress-smart-search = { path = "crates/impress-smart-search" }
 impel-service = { path = "crates/impel-service" }
 impress-parsers-service = { path = "crates/impress-parsers-service" }

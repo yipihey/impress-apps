@@ -460,18 +460,18 @@ public final class SearchViewModel {
 
     // MARK: - Dependencies
 
-    public let sourceManager: SourceManager
+    public let sourceClient: SourceClient
     private let deduplicationService: DeduplicationService
     private weak var libraryManager: LibraryManager?
 
     // MARK: - Initialization
 
     public init(
-        sourceManager: SourceManager = SourceManager(),
+        sourceClient: SourceClient = SourceClient(),
         deduplicationService: DeduplicationService = DeduplicationService(),
         libraryManager: LibraryManager? = nil
     ) {
-        self.sourceManager = sourceManager
+        self.sourceClient = sourceClient
         self.deduplicationService = deduplicationService
         self.libraryManager = libraryManager
     }
@@ -497,7 +497,7 @@ public final class SearchViewModel {
 
     public var availableSources: [SourceMetadata] {
         get async {
-            await sourceManager.availableSources
+            await sourceClient.availableSources
         }
     }
 
@@ -554,7 +554,7 @@ public final class SearchViewModel {
                 sourceIDs: selectedSourceIDs.isEmpty ? nil : sourceIDs
             )
 
-            let rawResults = try await sourceManager.search(query: query, options: options)
+            let rawResults = try await sourceClient.search(query: query, options: options)
 
             // Deduplicate results
             let deduped = await deduplicationService.deduplicate(rawResults)

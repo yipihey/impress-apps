@@ -4897,6 +4897,32 @@ extension HTTPAutomationRouter {
                 return nativeSuccess(body)
             }
             return nativeMapped(response) { $0 }
+        case "refresh_feeds":
+            // `imbib-app-service_refresh-feeds`: one feed, or every due one.
+            let coordinator = InboxCoordinator.shared
+            guard let fetchService = await coordinator.paperFetchService else {
+                return nativeSuccess(["accepted": false, "feeds": 0, "new_papers": 0,
+                                      "reason": "the inbox has not started"])
+            }
+            if let id = uuid("smart_search_id") {
+                do {
+                    let count = try await fetchService.fetchForFeed(smartSearchID: id)
+                    return nativeSuccess(["accepted": true, "feeds": 1, "new_papers": count])
+                } catch {
+                    return nativeSuccess(["accepted": false, "feeds": 0, "new_papers": 0,
+                                          "reason": error.localizedDescription])
+                }
+            }
+            // Every inbox feed, due or not (the scheduler's own cycle only
+            // runs the due ones).
+            let feeds = await MainActor.run { RustStoreAdapter.shared.listSmartSearches().filter(\.feedsToInbox).count }
+            do {
+                let count = try await fetchService.refreshAllInboxFeeds()
+                return nativeSuccess(["accepted": true, "feeds": feeds, "new_papers": count])
+            } catch {
+                return nativeSuccess(["accepted": false, "feeds": feeds, "new_papers": 0,
+                                      "reason": error.localizedDescription])
+            }
         case "sync_nudge":
             response = await handleSyncNudge()
             return nativeMapped(response) { ["accepted": $0["accepted"] ?? false, "reason": $0["reason"] ?? NSNull()] }
