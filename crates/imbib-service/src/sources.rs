@@ -64,6 +64,9 @@ pub fn link() {
         source_pubmed::register();
         source_wos::register();
         source_scix::register();
+        source_s2::register();
+        source_dblp::register();
+        source_inspire::register();
         impress_service_core::secrets::install(Arc::new(ImbibSecretSource));
         if source_service::etiquette::contact().is_none() {
             if let Some(contact) = secrets::keychain_contact() {

@@ -274,6 +274,9 @@ source-openalex = { git = "https://github.com/yipihey/koine", rev = "37749038fcb
 source-pubmed = { git = "https://github.com/yipihey/koine", rev = "37749038fcbd4e78c572dc79b81c21f2f2681b87" }
 source-wos = { git = "https://github.com/yipihey/koine", rev = "37749038fcbd4e78c572dc79b81c21f2f2681b87" }
 source-scix = { git = "https://github.com/yipihey/koine", rev = "37749038fcbd4e78c572dc79b81c21f2f2681b87" }
+source-s2 = { git = "https://github.com/yipihey/koine", rev = "37749038fcbd4e78c572dc79b81c21f2f2681b87" }
+source-dblp = { git = "https://github.com/yipihey/koine", rev = "37749038fcbd4e78c572dc79b81c21f2f2681b87" }
+source-inspire = { git = "https://github.com/yipihey/koine", rev = "37749038fcbd4e78c572dc79b81c21f2f2681b87" }
 impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }
