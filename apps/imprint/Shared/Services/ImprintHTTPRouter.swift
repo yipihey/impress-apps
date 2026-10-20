@@ -16,6 +16,7 @@ import Foundation
 import ImpressAutomation
 import ImpressLogging
 import ImpressOperationQueue
+import ImprintAppIntents
 import ImprintCore
 import ImprintRustCore
 import OSLog

@@ -12,6 +12,13 @@ let package = Package(
             name: "ImprintCore",
             targets: ["ImprintCore"]
         ),
+        // imprint's App Intents, linked by the imprint apps only. ImprintCore
+        // is linked by every suite app (through PublicationManagerCore), so
+        // intents kept there were exported by all six (2026-10-18).
+        .library(
+            name: "ImprintAppIntents",
+            targets: ["ImprintAppIntents"]
+        ),
     ],
     dependencies: [
         .package(path: "../../ImprintRustCore"),
@@ -31,6 +38,12 @@ let package = Package(
                 .product(name: "ImpressStoreKit", package: "ImpressStoreKit")
             ],
             path: "Sources/ImprintCore",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .target(
+            name: "ImprintAppIntents",
+            dependencies: ["ImprintCore"],
+            path: "Sources/ImprintAppIntents",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // `swift test` works here, including the `impress_store_ffiFFI`

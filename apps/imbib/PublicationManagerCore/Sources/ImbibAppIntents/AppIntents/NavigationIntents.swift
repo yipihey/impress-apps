@@ -7,6 +7,7 @@
 
 import AppIntents
 import Foundation
+import PublicationManagerCore
 
 // MARK: - Show Inbox Intent
 

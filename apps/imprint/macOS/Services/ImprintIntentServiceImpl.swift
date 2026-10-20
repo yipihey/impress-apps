@@ -2,6 +2,7 @@ import PublicationManagerCore
 import AppKit
 import Foundation
 import ImpressLogging
+import ImprintAppIntents
 import ImprintCore
 import OSLog
 

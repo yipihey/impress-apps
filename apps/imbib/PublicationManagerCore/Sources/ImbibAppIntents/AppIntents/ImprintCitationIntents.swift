@@ -8,6 +8,7 @@
 
 import AppIntents
 import Foundation
+import PublicationManagerCore
 
 // MARK: - Search Citations Intent
 

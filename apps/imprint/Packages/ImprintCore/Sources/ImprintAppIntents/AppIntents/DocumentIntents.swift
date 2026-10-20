@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import ImprintCore
 
 // MARK: - Service Locator
 

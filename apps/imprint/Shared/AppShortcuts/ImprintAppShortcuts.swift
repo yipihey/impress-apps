@@ -1,53 +1,18 @@
+//
+//  ImprintAppShortcuts.swift
+//  imprint
+//
+//  imprint's App Shortcuts (Siri phrases, Spotlight actions). The provider
+//  lives in the app target because App Intents metadata extraction reads an
+//  AppShortcutsProvider only from the app's own sources: kept in ImprintCore it
+//  was exported by no app (`autoShortcuts: 0`, 2026-10-18). The intents it
+//  names live in ImprintAppIntents.
+//
+
 import AppIntents
 import Foundation
-
-// MARK: - Export Format AppEnum
-
-@available(macOS 14.0, iOS 17.0, *)
-public enum ImprintExportFormat: String, AppEnum, Sendable {
-    case typst
-    case latex
-    case markdown
-    case text
-
-    public static var typeDisplayRepresentation: TypeDisplayRepresentation {
-        "Export Format"
-    }
-
-    public static var caseDisplayRepresentations: [ImprintExportFormat: DisplayRepresentation] {
-        [
-            .typst: "Typst",
-            .latex: "LaTeX",
-            .markdown: "Markdown",
-            .text: "Plain Text"
-        ]
-    }
-}
-
-// MARK: - Intent Errors
-
-@available(macOS 14.0, iOS 17.0, *)
-public enum ImprintIntentError: Error, CustomLocalizedStringResourceConvertible {
-    case automationDisabled
-    case documentNotFound(String)
-    case compilationFailed(String)
-    case executionFailed(String)
-
-    public var localizedStringResource: LocalizedStringResource {
-        switch self {
-        case .automationDisabled:
-            return "Automation API is disabled. Enable it in Settings."
-        case .documentNotFound(let id):
-            return "Document not found: \(id)"
-        case .compilationFailed(let reason):
-            return "Compilation failed: \(reason)"
-        case .executionFailed(let reason):
-            return "Command failed: \(reason)"
-        }
-    }
-}
-
-// MARK: - Shortcuts Provider
+import ImprintAppIntents
+import ImprintCore
 
 @available(macOS 14.0, iOS 17.0, *)
 public struct ImprintShortcuts: AppShortcutsProvider {

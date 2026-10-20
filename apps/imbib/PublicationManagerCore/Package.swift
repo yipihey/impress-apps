@@ -12,6 +12,15 @@ let package = Package(
         .library(
             name: "PublicationManagerCore",
             targets: ["PublicationManagerCore"]
+        ),
+        // imbib's own App Intents, linked by the imbib apps only. Every suite
+        // app links PublicationManagerCore (the chassis), so intents kept there
+        // were exported by all six: Shortcuts listed "Add Paper by DOI" under
+        // impel and impart, and each app carried imbib's AppShortcutsProvider
+        // beside its own (2026-10-18).
+        .library(
+            name: "ImbibAppIntents",
+            targets: ["ImbibAppIntents"]
         )
     ],
     dependencies: [
@@ -121,10 +130,22 @@ let package = Package(
                 .swiftLanguageMode(.v5)
             ]
         ),
+        .target(
+            name: "ImbibAppIntents",
+            dependencies: [
+                "PublicationManagerCore",
+                "ImbibVerbsFFI",
+            ],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+                .swiftLanguageMode(.v5)
+            ]
+        ),
         .testTarget(
             name: "PublicationManagerCoreTests",
             dependencies: [
                 "PublicationManagerCore",
+                "ImbibAppIntents",
                 // Imported directly by the smart-search parity suite and by
                 // ADSQueryNormalizerTests (which now assert the Rust
                 // implementation through the real FFI).

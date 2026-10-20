@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 import ImpressGit
 import ImpressAutomation
 import ImpressLogging
+import ImprintAppIntents
 import ImprintCore
 import ImpressKit
 import ImpressKeyboard

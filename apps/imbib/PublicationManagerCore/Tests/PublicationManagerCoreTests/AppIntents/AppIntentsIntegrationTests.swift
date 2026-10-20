@@ -7,6 +7,7 @@
 
 import XCTest
 @testable import PublicationManagerCore
+@testable import ImbibAppIntents
 
 @available(iOS 16.0, macOS 13.0, *)
 final class AppIntentsIntegrationTests: XCTestCase {

@@ -9,6 +9,7 @@
 
 import AppIntents
 import Foundation
+import PublicationManagerCore
 
 // Adding papers by identifier is the generated
 // `ImbibLibraryImportIdentifiersIntent` (VerbIntents/), dispatched through the
