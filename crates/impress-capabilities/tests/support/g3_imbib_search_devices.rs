@@ -135,6 +135,19 @@ fn smart_search(store: &SqliteItemStore) -> Result<(), String> {
     insert_once(store, item)
 }
 
+/// A paper of its own for the triage examples (they move it, which would
+/// disturb the search examples' paper), back in the search library each time,
+/// and a second library to keep it in.
+fn triage_paper(store: &SqliteItemStore) -> Result<(), String> {
+    library(store)?;
+    let mut keep = row("0c", refs::IMBIB_LIBRARY, None)?;
+    keep.payload
+        .insert("name".into(), ItemValue::String("G3 keep library".into()));
+    insert_once(store, keep)?;
+    reset(store, "0b")?;
+    paper(store, "0b")
+}
+
 fn scix(store: &SqliteItemStore, linked: bool) -> Result<(), String> {
     paper(store, "02")?;
     reset(store, "04")?;
@@ -242,6 +255,7 @@ pub async fn prepare(
         | "imbib-search-service_get-smart-search"
         | "imbib-search-service_delete-smart-search" => smart_search(store)?,
         "imbib-search-service_create-smart-search" => library(store)?,
+        "imbib-triage-service_dismiss" | "imbib-triage-service_keep" => triage_paper(store)?,
         "imbib-scix-service_list-scix-libraries"
         | "imbib-scix-service_get-scix-library"
         | "imbib-scix-service_add-to-scix-library" => scix(store, false)?,
@@ -296,6 +310,31 @@ pub fn verify(
 ) -> Result<(), String> {
     verify_annotations(verb, store, result)?;
     match verb {
+        "imbib-triage-service_dismiss" | "imbib-triage-service_keep" => {
+            if result["ok"] != Value::Bool(true) || result["moved"] != 1 {
+                return Err(format!("{verb} did not move the scratch paper: {result}"));
+            }
+            let paper = store
+                .get(id("0b")?)
+                .map_err(|e| e.to_string())?
+                .ok_or("the scratch paper is gone")?;
+            let home = paper.parent.ok_or("the scratch paper has no library")?;
+            let library = store
+                .get(home)
+                .map_err(|e| e.to_string())?
+                .ok_or("the scratch paper's library is gone")?;
+            let wanted = if verb.ends_with("_keep") {
+                "G3 keep library"
+            } else {
+                "Dismissed"
+            };
+            if library.payload.get("name") != Some(&ItemValue::String(wanted.into())) {
+                return Err(format!(
+                    "{verb} left the scratch paper in {:?}",
+                    library.payload.get("name")
+                ));
+            }
+        }
         "imbib-search-service_delete-smart-search" => {
             if result != &Value::Bool(true) {
                 return Err(format!("{verb} did not report the delete: {result}"));

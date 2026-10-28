@@ -1,0 +1,708 @@
+{
+  "surface": "1.0",
+  "name": "Inbox",
+  "state": {
+    "query": "",
+    "selected": [],
+    "limit": 300,
+    "new_tag": "",
+    "add_to": "",
+    "keep_to": "",
+    "triaged": {},
+    "refreshed": []
+  },
+  "sources": {
+    "papers": {
+      "verb": "imbib-view-service_paper-rows",
+      "args": {
+        "scope": "inbox",
+        "query": "{{state.query}}",
+        "limit": "{{state.limit}}"
+      }
+    },
+    "keep": {
+      "verb": "imbib-view-service_keep-libraries",
+      "args": {}
+    },
+    "card": {
+      "verb": "imbib-view-service_paper-card",
+      "args": {
+        "id": "{{state.selected.0}}"
+      }
+    },
+    "collections": {
+      "verb": "imbib-view-service_collection-choices",
+      "args": {}
+    }
+  },
+  "root": {
+    "grid": {
+      "columns": 2,
+      "items": [
+        {
+          "id": "list-pane",
+          "column": [
+            {
+              "id": "inbox-hint",
+              "text": "What the feeds found. Choose a paper, then **Keep** it in a library or **Dismiss** it to the Dismissed library; either way no feed brings it back. ● marks the unread."
+            },
+            {
+              "id": "refresh-all",
+              "button": {
+                "label": "Refresh all Inbox feeds",
+                "on_click": [
+                  {
+                    "call": {
+                      "verb": "imbib-feeds-service_refresh-inbox-feeds",
+                      "args": {},
+                      "into": "state.refreshed"
+                    }
+                  },
+                  {
+                    "refresh": {
+                      "source": "papers"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "refreshed",
+              "when": {
+                "path": "state.refreshed.0"
+              },
+              "table": {
+                "rows": "{{state.refreshed}}",
+                "columns": [
+                  "name",
+                  "fetched",
+                  "new",
+                  "existing",
+                  "muted",
+                  "dismissed",
+                  "problem"
+                ]
+              }
+            },
+            {
+              "id": "search",
+              "field": {
+                "text": {
+                  "live": true
+                }
+              },
+              "label": "Search",
+              "help": "Title, authors, abstract",
+              "bind": "state.query"
+            },
+            {
+              "id": "papers",
+              "table": {
+                "rows": "{{source.papers}}",
+                "columns": [
+                  "•",
+                  "Title",
+                  "Authors",
+                  "Year",
+                  "Venue"
+                ],
+                "id_field": "id",
+                "on_select": [
+                  {
+                    "set": {
+                      "path": "state.selected",
+                      "value": "{{event.value}}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "detail-pane",
+          "column": [
+            {
+              "id": "triaged",
+              "when": {
+                "path": "state.triaged.problem"
+              },
+              "text": "{{state.triaged.problem}}"
+            },
+            {
+              "id": "card",
+              "when": {
+                "path": "state.selected.0"
+              },
+              "column": [
+                {
+                  "id": "header",
+                  "text": "{{source.card.header}}"
+                },
+                {
+                  "id": "triage",
+                  "grid": {
+                    "columns": 3,
+                    "items": [
+                      {
+                        "id": "keep-to",
+                        "field": {
+                          "select": {
+                            "options": "{{source.keep}}"
+                          }
+                        },
+                        "label": "Keep in",
+                        "bind": "state.keep_to"
+                      },
+                      {
+                        "id": "keep",
+                        "button": {
+                          "label": "Keep",
+                          "on_click": [
+                            {
+                              "call": {
+                                "verb": "imbib-triage-service_keep",
+                                "args": {
+                                  "ids": "{{state.selected}}",
+                                  "library_id": "{{state.keep_to}}",
+                                  "scope": "inbox"
+                                },
+                                "into": "state.triaged"
+                              }
+                            },
+                            {
+                              "set": {
+                                "path": "state.selected",
+                                "value": []
+                              }
+                            },
+                            {
+                              "refresh": {
+                                "source": "papers"
+                              }
+                            },
+                            {
+                              "refresh": {
+                                "source": "keep"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "id": "dismiss",
+                        "button": {
+                          "label": "Dismiss",
+                          "on_click": [
+                            {
+                              "call": {
+                                "verb": "imbib-triage-service_dismiss",
+                                "args": {
+                                  "ids": "{{state.selected}}",
+                                  "scope": "inbox"
+                                },
+                                "into": "state.triaged"
+                              }
+                            },
+                            {
+                              "set": {
+                                "path": "state.selected",
+                                "value": []
+                              }
+                            },
+                            {
+                              "refresh": {
+                                "source": "papers"
+                              }
+                            },
+                            {
+                              "refresh": {
+                                "source": "keep"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "actions",
+                  "row": [
+                    {
+                      "id": "mark-read",
+                      "button": {
+                        "label": "Mark read",
+                        "on_click": [
+                          {
+                            "call": {
+                              "verb": "imbib-library-service_set-read",
+                              "args": {
+                                "ids": "{{state.selected}}",
+                                "read": true
+                              }
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "papers"
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "card"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "mark-unread",
+                      "button": {
+                        "label": "Mark unread",
+                        "on_click": [
+                          {
+                            "call": {
+                              "verb": "imbib-library-service_set-read",
+                              "args": {
+                                "ids": "{{state.selected}}",
+                                "read": false
+                              }
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "papers"
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "card"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "star",
+                      "button": {
+                        "label": "Star",
+                        "on_click": [
+                          {
+                            "call": {
+                              "verb": "imbib-library-service_set-starred",
+                              "args": {
+                                "ids": "{{state.selected}}",
+                                "starred": true
+                              }
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "papers"
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "card"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "unstar",
+                      "button": {
+                        "label": "Unstar",
+                        "on_click": [
+                          {
+                            "call": {
+                              "verb": "imbib-library-service_set-starred",
+                              "args": {
+                                "ids": "{{state.selected}}",
+                                "starred": false
+                              }
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "papers"
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "card"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "flag-row",
+                  "row": [
+                    {
+                      "id": "flag-red",
+                      "button": {
+                        "label": "⚑ Red",
+                        "on_click": [
+                          {
+                            "call": {
+                              "verb": "imbib-library-service_set-flag",
+                              "args": {
+                                "ids": "{{state.selected}}",
+                                "color": "red"
+                              }
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "papers"
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "card"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "flag-amber",
+                      "button": {
+                        "label": "⚑ Amber",
+                        "on_click": [
+                          {
+                            "call": {
+                              "verb": "imbib-library-service_set-flag",
+                              "args": {
+                                "ids": "{{state.selected}}",
+                                "color": "amber"
+                              }
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "papers"
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "card"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "flag-blue",
+                      "button": {
+                        "label": "⚑ Blue",
+                        "on_click": [
+                          {
+                            "call": {
+                              "verb": "imbib-library-service_set-flag",
+                              "args": {
+                                "ids": "{{state.selected}}",
+                                "color": "blue"
+                              }
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "papers"
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "card"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "flag-green",
+                      "button": {
+                        "label": "⚑ Green",
+                        "on_click": [
+                          {
+                            "call": {
+                              "verb": "imbib-library-service_set-flag",
+                              "args": {
+                                "ids": "{{state.selected}}",
+                                "color": "green"
+                              }
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "papers"
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "card"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "flag-clear",
+                      "button": {
+                        "label": "Clear flag",
+                        "on_click": [
+                          {
+                            "call": {
+                              "verb": "imbib-library-service_set-flag",
+                              "args": {
+                                "ids": "{{state.selected}}",
+                                "color": null
+                              }
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "papers"
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "card"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "abstract",
+                  "section": {
+                    "title": "Abstract",
+                    "collapsed": false,
+                    "body": {
+                      "id": "abstract-text",
+                      "text": "{{source.card.abstract}}"
+                    }
+                  }
+                },
+                {
+                  "id": "facts",
+                  "section": {
+                    "title": "Details",
+                    "collapsed": false,
+                    "body": {
+                      "id": "facts-kv",
+                      "kv": "{{source.card.facts}}"
+                    }
+                  }
+                },
+                {
+                  "id": "tags",
+                  "section": {
+                    "title": "Tags",
+                    "collapsed": false,
+                    "body": {
+                      "id": "tags-body",
+                      "column": [
+                        {
+                          "id": "tag-list",
+                          "list": {
+                            "rows": "{{source.card.tags}}",
+                            "actions": [
+                              {
+                                "label": "Remove tag",
+                                "on_click": [
+                                  {
+                                    "call": {
+                                      "verb": "imbib-tags-service_remove-tag",
+                                      "args": {
+                                        "ids": "{{state.selected}}",
+                                        "tag_path": "{{event.value.id}}"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "refresh": {
+                                      "source": "papers"
+                                    }
+                                  },
+                                  {
+                                    "refresh": {
+                                      "source": "card"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "id": "tag-add",
+                          "grid": {
+                            "columns": 2,
+                            "items": [
+                              {
+                                "id": "new-tag",
+                                "field": {
+                                  "text": {}
+                                },
+                                "label": "Add tag",
+                                "help": "A path like methods/mcmc; a new tag is created.",
+                                "bind": "state.new_tag"
+                              },
+                              {
+                                "id": "add-tag",
+                                "button": {
+                                  "label": "Add tag",
+                                  "on_click": [
+                                    {
+                                      "call": {
+                                        "verb": "imbib-tags-service_add-tag",
+                                        "args": {
+                                          "ids": "{{state.selected}}",
+                                          "tag_path": "{{state.new_tag}}"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "set": {
+                                        "path": "state.new_tag",
+                                        "value": ""
+                                      }
+                                    },
+                                    {
+                                      "refresh": {
+                                        "source": "papers"
+                                      }
+                                    },
+                                    {
+                                      "refresh": {
+                                        "source": "card"
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "id": "collections",
+                  "section": {
+                    "title": "Collections",
+                    "collapsed": false,
+                    "body": {
+                      "id": "collections-body",
+                      "column": [
+                        {
+                          "id": "collection-list",
+                          "list": {
+                            "rows": "{{source.card.collections}}",
+                            "actions": [
+                              {
+                                "label": "Remove from collection",
+                                "on_click": [
+                                  {
+                                    "call": {
+                                      "verb": "imbib-library-service_remove-from-collection",
+                                      "args": {
+                                        "publication_ids": "{{state.selected}}",
+                                        "collection_id": "{{event.value.id}}"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "refresh": {
+                                      "source": "papers"
+                                    }
+                                  },
+                                  {
+                                    "refresh": {
+                                      "source": "card"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "id": "collection-add",
+                          "grid": {
+                            "columns": 2,
+                            "items": [
+                              {
+                                "id": "add-to",
+                                "field": {
+                                  "select": {
+                                    "options": "{{source.collections}}"
+                                  }
+                                },
+                                "label": "File in",
+                                "bind": "state.add_to"
+                              },
+                              {
+                                "id": "add-to-collection",
+                                "button": {
+                                  "label": "Add to collection",
+                                  "on_click": [
+                                    {
+                                      "call": {
+                                        "verb": "imbib-library-service_add-to-collection",
+                                        "args": {
+                                          "publication_ids": "{{state.selected}}",
+                                          "collection_id": "{{state.add_to}}"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "refresh": {
+                                        "source": "papers"
+                                      }
+                                    },
+                                    {
+                                      "refresh": {
+                                        "source": "card"
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "id": "bibtex",
+                  "section": {
+                    "title": "BibTeX",
+                    "collapsed": true,
+                    "body": {
+                      "id": "bibtex-code",
+                      "code": {
+                        "language": "bibtex",
+                        "text": "{{source.card.bibtex}}"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

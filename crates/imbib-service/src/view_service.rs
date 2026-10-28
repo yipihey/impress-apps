@@ -235,7 +235,8 @@ pub trait ImbibViewService: Send + Sync + 'static {
     async fn library_choices(&self) -> Vec<ViewChoice>;
 
     /// The paper list of one library or collection (`scope` from
-    /// `library-choices`; empty is the default library, else the Inbox),
+    /// `library-choices`, or `inbox`; empty is the default library, else the
+    /// Inbox),
     /// newest first,
     /// filtered by free text, as rows whose fields are the column headings.
     /// A zero limit means 200.
@@ -348,6 +349,13 @@ pub trait ImbibViewService: Send + Sync + 'static {
     #[impress_example(name = "default", args = r#"{}"#)]
     async fn smart_search_libraries(&self) -> Vec<ViewChoice>;
 
+    /// The libraries a triaged paper can be kept in, as `{value: <library
+    /// id>, label: <name> — <count>}` after a first `{value: "", label:
+    /// "Keep in…"}`: every library but the Inbox and the Dismissed one.
+    #[impress_method(effects(reads = ["imbib/library", "imbib/collection", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
+    async fn keep_libraries(&self) -> Vec<ViewChoice>;
+
     /// Resolve a reference without importing anything: the library first,
     /// then the online databases, every candidate scored. An empty reference
     /// answers an empty resolution rather than a refusal.
@@ -394,6 +402,12 @@ impl ImbibViewService for DefaultImbibViewService {
         match scope.split_once(':') {
             Some(("library", id)) => filters.library = Some(id.to_string()),
             Some(("collection", id)) => filters.collection = Some(id.to_string()),
+            _ if scope == "inbox" => {
+                filters.library = library_service_instance()
+                    .get_inbox_library()
+                    .await
+                    .map(|l| l.id)
+            }
             _ => filters.library = home_library().await,
         }
         library_service_instance()
@@ -585,6 +599,25 @@ impl ImbibViewService for DefaultImbibViewService {
             value: l.id,
             label: l.name,
         }));
+        out
+    }
+
+    async fn keep_libraries(&self) -> Vec<ViewChoice> {
+        let mut out = vec![ViewChoice {
+            value: String::new(),
+            label: "Keep in…".into(),
+        }];
+        out.extend(
+            library_service_instance()
+                .list_libraries()
+                .await
+                .into_iter()
+                .filter(|l| !l.is_inbox && l.name != crate::triage_service::DISMISSED_LIBRARY)
+                .map(|l| ViewChoice {
+                    label: format!("{} — {}", l.name, l.publication_count),
+                    value: l.id,
+                }),
+        );
         out
     }
 
@@ -1099,6 +1132,20 @@ fn row_of(p: &PublicationSummary) -> ViewPaperRow {
     }
 }
 
+/// `text` as one URL path segment: everything but the unreserved
+/// characters percent-encoded, byte by byte.
+fn path_segment(text: &str) -> String {
+    let mut out = String::new();
+    for b in text.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
 /// A markdown link label never contains `]`, and its address never `)`.
 fn link(label: &str, url: &str) -> String {
     format!("[{label}]({})", url.replace(')', "%29"))
@@ -1179,6 +1226,25 @@ fn card_of(d: &PublicationDetailRecord, bibtex: String) -> ViewPaperCard {
     }
     if !url.is_empty() && url.starts_with("http") {
         links.push(link("Link", &url));
+    }
+    // The library's own PDFs, served by the host from where imbib keeps
+    // them (`/api/blob/<linked-file id>/<filename>`; the browser's viewer
+    // opens them).
+    let local: Vec<_> = d
+        .linked_files
+        .iter()
+        .filter(|f| f.is_pdf && f.is_locally_materialized)
+        .collect();
+    for (n, f) in local.iter().enumerate() {
+        let label = if local.len() == 1 {
+            "📄 Local PDF".to_string()
+        } else {
+            format!("📄 Local PDF {}", n + 1)
+        };
+        links.push(link(
+            &label,
+            &format!("/api/blob/{}/{}", f.id, path_segment(&f.filename)),
+        ));
     }
 
     let mut header = format!(
@@ -1337,7 +1403,7 @@ impress_service_impl! {
         library_choices() -> Vec<ViewChoice>,
         /// The paper list of one library or collection as display rows.
         paper_rows(
-            /// `library:<uuid>`, `collection:<uuid>`, or empty for the default library.
+            /// `library:<uuid>`, `collection:<uuid>`, `inbox`, or empty for the default library.
             scope: String,
             /// Free text over title, authors and abstract; empty lists the scope.
             query: String,
@@ -1394,6 +1460,8 @@ impress_service_impl! {
         smart_search_rows() -> Vec<ViewSmartSearchRow>,
         /// Libraries a search can be saved in, as picker choices by bare id.
         smart_search_libraries() -> Vec<ViewChoice>,
+        /// Libraries a triaged paper can be kept in, as picker choices.
+        keep_libraries() -> Vec<ViewChoice>,
         /// Resolve a reference for display, importing nothing.
         resolve_view(
             /// A reference as a bibliography prints it, or a DOI, arXiv id, bibcode or BibTeX entry.
@@ -1412,6 +1480,12 @@ impress_service_impl! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_file_name_becomes_one_path_segment() {
+        assert_eq!(path_segment("Abel_2002.pdf"), "Abel_2002.pdf");
+        assert_eq!(path_segment("a b(1)/ü.pdf"), "a%20b%281%29%2F%C3%BC.pdf");
+    }
 
     #[test]
     fn short_authors_names_one_two_or_the_first_et_al() {

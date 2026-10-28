@@ -304,11 +304,14 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-text-service_generate-cite-key` | read_only | name/doc |
 | `imbib-text-service_normalize-tag-path` | read_only | name/doc |
 | `imbib-text-service_normalize-tag-segment` | read_only | name/doc |
+| `imbib-triage-service_dismiss` | mutating | name/doc |
+| `imbib-triage-service_keep` | mutating | name/doc |
 | `imbib-view-service_collection-choices` | read_only | name/doc |
 | `imbib-view-service_collection-rows` | read_only | name/doc |
 | `imbib-view-service_feed-choices` | read_only | name/doc |
 | `imbib-view-service_feed-rows` | read_only | name/doc |
 | `imbib-view-service_import-ids` | external | name/doc |
+| `imbib-view-service_keep-libraries` | read_only | name/doc |
 | `imbib-view-service_library-choices` | read_only | name/doc |
 | `imbib-view-service_paper-card` | read_only | name/doc |
 | `imbib-view-service_paper-rows` | read_only | name/doc |

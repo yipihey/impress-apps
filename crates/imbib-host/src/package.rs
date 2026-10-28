@@ -10,6 +10,10 @@ use koine_packages::package::Package;
 /// The manifest and every file it names, as `include_bytes!` read them.
 const FILES: &[(&str, &[u8])] = &[
     (
+        "surfaces/inbox.surface.json",
+        include_bytes!("../package/surfaces/inbox.surface.json"),
+    ),
+    (
         "surfaces/library.surface.json",
         include_bytes!("../package/surfaces/library.surface.json"),
     ),

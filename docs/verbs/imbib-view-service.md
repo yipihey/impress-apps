@@ -114,6 +114,26 @@ Fetch identifiers online and import them into a library or collection.
   []
   ```
 
+## `imbib-view-service_keep-libraries`
+
+Libraries a triaged paper can be kept in, as picker choices.
+
+- **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
+- **reads**: "imbib/library", "imbib/collection", "imbib/bibliography-entry"
+- **writes**: —
+- **reach**: —
+
+Takes no arguments.
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {}
+  ```
+
 ## `imbib-view-service_library-choices`
 
 The library picker: libraries and their collections as `{value, label}`.
@@ -170,7 +190,7 @@ The paper list of one library or collection as display rows.
 |---|---|---|---|
 | `limit` | integer | yes | The most rows to return; zero means 200. |
 | `query` | string | yes | Free text over title, authors and abstract; empty lists the scope. |
-| `scope` | string | yes | `library:<uuid>`, `collection:<uuid>`, or empty for the default library. |
+| `scope` | string | yes | `library:<uuid>`, `collection:<uuid>`, `inbox`, or empty for the default library. |
 
 **Examples**
 

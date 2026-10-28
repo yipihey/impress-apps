@@ -9,11 +9,17 @@
     "new_tag": "",
     "add_to": "",
     "refreshed": [],
-    "last": {}
+    "last": {},
+    "keep_to": "",
+    "triaged": {}
   },
   "sources": {
     "feeds": {
       "verb": "imbib-view-service_feed-choices",
+      "args": {}
+    },
+    "keep": {
+      "verb": "imbib-view-service_keep-libraries",
       "args": {}
     },
     "papers": {
@@ -170,6 +176,13 @@
           "id": "detail-pane",
           "column": [
             {
+              "id": "triaged",
+              "when": {
+                "path": "state.triaged.problem"
+              },
+              "text": "{{state.triaged.problem}}"
+            },
+            {
               "id": "card",
               "when": {
                 "path": "state.selected.0"
@@ -178,6 +191,93 @@
                 {
                   "id": "header",
                   "text": "{{source.card.header}}"
+                },
+                {
+                  "id": "triage",
+                  "grid": {
+                    "columns": 3,
+                    "items": [
+                      {
+                        "id": "keep-to",
+                        "field": {
+                          "select": {
+                            "options": "{{source.keep}}"
+                          }
+                        },
+                        "label": "Keep in",
+                        "bind": "state.keep_to"
+                      },
+                      {
+                        "id": "keep",
+                        "button": {
+                          "label": "Keep",
+                          "on_click": [
+                            {
+                              "call": {
+                                "verb": "imbib-triage-service_keep",
+                                "args": {
+                                  "ids": "{{state.selected}}",
+                                  "library_id": "{{state.keep_to}}",
+                                  "scope": "feed:{{state.feed}}"
+                                },
+                                "into": "state.triaged"
+                              }
+                            },
+                            {
+                              "set": {
+                                "path": "state.selected",
+                                "value": []
+                              }
+                            },
+                            {
+                              "refresh": {
+                                "source": "papers"
+                              }
+                            },
+                            {
+                              "refresh": {
+                                "source": "keep"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "id": "dismiss",
+                        "button": {
+                          "label": "Dismiss",
+                          "on_click": [
+                            {
+                              "call": {
+                                "verb": "imbib-triage-service_dismiss",
+                                "args": {
+                                  "ids": "{{state.selected}}",
+                                  "scope": "feed:{{state.feed}}"
+                                },
+                                "into": "state.triaged"
+                              }
+                            },
+                            {
+                              "set": {
+                                "path": "state.selected",
+                                "value": []
+                              }
+                            },
+                            {
+                              "refresh": {
+                                "source": "papers"
+                              }
+                            },
+                            {
+                              "refresh": {
+                                "source": "keep"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
                 },
                 {
                   "id": "actions",

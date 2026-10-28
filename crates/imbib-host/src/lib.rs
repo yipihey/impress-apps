@@ -10,9 +10,11 @@
 pub mod package;
 
 use std::path::Path;
+use std::sync::Arc;
 
 use impress_core::SqliteItemStore;
-use impress_item::store::{AttributedStore, StoreError};
+use impress_item::store::{AttributedStore, BlobStore, StoreError};
+use impress_item::ItemId;
 
 /// Link everything the host serves and register the `sqlite:` store scheme.
 /// Call first in `main`: the linker drops a crate nothing refers to.
@@ -20,6 +22,69 @@ pub fn link() {
     koine_host::ensure_linked();
     impress_capabilities::force_link();
     koine_store::register("sqlite", open_sqlite);
+    koine_store::register_blobs("sqlite", open_linked_files);
+}
+
+/// The blob view of `sqlite:`: the library's linked files (PDFs and other
+/// attachments), read-only, as `/api/blob/<linked-file id>/<filename>`.
+/// They live as files beside the database, not in it, so the view finds
+/// each through `ImbibStore::resolve_linked_file` — the same ladder the
+/// app's `AttachmentManager` climbs.
+fn open_linked_files(_rest: &str) -> Result<Option<Arc<dyn BlobStore>>, StoreError> {
+    Ok(Some(Arc::new(LinkedFiles)))
+}
+
+/// imbib's linked files as a read-only blob store; see [`open_linked_files`].
+pub struct LinkedFiles;
+
+impl LinkedFiles {
+    /// The file's path, when `item` is a linked file named `name` that
+    /// resolves on this Mac.
+    fn path_of(&self, item: ItemId, name: &str) -> Result<Option<std::path::PathBuf>, StoreError> {
+        let store = imbib_service::store_singleton::store_instance();
+        let path = store
+            .resolve_linked_file(item.to_string())
+            .map_err(|e| StoreError::Validation(e.to_string()))?;
+        Ok(path
+            .map(std::path::PathBuf::from)
+            .filter(|p| p.file_name().and_then(|f| f.to_str()) == Some(name)))
+    }
+}
+
+impl BlobStore for LinkedFiles {
+    fn put_blob(&self, _item: ItemId, _name: &str, _bytes: &[u8]) -> Result<(), StoreError> {
+        Err(StoreError::Validation(
+            "imbib's linked files are read-only here; attach a file in imbib".into(),
+        ))
+    }
+
+    fn get_blob(&self, item: ItemId, name: &str) -> Result<Option<Vec<u8>>, StoreError> {
+        match self.path_of(item, name)? {
+            Some(path) => std::fs::read(&path)
+                .map(Some)
+                .map_err(|e| StoreError::Validation(format!("{}: {e}", path.display()))),
+            None => Ok(None),
+        }
+    }
+
+    fn delete_blob(&self, _item: ItemId, _name: &str) -> Result<(), StoreError> {
+        Err(StoreError::Validation(
+            "imbib's linked files are read-only here; remove a file in imbib".into(),
+        ))
+    }
+
+    fn list_blobs(&self, item: ItemId) -> Result<Vec<String>, StoreError> {
+        let store = imbib_service::store_singleton::store_instance();
+        let path = store
+            .resolve_linked_file(item.to_string())
+            .map_err(|e| StoreError::Validation(e.to_string()))?;
+        Ok(path
+            .as_deref()
+            .and_then(|p| std::path::Path::new(p).file_name())
+            .and_then(|f| f.to_str())
+            .map(|f| vec![f.to_string()])
+            .unwrap_or_default())
+    }
 }
 
 /// `sqlite:<path>`, or `sqlite:` for the suite's store (`IMPRESS_STORE_PATH`,

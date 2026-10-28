@@ -2,8 +2,12 @@
   "package": "1.0",
   "name": "imbib",
   "version": "0.1.0",
-  "description": "imbib's pages on koine's web frontend: the library, feeds, tags, collections, saved searches, a paper (flags, tags, collections), online search and import, and citation resolution — every one a surface over imbib's verbs.",
+  "description": "imbib's pages on koine's web frontend: the Inbox and its triage, the library, feeds, tags, collections, saved searches, a paper (flags, tags, collections), online search and import, and citation resolution — every one a surface over imbib's verbs.",
   "surfaces": [
+    {
+      "name": "Inbox",
+      "file": "surfaces/inbox.surface.json"
+    },
     {
       "name": "Library",
       "file": "surfaces/library.surface.json"
@@ -56,11 +60,14 @@
       "imbib-sources-service_source-status",
       "imbib-tags-service_add-tag",
       "imbib-tags-service_remove-tag",
+      "imbib-triage-service_dismiss",
+      "imbib-triage-service_keep",
       "imbib-view-service_collection-choices",
       "imbib-view-service_collection-rows",
       "imbib-view-service_feed-choices",
       "imbib-view-service_feed-rows",
       "imbib-view-service_import-ids",
+      "imbib-view-service_keep-libraries",
       "imbib-view-service_library-choices",
       "imbib-view-service_paper-card",
       "imbib-view-service_paper-rows",

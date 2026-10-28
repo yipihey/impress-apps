@@ -275,11 +275,14 @@ catalogue, 168 on the exception table.
 | `imbib-undo-service_recent-undo-groups` | "core/operation" | — | — | — |
 | `imbib-undo-service_undo-batch` | "core/operation" | any("restores whatever kind the operations targeted") | — | example ×1 |
 | `imbib-undo-service_undo-operation` | "core/operation" | any("restores whatever kind the operations targeted") | — | example ×1 |
+| `imbib-triage-service_dismiss` | "imbib/bibliography-entry", "imbib/library", "imbib/smart-search", "imbib/dismissed-paper", "imbib/collection" | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper", "imbib/collection" | — | example ×1 |
+| `imbib-triage-service_keep` | "imbib/bibliography-entry", "imbib/library", "imbib/smart-search", "imbib/dismissed-paper", "imbib/collection" | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper", "imbib/collection" | — | example ×1 |
 | `imbib-view-service_collection-choices` | "imbib/library", "imbib/collection", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-view-service_collection-rows` | "imbib/library", "imbib/collection", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-view-service_feed-choices` | "imbib/smart-search", "imbib/library", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-view-service_feed-rows` | "imbib/smart-search", "imbib/library", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/collection" | — | — | example ×1 |
 | `imbib-view-service_import-ids` | "imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper" | "imbib/bibliography-entry", "imbib/collection" | network | — |
+| `imbib-view-service_keep-libraries` | "imbib/library", "imbib/collection", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-view-service_library-choices` | "imbib/library", "imbib/collection", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-view-service_paper-card` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/collection" | — | — | — |
 | `imbib-view-service_paper-rows` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection" | — | — | example ×1 |

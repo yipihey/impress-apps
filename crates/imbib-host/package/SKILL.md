@@ -7,7 +7,8 @@ and kept current by feeds.
 
 Reading:
 - `imbib-view-service_library-choices`, `paper-rows`, `paper-card` — the
-  library picker, a library's or collection's papers, one paper.
+  library picker, a library's or collection's papers (scope `inbox` for the
+  Inbox), one paper.
 - `imbib-view-service_feed-choices`, `feed-rows` — the feeds and their papers.
 - `imbib-view-service_tag-tree`, `tag-rows` — the tag tree (lazy: pass the
   open paths) and a tag's papers.
@@ -19,6 +20,11 @@ Reading:
   scope `collection:<search id>` lists a search's papers.
 
 Doing:
+- `imbib-triage-service_keep` / `dismiss` — triage: keep papers in a
+  library (`imbib-view-service_keep-libraries` lists them) or dismiss them to
+  the Dismissed library (the trash; nothing is deleted). From the Inbox
+  (`scope: "inbox"`) or a feed (`"feed:<id>"`) both record the paper, so no
+  feed brings it back; from `"library:<id>"` they only move it.
 - `imbib-feeds-service_refresh-feed` / `refresh-inbox-feeds` — run feeds now
   (search, drop muted and dismissed, import new papers into the Inbox).
 - `imbib-feeds-service_refresh-feed` with a saved search's id runs it and files
