@@ -69,6 +69,12 @@ pub struct ViewPaperCard {
     /// The paper's tags as list rows (`id` the path, `label` the path), so a
     /// row's menu can name the tag it removes.
     pub tags: Vec<ViewTag>,
+    /// The collections holding the paper as list rows (`id` the
+    /// collection's id, `label` `Library / Name`), so a row's menu can name
+    /// the collection it removes the paper from.
+    pub collections: Vec<ViewTag>,
+    /// The flag's color, empty when the paper is not flagged.
+    pub flag: String,
     /// The paper's BibTeX as the library exports it.
     pub bibtex: String,
     /// Whether the paper is read.
@@ -165,6 +171,22 @@ pub struct ViewTag {
     pub id: String,
     /// The tag path, shown.
     pub label: String,
+}
+
+/// One row of the collections table. The field names are the column headings.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct ViewCollectionRow {
+    /// The collection's id (the row's identity, not a column).
+    pub id: String,
+    /// The collection's name.
+    #[serde(rename = "Collection")]
+    pub name: String,
+    /// The library that owns it, empty when none does.
+    #[serde(rename = "Library")]
+    pub library: String,
+    /// How many papers it holds.
+    #[serde(rename = "Papers")]
+    pub papers: String,
 }
 
 /// One row of the tag tree widget: `id` is the tag's path, `parent` its
@@ -275,6 +297,19 @@ pub trait ImbibViewService: Send + Sync + 'static {
     )]
     async fn tag_rows(&self, tag_path: String, limit: u32) -> Vec<ViewPaperRow>;
 
+    /// Every paper collection as table rows — name, owning library, paper
+    /// count — libraries in picker order, collections no library owns last.
+    #[impress_method(effects(reads = ["imbib/library", "imbib/collection", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
+    async fn collection_rows(&self) -> Vec<ViewCollectionRow>;
+
+    /// Every paper collection as `{value: <collection id>, label:
+    /// "<library> / <name>"}`, for a picker that files a paper, after a
+    /// first `{value: "", label: "Choose a collection…"}`.
+    #[impress_method(effects(reads = ["imbib/library", "imbib/collection", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
+    async fn collection_choices(&self) -> Vec<ViewChoice>;
+
     /// Resolve a reference without importing anything: the library first,
     /// then the online databases, every candidate scored. An empty reference
     /// answers an empty resolution rather than a refusal.
@@ -335,7 +370,23 @@ impl ImbibViewService for DefaultImbibViewService {
         let library = library_service_instance();
         let detail = library.get_publication_detail(id.clone()).await?;
         let bibtex = library.export_bibtex(vec![id]).await;
-        Some(card_of(&detail, bibtex))
+        let mut card = card_of(&detail, bibtex);
+        let named: BTreeMap<String, String> = all_collections()
+            .await
+            .into_iter()
+            .map(|c| (c.id.clone(), c.label()))
+            .collect();
+        card.collections = detail
+            .collection_ids
+            .iter()
+            .filter_map(|id| {
+                named.get(id).map(|label| ViewTag {
+                    id: id.clone(),
+                    label: label.clone(),
+                })
+            })
+            .collect();
+        Some(card)
     }
 
     async fn search_rows(
@@ -397,6 +448,34 @@ impl ImbibViewService for DefaultImbibViewService {
                 outcome: said,
             });
         }
+        out
+    }
+
+    async fn collection_rows(&self) -> Vec<ViewCollectionRow> {
+        all_collections()
+            .await
+            .into_iter()
+            .map(|c| ViewCollectionRow {
+                id: c.id,
+                name: clean(&c.name),
+                library: c.library,
+                papers: c.count.to_string(),
+            })
+            .collect()
+    }
+
+    async fn collection_choices(&self) -> Vec<ViewChoice> {
+        // A picker shows its first entry before anything is chosen, while its
+        // bound value is still empty; that entry must say so rather than
+        // name a collection the paper would not be filed in.
+        let mut out = vec![ViewChoice {
+            value: String::new(),
+            label: "Choose a collection…".into(),
+        }];
+        out.extend(all_collections().await.into_iter().map(|c| ViewChoice {
+            label: c.label(),
+            value: c.id,
+        }));
         out
     }
 
@@ -1066,9 +1145,71 @@ fn card_of(d: &PublicationDetailRecord, bibtex: String) -> ViewPaperCard {
             .map(|b| b.trim().to_string())
             .filter(|b| b.starts_with('@'))
             .unwrap_or(bibtex),
+        collections: Vec::new(),
+        flag: d.flag_color.clone().unwrap_or_default(),
         is_read: d.is_read,
         is_starred: d.is_starred,
     }
+}
+
+/// A paper collection with the library that owns it.
+struct CollectionEntry {
+    id: String,
+    name: String,
+    /// The owning library's name, empty when none owns it.
+    library: String,
+    count: i32,
+}
+
+impl CollectionEntry {
+    fn label(&self) -> String {
+        let name = clean(&self.name);
+        if self.library.is_empty() {
+            name
+        } else {
+            format!("{} / {name}", self.library)
+        }
+    }
+}
+
+/// Every paper collection: each library's own in picker order, then those
+/// no library owns (collections made before libraries owned them).
+async fn all_collections() -> Vec<CollectionEntry> {
+    let library = library_service_instance();
+    let home = home_library().await;
+    let mut libraries = library.list_libraries().await;
+    libraries.sort_by_key(|l| Some(&l.id) != home.as_ref());
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for lib in libraries {
+        for coll in library.list_collections(lib.id.clone()).await {
+            seen.insert(coll.id.clone());
+            out.push(CollectionEntry {
+                id: coll.id,
+                name: coll.name,
+                library: lib.name.clone(),
+                count: coll.publication_count,
+            });
+        }
+    }
+    let store = crate::store_singleton::store_instance();
+    match tokio::task::spawn_blocking(move || store.list_all_collections()).await {
+        Ok(Ok(rows)) => {
+            for row in rows {
+                if seen.insert(row.id.clone()) {
+                    out.push(CollectionEntry {
+                        id: row.id,
+                        name: row.name,
+                        library: String::new(),
+                        count: row.publication_count,
+                    });
+                }
+            }
+        }
+        Ok(Err(e)) => tracing::warn!(error = %e, "listing collections no library owns"),
+        Err(e) => tracing::warn!(error = %e, "listing collections no library owns"),
+    }
+    out
 }
 
 impress_service_impl! {
@@ -1136,6 +1277,10 @@ impress_service_impl! {
             /// The most rows; zero means 300.
             limit: u32
         ) -> Vec<ViewPaperRow>,
+        /// Every paper collection as table rows: name, library, count.
+        collection_rows() -> Vec<ViewCollectionRow>,
+        /// Every paper collection as picker choices, after "Choose a collection…".
+        collection_choices() -> Vec<ViewChoice>,
         /// Resolve a reference for display, importing nothing.
         resolve_view(
             /// A reference as a bibliography prints it, or a DOI, arXiv id, bibcode or BibTeX entry.

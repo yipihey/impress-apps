@@ -18,6 +18,7 @@ pub fn abstract_display_text(text: &str) -> String {
         match segment {
             AbstractSegment::Text(t) => out.push_str(&t),
             AbstractSegment::InlineMath(m) | AbstractSegment::DisplayMath(m) => {
+                let m = unescape_grouping_braces(&m);
                 match inline_math_to_unicode(&m) {
                     Some(u) => out.push_str(&u),
                     None => {
@@ -30,6 +31,23 @@ pub fn abstract_display_text(text: &str) -> String {
         }
     }
     out
+}
+
+/// A formula whose grouping braces arrived BibTeX-escaped (`M_\{\odot\}`,
+/// `\mathrm\{erg\}`, as ADS and arXiv exports often carry them) with the
+/// braces restored. Only a formula that uses `\{` as grouping — right after
+/// `_`, `^` or a command name — is rewritten; set braces (`\{x\}` after a
+/// space or an operator) mean braces and are left as written.
+fn unescape_grouping_braces(latex: &str) -> String {
+    let chars: Vec<char> = latex.chars().collect();
+    let grouping = chars.windows(3).any(|w| {
+        w[1] == '\\' && w[2] == '{' && (w[0] == '_' || w[0] == '^' || w[0].is_ascii_alphabetic())
+    });
+    if grouping {
+        latex.replace("\\{", "{").replace("\\}", "}")
+    } else {
+        latex.to_string()
+    }
 }
 
 /// One formula as Unicode, or `None` when any command, script or group in it
@@ -305,6 +323,22 @@ mod tests {
         assert_eq!(
             inline_math_to_unicode(r"1.5\,{\rm rad\,m^{-2}}").as_deref(),
             Some("1.5 rad m⁻²")
+        );
+    }
+
+    #[test]
+    fn bibtex_escaped_grouping_braces_still_convert() {
+        assert_eq!(
+            abstract_display_text(r"range from $\sim10^2-10^6~M_\{\odot\}$. However"),
+            "range from ∼10²-10⁶ M⊙. However"
+        );
+        assert_eq!(
+            abstract_display_text(r"($\lesssim10^3 M_\{\odot\}$)"),
+            "(≲10³ M⊙)"
+        );
+        assert_eq!(
+            unescape_grouping_braces(r"x \in \{a, b\}"),
+            r"x \in \{a, b\}"
         );
     }
 

@@ -1378,7 +1378,7 @@ Search paper metadata by free text, newest-added first, applying optional state,
 
 ## `imbib-library-service_set-flag`
 
-Set or clear a colored flag on papers. Flags are visual markers for workflow status. Set color to null to clear the flag.
+Set or clear a colored flag on papers. Flags are visual markers for workflow status. Set color to null (or "") to clear the flag.
 
 - **safety**: `mutating`
 - **adverbs**: tentatively, with_review, once

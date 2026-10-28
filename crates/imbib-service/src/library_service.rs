@@ -914,7 +914,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     )]
     async fn set_starred(&self, ids: Vec<String>, starred: bool) -> MutationResult;
     /// Set or clear a colored flag on papers. Flags are visual markers for
-    /// workflow status. Set color to null to clear the flag.
+    /// workflow status. Set color to null (or "") to clear the flag.
     #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry"], writes = ["imbib/bibliography-entry"]))]
     #[impress_example(
         name = "flag-for-review",
@@ -2385,6 +2385,11 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
     }
     async fn set_flag(&self, ids: Vec<String>, color: Option<String>) -> MutationResult {
         let n = ids.len() as u32;
+        // An empty color is no flag: a page's cleared picker sends "", and a
+        // flag stored as "" would show as flagged with no color.
+        let color = color
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty());
         match self.store.set_flag(ids, color, None, None) {
             Ok(_) => ok_n(n),
             Err(e) => {

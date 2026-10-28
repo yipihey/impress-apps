@@ -2,7 +2,7 @@
   "package": "1.0",
   "name": "imbib",
   "version": "0.1.0",
-  "description": "imbib's pages on koine's web frontend: the library, feeds, tags, a paper, online search and import, and citation resolution — every one a surface over imbib's verbs.",
+  "description": "imbib's pages on koine's web frontend: the library, feeds, tags, collections, a paper (flags, tags, collections), online search and import, and citation resolution — every one a surface over imbib's verbs.",
   "surfaces": [
     {
       "name": "Library",
@@ -15,6 +15,10 @@
     {
       "name": "Tags",
       "file": "surfaces/tags.surface.json"
+    },
+    {
+      "name": "Collections",
+      "file": "surfaces/collections.surface.json"
     },
     {
       "name": "Search online",
@@ -33,13 +37,21 @@
   ],
   "requires": {
     "verbs": [
+      "collection-service_create",
+      "collection-service_delete",
+      "collection-service_rename",
       "imbib-feeds-service_refresh-feed",
       "imbib-feeds-service_refresh-inbox-feeds",
+      "imbib-library-service_add-to-collection",
+      "imbib-library-service_remove-from-collection",
+      "imbib-library-service_set-flag",
       "imbib-library-service_set-read",
       "imbib-library-service_set-starred",
       "imbib-sources-service_source-status",
       "imbib-tags-service_add-tag",
       "imbib-tags-service_remove-tag",
+      "imbib-view-service_collection-choices",
+      "imbib-view-service_collection-rows",
       "imbib-view-service_feed-choices",
       "imbib-view-service_feed-rows",
       "imbib-view-service_import-ids",

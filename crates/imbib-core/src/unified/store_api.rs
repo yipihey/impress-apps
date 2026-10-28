@@ -4855,6 +4855,14 @@ impl ImbibStore {
 
 // Internal helpers (not exposed via UniFFI)
 impl ImbibStore {
+    /// Every paper collection, whichever library owns it (or none), in
+    /// `sort_order`. `list_collections` asks one library; collections made
+    /// before libraries owned them have no library and only show up here.
+    pub fn list_all_collections(&self) -> Result<Vec<CollectionRow>, StoreApiError> {
+        let rows = collection_ops::list_tree(&self.store, &IMBIB_COLLECTION)?;
+        Ok(rows.iter().map(kernel_collection_row).collect())
+    }
+
     /// Import one `bibliographic-work@1.0.0` with its provenance kept
     /// (source convention S-D5): the row's `source_id` is filled, its
     /// `produced_by` is the verb call's row when one exists, `raw_bibtex` is
