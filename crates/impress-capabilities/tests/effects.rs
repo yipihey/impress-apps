@@ -160,7 +160,13 @@ use serde_json::Value;
 // process like `resolve-citation`, whose cascade it runs in preview; its
 // evidence is the reference-parsing and bibcode tests in sources.rs and live
 // resolutions of ApJ, MNRAS and Science references through the host.
-const EXCEPTION_CEILING: usize = 187;
+// 187 → 189: `imbib-feeds-service_{refresh-feed,refresh-inbox-feeds}` —
+// feed refresh in Rust, so it runs with no app — leave the process for the
+// sources a feed asks. Their evidence is the mute-rule, group-feed and
+// author-matching tests in feeds_service.rs and live refreshes through the
+// host (an ADS feed: 100 fetched, 59 new, then 0 new and 85 held on the
+// second run).
+const EXCEPTION_CEILING: usize = 189;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave

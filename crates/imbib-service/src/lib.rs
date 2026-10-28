@@ -141,6 +141,7 @@ pub mod app_service;
 pub mod artifacts_service;
 pub mod backup_service;
 pub mod eink_service;
+pub mod feeds_service;
 pub mod library_service;
 pub mod manuscripts_service;
 pub mod scix_service;

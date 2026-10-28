@@ -66,8 +66,9 @@ pub struct ViewPaperCard {
     /// Labelled facts for a `kv` node: cite key, type, year, journal, volume,
     /// pages, DOI, arXiv, bibcode, citations, read, starred, flag, libraries.
     pub facts: BTreeMap<String, String>,
-    /// The paper's tags.
-    pub tags: Vec<String>,
+    /// The paper's tags as list rows (`id` the path, `label` the path), so a
+    /// row's menu can name the tag it removes.
+    pub tags: Vec<ViewTag>,
     /// The paper's BibTeX as the library exports it.
     pub bibtex: String,
     /// Whether the paper is read.
@@ -157,6 +158,30 @@ pub struct ViewCandidateRow {
     pub source: String,
 }
 
+/// One tag on a paper, as a list row.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct ViewTag {
+    /// The tag path.
+    pub id: String,
+    /// The tag path, shown.
+    pub label: String,
+}
+
+/// One row of the tag tree widget: `id` is the tag's path, `parent` its
+/// parent's path (null at the root), `label` the leaf with its count.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct ViewTagNode {
+    /// The tag path (`methods/mcmc`).
+    pub id: String,
+    /// The parent path, null for a top-level tag.
+    pub parent: Option<String>,
+    /// `mcmc — 12`.
+    pub label: String,
+    /// The tag has children, whether or not they are among the rows yet
+    /// (the tree is lazy: a branch's children come once it is expanded).
+    pub has_children: bool,
+}
+
 #[impress_service]
 pub trait ImbibViewService: Send + Sync + 'static {
     /// The library picker: every library as `library:<id>`, each followed by
@@ -212,6 +237,43 @@ pub trait ImbibViewService: Send + Sync + 'static {
         expect = r#"[]"#
     )]
     async fn import_ids(&self, scope: String, ids: Vec<String>) -> Vec<ViewImportLine>;
+
+    /// The feed picker: every feed (smart search) as `{value: <feed id>,
+    /// label: "<library> ▸ <name>"}`, inbox feeds first.
+    #[impress_method(effects(reads = ["imbib/smart-search", "imbib/library", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
+    async fn feed_choices(&self) -> Vec<ViewChoice>;
+
+    /// The papers a feed has found (its collection), newest first, filtered
+    /// by free text. An empty `feed_id` is the first feed `feed-choices`
+    /// lists, which is the one a picker with no value shows.
+    #[impress_method(effects(reads = ["imbib/smart-search", "imbib/library", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/collection"]))]
+    #[impress_example(name = "default", args = r#"{"feed_id":"","query":"","limit":20}"#)]
+    async fn feed_rows(&self, feed_id: String, query: String, limit: u32) -> Vec<ViewPaperRow>;
+
+    /// The tag tree as tree-widget rows, lazily: the top-level tags and the
+    /// children of every path in `expanded` (the widget's own expand state),
+    /// with the parents a path implies even when no paper carries the
+    /// parent itself. A library can hold thousands of tags; a page asks only
+    /// for what is open, and an open node shows its 300 most used children
+    /// with a row saying how many more there are. A non-empty `filter`
+    /// answers instead the tags whose path contains it, flat, most used first.
+    #[impress_method(effects(reads = ["imbib/tag-definition", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{"expanded":[],"filter":""}"#)]
+    async fn tag_tree(
+        &self,
+        expanded: Option<Vec<String>>,
+        filter: Option<String>,
+    ) -> Vec<ViewTagNode>;
+
+    /// The papers carrying a tag, newest publication first. An empty tag
+    /// answers no rows.
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror"]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"tag_path":"effects/example","limit":20}"#
+    )]
+    async fn tag_rows(&self, tag_path: String, limit: u32) -> Vec<ViewPaperRow>;
 
     /// Resolve a reference without importing anything: the library first,
     /// then the online databases, every candidate scored. An empty reference
@@ -336,6 +398,156 @@ impl ImbibViewService for DefaultImbibViewService {
             });
         }
         out
+    }
+
+    async fn feed_choices(&self) -> Vec<ViewChoice> {
+        crate::feeds_service::feeds_in_order()
+            .await
+            .into_iter()
+            .map(|(feed, library)| ViewChoice {
+                value: feed.id.clone(),
+                label: format!("{library} ▸ {}", feed.name),
+            })
+            .collect()
+    }
+
+    async fn feed_rows(&self, feed_id: String, query: String, limit: u32) -> Vec<ViewPaperRow> {
+        let feed_id = if feed_id.trim().is_empty() {
+            match crate::feeds_service::feeds_in_order()
+                .await
+                .into_iter()
+                .next()
+            {
+                Some((feed, _)) => feed.id,
+                None => return Vec::new(),
+            }
+        } else {
+            feed_id
+        };
+        self.paper_rows(format!("collection:{feed_id}"), query, limit)
+            .await
+    }
+
+    async fn tag_tree(
+        &self,
+        expanded: Option<Vec<String>>,
+        filter: Option<String>,
+    ) -> Vec<ViewTagNode> {
+        const CAP: usize = 300;
+        // Every tag: the verb answers 100 unless asked for more.
+        let tags = crate::backend::tags_service_instance()
+            .list_tags_with_counts(None, Some(u32::MAX))
+            .await;
+        let filter = filter
+            .map(|f| f.trim().to_lowercase())
+            .filter(|f| !f.is_empty());
+        if let Some(f) = filter {
+            let mut hits: Vec<_> = tags
+                .iter()
+                .filter(|t| t.path.to_lowercase().contains(&f))
+                .collect();
+            hits.sort_by(|a, b| {
+                b.publication_count
+                    .cmp(&a.publication_count)
+                    .then(a.path.cmp(&b.path))
+            });
+            return hits
+                .into_iter()
+                .take(CAP)
+                .map(|t| ViewTagNode {
+                    id: t.path.clone(),
+                    parent: None,
+                    label: format!("{} — {}", t.path, t.publication_count),
+                    has_children: false,
+                })
+                .collect();
+        }
+        let mut count: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
+        let mut nodes: std::collections::BTreeMap<String, ViewTagNode> =
+            std::collections::BTreeMap::new();
+        for t in &tags {
+            count.insert(t.path.clone(), t.publication_count);
+            nodes.insert(
+                t.path.clone(),
+                ViewTagNode {
+                    id: t.path.clone(),
+                    parent: t.parent_path.clone().filter(|p| !p.is_empty()),
+                    label: format!("{} — {}", t.leaf_name, t.publication_count),
+                    has_children: false,
+                },
+            );
+        }
+        // A path implies its parents; one no paper carries still gets a row,
+        // or its children would float at the root.
+        let paths: Vec<String> = nodes.keys().cloned().collect();
+        for path in paths {
+            let mut cur = path.as_str();
+            while let Some((parent, _)) = cur.rsplit_once('/') {
+                nodes
+                    .entry(parent.to_string())
+                    .or_insert_with(|| ViewTagNode {
+                        id: parent.to_string(),
+                        parent: parent.rsplit_once('/').map(|(p, _)| p.to_string()),
+                        label: parent.rsplit('/').next().unwrap_or(parent).to_string(),
+                        has_children: true,
+                    });
+                cur = parent;
+            }
+        }
+        let open: std::collections::HashSet<String> =
+            expanded.unwrap_or_default().into_iter().collect();
+        let mut children: std::collections::BTreeMap<Option<String>, Vec<ViewTagNode>> =
+            std::collections::BTreeMap::new();
+        for n in nodes.into_values() {
+            children.entry(n.parent.clone()).or_default().push(n);
+        }
+        let sizes: std::collections::HashMap<String, usize> = children
+            .iter()
+            .filter_map(|(k, v)| k.clone().map(|k| (k, v.len())))
+            .collect();
+        let mut out = Vec::new();
+        for (parent, mut kids) in children {
+            // A root, or the children of an open node.
+            if parent.as_ref().is_some_and(|p| !open.contains(p)) {
+                continue;
+            }
+            kids.sort_by(|a, b| {
+                count
+                    .get(&b.id)
+                    .cmp(&count.get(&a.id))
+                    .then(a.id.cmp(&b.id))
+            });
+            let more = kids.len().saturating_sub(CAP);
+            for mut n in kids.into_iter().take(CAP) {
+                n.has_children = sizes.contains_key(&n.id);
+                out.push(n);
+            }
+            if more > 0 {
+                let p = parent.clone().unwrap_or_default();
+                out.push(ViewTagNode {
+                    id: format!("{p}/…"),
+                    parent,
+                    label: format!("… {more} more — type in Filter to find one"),
+                    has_children: false,
+                });
+            }
+        }
+        out
+    }
+
+    async fn tag_rows(&self, tag_path: String, limit: u32) -> Vec<ViewPaperRow> {
+        if tag_path.trim().is_empty() {
+            return Vec::new();
+        }
+        let limit = if limit == 0 { 300 } else { limit };
+        crate::backend::tags_service_instance()
+            // Newest publication first: date added is the import order, which
+            // for a bulk import reads as oldest-first.
+            .query_by_tag(tag_path, None, "year".into(), false, limit)
+            .await
+            .iter()
+            .map(row_of)
+            .collect()
     }
 
     async fn resolve_view(&self, reference: String) -> ViewResolution {
@@ -465,7 +677,7 @@ fn candidate_row(c: &serde_json::Value) -> ViewCandidateRow {
             .and_then(|v| v.as_i64())
             .map(|y| y.to_string())
             .unwrap_or_default(),
-        venue: clean(&text("venue")),
+        venue: display_text(&text("venue")),
         source: text("sourceID"),
     }
 }
@@ -559,7 +771,7 @@ fn search_row_of(
         title: display_text(&p.title),
         authors: short_authors(&authors),
         year: p.year.map(|y| y.to_string()).unwrap_or_default(),
-        venue: clean(p.venue.as_deref().unwrap_or("")),
+        venue: display_text(p.venue.as_deref().unwrap_or("")),
         source,
         cited: p
             .cited_by
@@ -621,13 +833,36 @@ fn strip_markup(text: &str) -> String {
     out
 }
 
+/// BibTeX's protective braces (`{{Title}}`, `{ApJ}`) dropped, as the app
+/// does when it draws a title; a brace a backslash escapes, and anything
+/// inside a TeX code span the math pass left, is kept.
+fn strip_bibtex_braces(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_code = false;
+    let mut prev = '\0';
+    for c in text.chars() {
+        match c {
+            '`' => {
+                in_code = !in_code;
+                out.push(c);
+            }
+            '{' | '}' if !in_code && prev != '\\' => {}
+            _ => out.push(c),
+        }
+        prev = c;
+    }
+    out
+}
+
 /// A title or abstract for display: entities decoded, math as Unicode
-/// where it converts whole, inline markup removed.
+/// where it converts whole, inline markup and BibTeX braces removed.
 fn display_text(text: &str) -> String {
-    strip_markup(&imbib_core::text::abstract_display_text(&clean(text)))
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+    strip_bibtex_braces(&strip_markup(&imbib_core::text::abstract_display_text(
+        &clean(text),
+    )))
+    .split_whitespace()
+    .collect::<Vec<_>>()
+    .join(" ")
 }
 
 /// HTML entities decoded (`&amp;` from a BibTeX export, `&#x2013;`), the
@@ -672,7 +907,7 @@ fn row_of(p: &PublicationSummary) -> ViewPaperRow {
         title: display_text(&p.title),
         authors: short_authors(&p.authors),
         year: p.year.map(|y| y.to_string()).unwrap_or_default(),
-        venue: clean(p.venue.as_deref().unwrap_or("")),
+        venue: display_text(p.venue.as_deref().unwrap_or("")),
     }
 }
 
@@ -708,7 +943,7 @@ fn card_of(d: &PublicationDetailRecord, bibtex: String) -> ViewPaperCard {
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let journal = first(&["venue", "journal", "booktitle"]);
+    let journal = display_text(&first(&["venue", "journal", "booktitle"]));
     let year = field("year");
     let volume = field("volume");
     let pages = field("pages");
@@ -815,7 +1050,14 @@ fn card_of(d: &PublicationDetailRecord, bibtex: String) -> ViewPaperCard {
             "abstract",
         ]))),
         facts,
-        tags: d.tags.clone(),
+        tags: d
+            .tags
+            .iter()
+            .map(|t| ViewTag {
+                id: t.clone(),
+                label: t.clone(),
+            })
+            .collect(),
         // The source's own BibTeX when the paper came with it (S-D5),
         // else what the library exports.
         bibtex: d
@@ -869,6 +1111,31 @@ impress_service_impl! {
             /// for the order the first-listed source returns.
             sort: Option<String>
         ) -> Vec<ViewSearchRow>,
+        /// The feed picker.
+        feed_choices() -> Vec<ViewChoice>,
+        /// A feed's papers as display rows.
+        feed_rows(
+            /// The feed's (smart search's) UUID; empty is the first feed.
+            feed_id: String,
+            /// Free text over title, authors and abstract; empty lists the feed.
+            query: String,
+            /// The most rows; zero means 200.
+            limit: u32
+        ) -> Vec<ViewPaperRow>,
+        /// The open part of the tag tree as tree-widget rows.
+        tag_tree(
+            /// The paths whose children to include (the tree's expand state).
+            expanded: Option<Vec<String>>,
+            /// When not empty, the tags whose path contains it, flat.
+            filter: Option<String>
+        ) -> Vec<ViewTagNode>,
+        /// The papers carrying a tag as display rows.
+        tag_rows(
+            /// The tag path (`methods/mcmc`); empty answers no rows.
+            tag_path: String,
+            /// The most rows; zero means 300.
+            limit: u32
+        ) -> Vec<ViewPaperRow>,
         /// Resolve a reference for display, importing nothing.
         resolve_view(
             /// A reference as a bibliography prints it, or a DOI, arXiv id, bibcode or BibTeX entry.
@@ -957,6 +1224,18 @@ mod tests {
         assert!(
             !card.facts.contains_key("journal"),
             "an absent field is not a fact"
+        );
+    }
+
+    #[test]
+    fn bibtex_braces_go_but_escaped_braces_and_code_spans_stay() {
+        assert_eq!(
+            display_text("{Multiscale cosmic curvature: From {L}ocal structures}"),
+            "Multiscale cosmic curvature: From Local structures"
+        );
+        assert_eq!(
+            strip_bibtex_braces(r"a \{b\} `\frac{a}{b}`"),
+            r"a \{b\} `\frac{a}{b}`"
         );
     }
 

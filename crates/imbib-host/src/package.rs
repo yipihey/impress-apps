@@ -21,6 +21,14 @@ const FILES: &[(&str, &[u8])] = &[
         "surfaces/resolve.surface.json",
         include_bytes!("../package/surfaces/resolve.surface.json"),
     ),
+    (
+        "surfaces/feeds.surface.json",
+        include_bytes!("../package/surfaces/feeds.surface.json"),
+    ),
+    (
+        "surfaces/tags.surface.json",
+        include_bytes!("../package/surfaces/tags.surface.json"),
+    ),
     ("SKILL.md", include_bytes!("../package/SKILL.md")),
 ];
 

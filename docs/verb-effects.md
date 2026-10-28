@@ -166,6 +166,8 @@ catalogue, 168 on the exception table.
 | `imbib-eink-service_eink-status` | "imbib/bibliography-entry", "imbib/eink-device", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-eink-service_eink-sync` | "imbib/eink-device", "imbib/eink-mirror", "imbib/bibliography-entry", "imbib/linked-file" | "imbib/eink-mirror", "imbib/annotation", "imbib/linked-file" | device, fs | — |
 | `imbib-eink-service_eink-unmark` | "imbib/eink-device", "imbib/eink-mirror" | "imbib/eink-mirror" | — | example ×1 |
+| `imbib-feeds-service_refresh-feed` | "imbib/smart-search", "imbib/muted-item", "imbib/dismissed-paper", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection" | "imbib/bibliography-entry", "imbib/collection" | network | — |
+| `imbib-feeds-service_refresh-inbox-feeds` | "imbib/smart-search", "imbib/muted-item", "imbib/dismissed-paper", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection" | "imbib/bibliography-entry", "imbib/collection" | network | — |
 | `imbib-library-service_add-linked-file` | "imbib/bibliography-entry" | "imbib/linked-file" | — | example ×1 |
 | `imbib-library-service_add-to-collection` | "imbib/collection", "imbib/bibliography-entry" | "imbib/collection" | — | example ×1 |
 | `imbib-library-service_count-flagged` | "imbib/bibliography-entry" | — | — | example ×2 |
@@ -272,12 +274,16 @@ catalogue, 168 on the exception table.
 | `imbib-undo-service_recent-undo-groups` | "core/operation" | — | — | — |
 | `imbib-undo-service_undo-batch` | "core/operation" | any("restores whatever kind the operations targeted") | — | example ×1 |
 | `imbib-undo-service_undo-operation` | "core/operation" | any("restores whatever kind the operations targeted") | — | example ×1 |
+| `imbib-view-service_feed-choices` | "imbib/smart-search", "imbib/library", "imbib/bibliography-entry" | — | — | example ×1 |
+| `imbib-view-service_feed-rows` | "imbib/smart-search", "imbib/library", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/collection" | — | — | example ×1 |
 | `imbib-view-service_import-ids` | "imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper" | "imbib/bibliography-entry", "imbib/collection" | network | — |
 | `imbib-view-service_library-choices` | "imbib/library", "imbib/collection", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-view-service_paper-card` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/collection" | — | — | — |
 | `imbib-view-service_paper-rows` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection" | — | — | example ×1 |
 | `imbib-view-service_resolve-view` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/dismissed-paper" | — | network | — |
 | `imbib-view-service_search-rows` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | network | — |
+| `imbib-view-service_tag-rows` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
+| `imbib-view-service_tag-tree` | "imbib/tag-definition", "imbib/bibliography-entry" | — | — | example ×1 |
 | `impart-service_add-message` | — | — | app("impart") | — |
 | `impart-service_branch-conversation` | — | — | app("impart") | — |
 | `impart-service_create-conversation` | — | — | app("impart") | — |
@@ -668,6 +674,8 @@ when one lands).
 | `imbib-eink-service_eink-plan` | leaves the process (device) |
 | `imbib-eink-service_eink-reachable` | leaves the process (device) |
 | `imbib-eink-service_eink-sync` | leaves the process (device, fs) |
+| `imbib-feeds-service_refresh-feed` | leaves the process (network) |
+| `imbib-feeds-service_refresh-inbox-feeds` | leaves the process (network) |
 | `imbib-library-service_delete-libraries` | needs a running app |
 | `imbib-library-service_delete-library-undoable` | needs a running app |
 | `imbib-library-service_duplicate-publications` | no example ran |

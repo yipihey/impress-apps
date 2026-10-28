@@ -198,6 +198,8 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-eink-service_eink-status` | read_only | name/doc |
 | `imbib-eink-service_eink-sync` | external | E/M: name/doc |
 | `imbib-eink-service_eink-unmark` | mutating | name/doc |
+| `imbib-feeds-service_refresh-feed` | external | name/doc |
+| `imbib-feeds-service_refresh-inbox-feeds` | external | name/doc |
 | `imbib-library-service_add-linked-file` | mutating | name/doc |
 | `imbib-library-service_add-to-collection` | mutating | name/doc |
 | `imbib-library-service_count-flagged` | read_only | name/doc |
@@ -301,12 +303,16 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-text-service_generate-cite-key` | read_only | name/doc |
 | `imbib-text-service_normalize-tag-path` | read_only | name/doc |
 | `imbib-text-service_normalize-tag-segment` | read_only | name/doc |
+| `imbib-view-service_feed-choices` | read_only | name/doc |
+| `imbib-view-service_feed-rows` | read_only | name/doc |
 | `imbib-view-service_import-ids` | external | name/doc |
 | `imbib-view-service_library-choices` | read_only | name/doc |
 | `imbib-view-service_paper-card` | read_only | name/doc |
 | `imbib-view-service_paper-rows` | read_only | name/doc |
 | `imbib-view-service_resolve-view` | external | name/doc |
 | `imbib-view-service_search-rows` | external | name/doc |
+| `imbib-view-service_tag-rows` | read_only | name/doc |
+| `imbib-view-service_tag-tree` | read_only | name/doc |
 | `imbib-undo-service_recent-undo-groups` | read_only | name/doc |
 | `imbib-undo-service_undo-batch` | mutating | name/doc |
 | `imbib-undo-service_undo-operation` | mutating | name/doc |

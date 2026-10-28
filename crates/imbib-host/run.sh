@@ -43,4 +43,6 @@ BINARY="$TARGET/$PROFILE/imbib-host"
 codesign --force --sign "$IDENTITY" --entitlements "$ENTITLEMENTS" \
     --options runtime --timestamp=none "$BINARY"
 
+# imbib's three-point traces (sources, feeds) beside the host's own lines.
+export RUST_LOG="${RUST_LOG:-warn,koine-host=info,sources=info,feeds=info}"
 exec "$BINARY" --port "$PORT" --web-dir "$WEB_DIR" "$@"
