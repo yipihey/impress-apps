@@ -44,7 +44,7 @@
           "column": [
             {
               "id": "inbox-hint",
-              "text": "What the feeds found. Choose a paper, then **Keep** it in a library or **Dismiss** it to the Dismissed library; either way no feed brings it back. ● marks the unread."
+              "text": "What the feeds found. Choose a paper, then **Keep** it in a library or **Dismiss** it to the Dismissed library; either way no feed brings it back. ● marks the unread.\n\nKeys, in the list: `j`/`k` move (the card follows), `d` dismiss, `*` keep in the library chosen under Keep in, `s` star, `r`/`u` read/unread, `m` the row menu."
             },
             {
               "id": "refresh-all",
@@ -113,6 +113,159 @@
                       "path": "state.selected",
                       "value": "{{event.value}}"
                     }
+                  }
+                ],
+                "follow": true,
+                "actions": [
+                  {
+                    "label": "Mark read",
+                    "key": "r",
+                    "on_click": [
+                      {
+                        "call": {
+                          "verb": "imbib-library-service_set-read",
+                          "args": {
+                            "ids": [
+                              "{{event.value.id}}"
+                            ],
+                            "read": true
+                          }
+                        }
+                      },
+                      {
+                        "refresh": {
+                          "source": "papers"
+                        }
+                      },
+                      {
+                        "refresh": {
+                          "source": "card"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Mark unread",
+                    "key": "u",
+                    "on_click": [
+                      {
+                        "call": {
+                          "verb": "imbib-library-service_set-read",
+                          "args": {
+                            "ids": [
+                              "{{event.value.id}}"
+                            ],
+                            "read": false
+                          }
+                        }
+                      },
+                      {
+                        "refresh": {
+                          "source": "papers"
+                        }
+                      },
+                      {
+                        "refresh": {
+                          "source": "card"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Star",
+                    "key": "s",
+                    "on_click": [
+                      {
+                        "call": {
+                          "verb": "imbib-library-service_set-starred",
+                          "args": {
+                            "ids": [
+                              "{{event.value.id}}"
+                            ],
+                            "starred": true
+                          }
+                        }
+                      },
+                      {
+                        "refresh": {
+                          "source": "papers"
+                        }
+                      },
+                      {
+                        "refresh": {
+                          "source": "card"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Dismiss",
+                    "key": "d",
+                    "on_click": [
+                      {
+                        "call": {
+                          "verb": "imbib-triage-service_dismiss",
+                          "args": {
+                            "ids": [
+                              "{{event.value.id}}"
+                            ],
+                            "scope": "inbox"
+                          },
+                          "into": "state.triaged"
+                        }
+                      },
+                      {
+                        "set": {
+                          "path": "state.selected",
+                          "value": []
+                        }
+                      },
+                      {
+                        "refresh": {
+                          "source": "papers"
+                        }
+                      },
+                      {
+                        "refresh": {
+                          "source": "card"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Keep",
+                    "key": "*",
+                    "on_click": [
+                      {
+                        "call": {
+                          "verb": "imbib-triage-service_keep",
+                          "args": {
+                            "ids": [
+                              "{{event.value.id}}"
+                            ],
+                            "library_id": "{{state.keep_to}}",
+                            "scope": "inbox"
+                          },
+                          "into": "state.triaged"
+                        }
+                      },
+                      {
+                        "set": {
+                          "path": "state.selected",
+                          "value": []
+                        }
+                      },
+                      {
+                        "refresh": {
+                          "source": "papers"
+                        }
+                      },
+                      {
+                        "refresh": {
+                          "source": "card"
+                        }
+                      }
+                    ]
                   }
                 ]
               }

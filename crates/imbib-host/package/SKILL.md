@@ -40,3 +40,7 @@ Doing:
   papers; `collection-service_create` / `rename` / `delete` with binding
   `generic` (and `kind_scope: "publication"` on create) manage collections.
   Deleting a collection never deletes its papers.
+
+Keys (every paper list): `j`/`k` move and the card follows, `r`/`u`
+read/unread, `s` star, `m` the row menu; in the Inbox and a feed also `d`
+dismiss and `*` keep in the library chosen under "Keep in".
