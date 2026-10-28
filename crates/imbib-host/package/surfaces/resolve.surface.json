@@ -9,12 +9,8 @@
   },
   "sources": {
     "resolved": {
-      "verb": "imbib-sources-service_resolve-citation",
-      "args": {
-        "query": "{{state.reference}}",
-        "download_pdfs": false,
-        "preview": true
-      }
+      "verb": "imbib-view-service_resolve-view",
+      "args": { "reference": "{{state.reference}}" }
     },
     "choices": {
       "verb": "imbib-view-service_library-choices",
@@ -25,39 +21,27 @@
     "column": [
       {
         "id": "intro",
-        "text": "Paste a reference as it appears in a paper's bibliography (or a DOI, arXiv id, bibcode or BibTeX entry). imbib looks in your library first, then asks the online databases, and scores each candidate: nothing is imported until you choose."
+        "text": "Paste a reference as it appears in a paper's bibliography — `Bromm V., Coppi P. S., Larson R. B., 2002, ApJ, 564, 23` — or a DOI, arXiv id, bibcode or BibTeX entry. imbib looks in your library first, then asks the online databases and scores each candidate. Nothing is imported until you choose."
       },
       {
         "id": "reference",
         "field": { "text": { "multiline": true, "rows": 3 } },
         "label": "Reference",
-        "help": "Press Enter, or leave the field, to resolve.",
+        "help": "Leave the field (or press Tab) to resolve.",
         "bind": "state.reference"
       },
       {
-        "id": "outcome",
+        "id": "verdict",
         "when": { "path": "state.reference" },
-        "kv": {
-          "found via": "{{source.resolved.via}}",
-          "reason": "{{source.resolved.reason}}"
-        }
-      },
-      {
-        "id": "local-paper",
-        "when": { "path": "source.resolved.paper" },
-        "section": {
-          "title": "In your library",
-          "collapsed": false,
-          "body": { "id": "local-paper-kv", "kv": "{{source.resolved.paper}}" }
-        }
+        "text": "{{source.resolved.verdict}}"
       },
       {
         "id": "candidates",
-        "when": { "path": "source.resolved.candidates.0" },
+        "when": { "path": "source.resolved.rows.0" },
         "table": {
-          "rows": "{{source.resolved.candidates}}",
-          "columns": ["confidence", "title", "authors", "year", "venue", "sourceID"],
-          "id_field": "identifier",
+          "rows": "{{source.resolved.rows}}",
+          "columns": ["Score", "Title", "Authors", "Year", "Venue", "Source"],
+          "id_field": "id",
           "on_select": [
             { "set": { "path": "state.selected", "value": "{{event.value}}" } }
           ]

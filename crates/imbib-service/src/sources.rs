@@ -734,11 +734,15 @@ fn scorer_input(
                 .as_deref()
                 .map(fields_of_reference)
                 .unwrap_or_default();
+            // An astronomy reference names its paper exactly: the bibcode
+            // is tried first and is identifier evidence for a candidate.
+            let bibcode = free_text.as_deref().and_then(bibcode_of_reference);
             ScorerInput {
                 authors,
                 year,
                 journal,
                 title,
+                bibcode,
                 raw_bibtex: bibtex.filter(|b| !b.trim().is_empty()),
                 free_text,
                 ..Default::default()
@@ -766,6 +770,13 @@ pub fn fields_of_reference(
         )
         .expect("static regex")
     });
+    // MNRAS and ApJ write the initials after the surname with no comma
+    // between them: `Bromm V., Coppi P. S., Larson R. B., 2002, ApJ, …`.
+    // Matched one author at a time, after splitting on the separators, so a
+    // comma ends one author without being taken from the next.
+    static SURNAME_NO_COMMA: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"^([A-Z][\p{L}'\-]+)\s+(?:[A-Z]\.\s*-?\s*)+$").expect("static regex")
+    });
     static ET_AL: LazyLock<regex::Regex> = LazyLock::new(|| {
         regex::Regex::new(r"^\s*([A-Z][\p{L}'\-]+)\s+et\s+al").expect("static regex")
     });
@@ -780,6 +791,14 @@ pub fn fields_of_reference(
         .captures_iter(before)
         .map(|c| c[1].trim().to_string())
         .collect();
+    if authors.is_empty() {
+        authors = before
+            .split([',', '&', ';'])
+            .flat_map(|piece| piece.split(" and "))
+            .filter_map(|piece| SURNAME_NO_COMMA.captures(piece.trim()))
+            .map(|c| c[1].to_string())
+            .collect();
+    }
     if authors.is_empty() {
         if let Some(c) = ET_AL.captures(before) {
             authors.push(c[1].to_string());
@@ -814,6 +833,75 @@ pub fn fields_of_reference(
         .find(|f| !is_number(f) && f.split_whitespace().count() <= 3)
         .map(|f| f.trim_end_matches('.').to_string());
     (authors, year, journal, title)
+}
+
+/// The ADS bibcode a one-line astronomy reference names, when every part of
+/// it is unambiguous: a journal this table knows, a volume of at most four
+/// digits, a page of at most four digits (with an `L` letter page for the
+/// older ApJ Letters), and the first author's surname. `2002, ApJ, 564, 23`
+/// by Bromm is `2002ApJ...564...23B`. `None` otherwise — a guessed bibcode
+/// that names another paper would be worse than none, so anything unusual
+/// (an electronic article id, a six-digit Physical Review page) stays out.
+pub fn bibcode_of_reference(text: &str) -> Option<String> {
+    let (authors, year, journal, _) = fields_of_reference(text);
+    let year = year?;
+    let initial = authors.first()?.chars().next()?.to_ascii_uppercase();
+    let journal = journal?;
+    let bibstem = bibstem_of(&journal)?;
+    // The volume and page: the first two numeric fragments after the journal.
+    let after_journal = {
+        let at = text.find(journal.as_str())? + journal.len();
+        &text[at..]
+    };
+    let numbers: Vec<&str> = after_journal
+        .split([',', ';', ' ', ':'])
+        .map(|f| f.trim().trim_end_matches('.'))
+        .filter(|f| !f.is_empty())
+        .take(2)
+        .collect();
+    let [volume, page] = numbers.as_slice() else {
+        return None;
+    };
+    if volume.len() > 4 || !volume.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let page = page.split(['-', '\u{2013}']).next()?;
+    let (qualifier, page) = match page.strip_prefix('L') {
+        Some(rest) if bibstem == "ApJ" => ('L', rest),
+        Some(_) => return None,
+        None => ('.', page),
+    };
+    if page.is_empty() || page.len() > 4 || !page.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!(
+        "{year}{bibstem:.<5}{volume:.>4}{qualifier}{page:.>4}{initial}"
+    ))
+}
+
+/// The ADS bibstem for a journal as references abbreviate it.
+fn bibstem_of(journal: &str) -> Option<&'static str> {
+    let key: String = journal
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '.' && *c != '\\')
+        .collect::<String>()
+        .to_lowercase();
+    Some(match key.as_str() {
+        "apj" | "astrophysj" => "ApJ",
+        "apjl" | "apjlett" | "apjletters" => "ApJL",
+        "apjs" | "apjsuppl" => "ApJS",
+        "aj" | "astronj" => "AJ",
+        "mnras" | "monnotrastronsoc" => "MNRAS",
+        "a&a" | "aa" | "astronastrophys" => "A&A",
+        "nature" | "natur" => "Natur",
+        "science" | "sci" => "Sci",
+        "pasp" => "PASP",
+        "pasj" => "PASJ",
+        "ara&a" | "annurevastronastrophys" => "ARA&A",
+        "jcap" => "JCAP",
+        "natastron" | "natas" | "natureastronomy" => "NatAs",
+        _ => return None,
+    })
 }
 
 /// One candidate as the HTTP route has always emitted it (flat, with
@@ -1568,6 +1656,48 @@ mod tests {
             fields_of_reference("dark matter halos"),
             (vec![], None, None, None)
         );
+        // MNRAS / ApJ style: initials after the surname, no comma between.
+        let (authors, year, journal, _) =
+            fields_of_reference("Bromm V., Coppi P. S., Larson R. B., 2002, ApJ, 564, 23");
+        assert_eq!(authors, vec!["Bromm", "Coppi", "Larson"]);
+        assert_eq!(year, Some(2002));
+        assert_eq!(journal.as_deref(), Some("ApJ"));
+        let (authors, _, _, _) =
+            fields_of_reference("van den Bosch F. C., Abel T., 2001, MNRAS, 321, 1");
+        assert_eq!(
+            authors,
+            vec!["Abel"],
+            "a lower-case particle is not a capitalised surname"
+        );
+    }
+
+    #[test]
+    fn an_astronomy_reference_names_its_bibcode() {
+        assert_eq!(
+            bibcode_of_reference("Bromm V., Coppi P. S., Larson R. B., 2002, ApJ, 564, 23")
+                .as_deref(),
+            Some("2002ApJ...564...23B")
+        );
+        assert_eq!(
+            bibcode_of_reference("Abel, T., Bryan, G. L., & Norman, M. L. 2002, Science, 295, 93")
+                .as_deref(),
+            Some("2002Sci...295...93A")
+        );
+        assert_eq!(
+            bibcode_of_reference("Greif T. H., et al., 2012, MNRAS, 424, 399").as_deref(),
+            Some("2012MNRAS.424..399G")
+        );
+        assert_eq!(
+            bibcode_of_reference("Bromm V., Loeb A., 2002, ApJ, 575, L111").as_deref(),
+            Some("2002ApJ...575L.111B")
+        );
+        // An electronic id, an unknown journal, or no page: no guess.
+        assert_eq!(bibcode_of_reference("Smith J., 2020, A&A, 640, A12"), None);
+        assert_eq!(
+            bibcode_of_reference("Smith J., 2020, Some Journal, 4, 5"),
+            None
+        );
+        assert_eq!(bibcode_of_reference("Smith J., 2020, ApJ"), None);
     }
 
     #[test]

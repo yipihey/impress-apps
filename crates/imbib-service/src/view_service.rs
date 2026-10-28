@@ -116,6 +116,47 @@ pub struct ViewImportLine {
     pub outcome: String,
 }
 
+/// A reference resolved for display: what happened, in a sentence, and the
+/// scored candidates as rows.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct ViewResolution {
+    /// How it was found (`local-text`, `search-high-confidence-preview`,
+    /// `search-candidates`, `not-found`, …), empty before anything is asked.
+    pub via: String,
+    /// What happened, for a person (markdown): the paper found in the
+    /// library, the match found online, or that no candidate was certain.
+    pub verdict: String,
+    /// The library's paper when the reference is already there, else empty.
+    pub local_id: String,
+    /// The scored candidates, best first.
+    pub rows: Vec<ViewCandidateRow>,
+}
+
+/// One scored candidate. The field names are the column headings.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct ViewCandidateRow {
+    /// The candidate's canonical identifier, what `import-ids` takes.
+    pub id: String,
+    /// The scorer's confidence, two decimals.
+    #[serde(rename = "Score")]
+    pub score: String,
+    /// The title.
+    #[serde(rename = "Title")]
+    pub title: String,
+    /// `Abel`, `Abel & Bryan`, or `Abel et al.`.
+    #[serde(rename = "Authors")]
+    pub authors: String,
+    /// The year.
+    #[serde(rename = "Year")]
+    pub year: String,
+    /// The journal or venue.
+    #[serde(rename = "Venue")]
+    pub venue: String,
+    /// The source the candidate came from.
+    #[serde(rename = "Source")]
+    pub source: String,
+}
+
 #[impress_service]
 pub trait ImbibViewService: Send + Sync + 'static {
     /// The library picker: every library as `library:<id>`, each followed by
@@ -171,6 +212,13 @@ pub trait ImbibViewService: Send + Sync + 'static {
         expect = r#"[]"#
     )]
     async fn import_ids(&self, scope: String, ids: Vec<String>) -> Vec<ViewImportLine>;
+
+    /// Resolve a reference without importing anything: the library first,
+    /// then the online databases, every candidate scored. An empty reference
+    /// answers an empty resolution rather than a refusal.
+    #[impress_method(safety = external, effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/dismissed-paper"], reach = [network]))]
+    #[impress_example(name = "empty-reference", args = r#"{"reference":""}"#)]
+    async fn resolve_view(&self, reference: String) -> ViewResolution;
 }
 
 #[derive(Default, Clone, Copy)]
@@ -289,6 +337,137 @@ impl ImbibViewService for DefaultImbibViewService {
         }
         out
     }
+
+    async fn resolve_view(&self, reference: String) -> ViewResolution {
+        if reference.trim().is_empty() {
+            return ViewResolution::default();
+        }
+        let r =
+            crate::sources::resolve_citation(Some(reference), None, None, None, false, true).await;
+        let local_id = if r.via.starts_with("local") || r.via == "duplicate" {
+            r.paper
+                .as_ref()
+                .and_then(|p| p.get("id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        } else {
+            String::new()
+        };
+        let mut rows: Vec<ViewCandidateRow> = r
+            .candidates
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(candidate_row)
+            .collect();
+        // A paper accepted online is the first row, so it can be imported.
+        if local_id.is_empty() {
+            if let Some(p) = r.paper.as_ref() {
+                let first = candidate_row(p);
+                if !first.id.is_empty() && !rows.iter().any(|row| row.id == first.id) {
+                    rows.insert(0, first);
+                }
+            }
+        }
+        // Found online by an identifier the library's copy does not carry
+        // (a bibcode, say, where the copy has a DOI): look again by every
+        // identifier the found record has, so it reads as held, not new.
+        if local_id.is_empty() && r.via.contains("identifier") {
+            if let Some(first) = r.candidates.as_deref().and_then(|c| c.first()) {
+                if let Some(id) = held_row_id(first) {
+                    let title = rows
+                        .first()
+                        .map(|row| row.title.clone())
+                        .unwrap_or_default();
+                    return ViewResolution {
+                        via: "local-identifier".into(),
+                        verdict: format!("**In your library:** {title}"),
+                        local_id: id,
+                        rows,
+                    };
+                }
+            }
+        }
+        let accepted = r.paper.clone().or_else(|| {
+            (r.via.contains("high-confidence") || r.via.contains("external-identifier"))
+                .then(|| r.candidates.as_deref().and_then(|c| c.first()).cloned())
+                .flatten()
+        });
+        ViewResolution {
+            verdict: verdict_of(&r.via, accepted.as_ref(), r.reason.as_deref()),
+            via: r.via,
+            local_id,
+            rows,
+        }
+    }
+}
+
+/// The verdict a person reads for one resolution.
+fn verdict_of(via: &str, paper: Option<&serde_json::Value>, reason: Option<&str>) -> String {
+    let title = paper
+        .and_then(|p| p.get("title"))
+        .and_then(|t| t.as_str())
+        .map(display_text)
+        .unwrap_or_default();
+    match via {
+        "" => String::new(),
+        v if v.starts_with("local") || v == "duplicate" || v == "imported-identifier" => {
+            format!("**In your library:** {title}")
+        }
+        v if v.contains("high-confidence") || v.contains("external-identifier") => {
+            format!("**Found online:** {title} — import it below.")
+        }
+        "search-candidates" => {
+            "**No candidate is certain enough to accept.** Choose one below if it is the paper."
+                .into()
+        }
+        _ => format!(
+            "**Not found.** {}",
+            reason.unwrap_or("No source returned a candidate.")
+        ),
+    }
+}
+
+fn candidate_row(c: &serde_json::Value) -> ViewCandidateRow {
+    let text = |k: &str| c.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let ids = c.get("ids").and_then(|v| v.as_object());
+    let id = ["doi", "arxiv", "bibcode", "pmid", "openalex"]
+        .iter()
+        .find_map(|k| {
+            ids.and_then(|m| m.get(*k))
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.is_empty())
+                .map(|v| format!("{k}:{v}"))
+        })
+        .unwrap_or_else(|| text("identifier"));
+    let authors = c
+        .get("authors")
+        .and_then(|a| a.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str())
+                .collect::<Vec<_>>()
+                .join("; ")
+        })
+        .unwrap_or_default();
+    ViewCandidateRow {
+        id,
+        score: c
+            .get("confidence")
+            .and_then(|v| v.as_f64())
+            .map(|x| format!("{x:.2}"))
+            .unwrap_or_default(),
+        title: display_text(&text("title")),
+        authors: short_authors(&authors),
+        year: c
+            .get("year")
+            .and_then(|v| v.as_i64())
+            .map(|y| y.to_string())
+            .unwrap_or_default(),
+        venue: clean(&text("venue")),
+        source: text("sourceID"),
+    }
 }
 
 /// The identifier `import-ids` fetches by: the first of DOI, arXiv,
@@ -302,6 +481,25 @@ fn canonical_id(p: &crate::app_service::ExternalPaper) -> String {
         }
     }
     p.identifier.clone().unwrap_or_default()
+}
+
+/// The library's copy of a candidate, found by any of its DOI, arXiv id or
+/// bibcode.
+fn held_row_id(candidate: &serde_json::Value) -> Option<String> {
+    let ids = candidate.get("ids")?.as_object()?;
+    let pick = |k: &str| -> Vec<String> {
+        ids.get(k)
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .map(|v| vec![v.to_string()])
+            .unwrap_or_default()
+    };
+    crate::store_singleton::store_instance()
+        .find_by_identifiers_batch(pick("doi"), pick("arxiv"), pick("bibcode"))
+        .ok()?
+        .into_iter()
+        .next()
+        .map(|row| row.id)
 }
 
 /// The DOIs, arXiv ids and bibcodes among `found` the library already
@@ -671,6 +869,11 @@ impress_service_impl! {
             /// for the order the first-listed source returns.
             sort: Option<String>
         ) -> Vec<ViewSearchRow>,
+        /// Resolve a reference for display, importing nothing.
+        resolve_view(
+            /// A reference as a bibliography prints it, or a DOI, arXiv id, bibcode or BibTeX entry.
+            reference: String
+        ) -> ViewResolution,
         /// Fetch identifiers online and import them into a library or collection.
         import_ids(
             /// `library:<uuid>`, `collection:<uuid>`, or empty for the default library.

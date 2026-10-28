@@ -305,6 +305,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-view-service_library-choices` | read_only | name/doc |
 | `imbib-view-service_paper-card` | read_only | name/doc |
 | `imbib-view-service_paper-rows` | read_only | name/doc |
+| `imbib-view-service_resolve-view` | external | name/doc |
 | `imbib-view-service_search-rows` | external | name/doc |
 | `imbib-undo-service_recent-undo-groups` | read_only | name/doc |
 | `imbib-undo-service_undo-batch` | mutating | name/doc |

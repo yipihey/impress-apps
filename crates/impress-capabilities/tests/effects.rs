@@ -156,7 +156,11 @@ use serde_json::Value;
 // the Inbox with the source's own BibTeX). `paper-card`'s example asks for an
 // id the empty scratch store does not hold (the format has no seed step), so
 // the spy sees no read; its tests in view_service.rs drive the card builder.
-const EXCEPTION_CEILING: usize = 186;
+// 186 → 187: `resolve-view` (the Resolve a reference page) leaves the
+// process like `resolve-citation`, whose cascade it runs in preview; its
+// evidence is the reference-parsing and bibcode tests in sources.rs and live
+// resolutions of ApJ, MNRAS and Science references through the host.
+const EXCEPTION_CEILING: usize = 187;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave

@@ -96,6 +96,28 @@ The paper list of one library or collection as display rows.
   {"scope":"","query":"","limit":20}
   ```
 
+## `imbib-view-service_resolve-view`
+
+Resolve a reference for display, importing nothing.
+
+- **safety**: `external`
+- **adverbs**: tentatively, with_review, once
+- **reads**: "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/dismissed-paper"
+- **writes**: —
+- **reach**: network
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `reference` | string | yes | A reference as a bibliography prints it, or a DOI, arXiv id, bibcode or BibTeX entry. |
+
+**Examples**
+
+- `empty-reference` — Tier A:
+
+  ```json
+  {"reference":""}
+  ```
+
 ## `imbib-view-service_search-rows`
 
 Online search results as display rows keyed by canonical identifier.

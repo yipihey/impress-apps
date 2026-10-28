@@ -27,12 +27,12 @@
     "verbs": [
       "imbib-library-service_set-read",
       "imbib-library-service_set-starred",
-      "imbib-sources-service_resolve-citation",
       "imbib-sources-service_source-status",
       "imbib-view-service_import-ids",
       "imbib-view-service_library-choices",
       "imbib-view-service_paper-card",
       "imbib-view-service_paper-rows",
+      "imbib-view-service_resolve-view",
       "imbib-view-service_search-rows"
     ],
     "secrets": []
