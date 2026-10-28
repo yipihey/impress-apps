@@ -147,7 +147,16 @@ use serde_json::Value;
 // refuses headless. Its positive evidence is the Tier B example against the
 // running app and `PaperFetchService`'s inbox/feed paths, which now file rows
 // through `imbib-library-service_import-work` (`fetch_bibtex: false`).
-const EXCEPTION_CEILING: usize = 183;
+// 183 → 186: imbib on koine's web frontend (crates/imbib-host) adds
+// `imbib-view-service`, the display reads a surface needs because a spec
+// cannot compute. `search-rows` and `import-ids` leave the process for the
+// online databases exactly as `imbib-sources-service_search-sources` does;
+// their positive evidence is the view service's unit tests and the live
+// calls through the host's Search online page (an ADS search, an import into
+// the Inbox with the source's own BibTeX). `paper-card`'s example asks for an
+// id the empty scratch store does not hold (the format has no seed step), so
+// the spy sees no read; its tests in view_service.rs drive the card builder.
+const EXCEPTION_CEILING: usize = 186;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave

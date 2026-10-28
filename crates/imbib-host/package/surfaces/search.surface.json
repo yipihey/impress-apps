@@ -1,0 +1,138 @@
+{
+  "surface": "1.0",
+  "name": "Search online",
+  "state": {
+    "query": "",
+    "sources": "",
+    "sort": "",
+    "scope": "",
+    "selected": [],
+    "imported": []
+  },
+  "sources": {
+    "results": {
+      "verb": "imbib-view-service_search-rows",
+      "args": {
+        "query": "{{state.query}}",
+        "sources": "{{state.sources}}",
+        "limit": 25,
+        "sort": "{{state.sort}}"
+      }
+    },
+    "choices": {
+      "verb": "imbib-view-service_library-choices",
+      "args": {}
+    },
+    "status": {
+      "verb": "imbib-sources-service_source-status",
+      "args": {}
+    }
+  },
+  "root": {
+    "column": [
+      {
+        "id": "intro",
+        "text": "Search every online database imbib knows at once — results that share a DOI, arXiv id or bibcode are merged. Type words, an author (`author:\"Abel, T\"` on ADS), a DOI or an arXiv id and press Enter."
+      },
+      {
+        "id": "query-row",
+        "grid": {
+          "columns": 3,
+          "items": [
+            {
+              "id": "query",
+              "field": { "text": {} },
+              "label": "Search",
+              "bind": "state.query"
+            },
+            {
+              "id": "sources",
+              "field": { "text": {} },
+              "label": "Sources",
+              "help": "A comma list (ads, arxiv, crossref, openalex, pubmed, scix, wos, s2, dblp, inspire); empty asks every source.",
+              "bind": "state.sources"
+            },
+            {
+              "id": "sort",
+              "field": {
+                "select": {
+                  "options": [
+                    { "value": "", "label": "As the first source returns them" },
+                    { "value": "cited_by", "label": "Most cited first" },
+                    { "value": "year", "label": "Newest first" }
+                  ]
+                }
+              },
+              "label": "Order",
+              "bind": "state.sort"
+            }
+          ]
+        }
+      },
+      {
+        "id": "results",
+        "table": {
+          "rows": "{{source.results}}",
+          "columns": ["•", "Title", "Authors", "Year", "Venue", "Source", "Cited"],
+          "id_field": "id",
+          "on_select": [
+            { "set": { "path": "state.selected", "value": "{{event.value}}" } }
+          ]
+        }
+      },
+      {
+        "id": "import-row",
+        "when": { "path": "state.selected.0" },
+        "grid": {
+          "columns": 2,
+          "items": [
+            {
+              "id": "scope",
+              "field": { "select": { "options": "{{source.choices}}" } },
+              "label": "Import into",
+              "bind": "state.scope"
+            },
+            {
+              "id": "import",
+              "button": {
+                "label": "Import selected",
+                "on_click": [
+                  {
+                    "call": {
+                      "verb": "imbib-view-service_import-ids",
+                      "args": { "scope": "{{state.scope}}", "ids": "{{state.selected}}" },
+                      "into": "state.imported"
+                    }
+                  },
+                  { "refresh": { "source": "results" } }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "imported",
+        "when": { "path": "state.imported.0" },
+        "table": {
+          "rows": "{{state.imported}}",
+          "columns": ["Identifier", "Outcome"]
+        }
+      },
+      {
+        "id": "source-status",
+        "section": {
+          "title": "Sources and keys",
+          "collapsed": true,
+          "body": {
+            "id": "status-table",
+            "table": {
+              "rows": "{{source.status}}",
+              "columns": ["name", "status", "requirement", "secret_source", "registration_url"]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

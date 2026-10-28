@@ -51,6 +51,7 @@ read.
 | `imbib-semantic-service` | imbib-semantic-service | 3 | 3 | 4 (2) | 4 | 3 |
 | `imbib-tags-service` | imbib-service | 11 | 11 | 22 (14) | 22 | 11 |
 | `imbib-text-service` | imbib-service | 5 | 5 | 7 (4) | 7 | 5 |
+| `imbib-view-service` | imbib-service | 5 | 5 | 10 (9) | 10 | 5 |
 | `imbib-undo-service` | imbib-service | 3 | 3 | 3 (3) | 3 | 3 |
 | `impart-service` | impart-service | 10 | 10 | 24 (14) | 24 | 10 |
 | `impel-service` | impel-service | 11 | 11 | 15 (12) | 15 | 11 |
@@ -83,7 +84,7 @@ read.
 | `review-service` | koine-tasks | 6 | 6 | 10 (4) | 10 | 6 |
 | `triage-service` | koine-triage | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 24 | 15 |
-| **Total** | 21 crates, 47 services | **493** | **493** | **1129 (728)** | **1129** | **493** |
+| **Total** | 30 crates, 52 services | **550** | **550** | **1256 (794)** | **1256** | **550** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -102,12 +103,12 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | Shape | Arguments |
 |---|---:|
 | `array-of-objects` | 4 |
-| `array-of-scalars` | 56 |
+| `array-of-scalars` | 66 |
 | `inline-object` | 7 |
-| `map` | 2 |
-| `other` | 43 |
+| `map` | 4 |
+| `other` | 51 |
 | `ref-object` | 6 |
-| `scalar` | 1005 |
+| `scalar` | 1118 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
@@ -150,6 +151,7 @@ and the implore owner decides between verbs and deletion.
 | `imbib-core` | domain-core | should-be-verb | reached by `imbib-service` through `ImbibStore` (48 of 180 methods); RIS parse/format/import/export, `merge_publications`, the reference-filter grammar and ≈170 of 259 `uniffi::export` items have no verb |
 | `imbib-semantic-service` | verb-crate | optional-feature | `semantic-search` — the three legacy semantic-search MCP tools; deliberately not in `full` (the fastembed/tokenizers stack is a cost only `impress-mcp` should pay); only `impress-mcp` enables it |
 | `imbib-service` | verb-crate | verb-crate | |
+| `imbib-host` | binary | internal | imbib on koine's web frontend: koine-host serving the linked inventory, the suite's SQLite store and imbib's pages (a surface package); no capability of its own |
 | `imbib-verbs-ffi` | ffi | internal | imbib per-app dispatch and exact-store initialization (P5b prerequisite for W3); no independent capability |
 | `impart-core` | domain-core | should-be-verb | `provenance::queries::{trace_lineage, trace_effects, artifact_history, decision_history, …}` have no verb; `impart-service` calls nothing in it |
 | `impart-service` | verb-crate | verb-crate | |

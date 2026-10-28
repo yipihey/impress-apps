@@ -150,6 +150,7 @@ pub mod sources_service;
 pub mod store_singleton;
 pub mod tags_service;
 pub mod undo_service;
+pub mod view_service;
 
 // Pluggable backend registry (native app callbacks / SQLite).
 pub mod backend;

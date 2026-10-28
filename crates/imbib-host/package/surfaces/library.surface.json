@@ -1,0 +1,157 @@
+{
+  "surface": "1.0",
+  "name": "Library",
+  "state": {
+    "scope": "",
+    "query": "",
+    "selected": [],
+    "limit": 300
+  },
+  "sources": {
+    "choices": {
+      "verb": "imbib-view-service_library-choices",
+      "args": {}
+    },
+    "papers": {
+      "verb": "imbib-view-service_paper-rows",
+      "args": {
+        "scope": "{{state.scope}}",
+        "query": "{{state.query}}",
+        "limit": "{{state.limit}}"
+      }
+    },
+    "card": {
+      "verb": "imbib-view-service_paper-card",
+      "args": { "id": "{{state.selected.0}}" }
+    }
+  },
+  "root": {
+    "grid": {
+      "columns": 2,
+      "items": [
+        {
+          "id": "list-pane",
+          "column": [
+            {
+              "id": "scope",
+              "field": { "select": { "options": "{{source.choices}}" } },
+              "label": "Library",
+              "bind": "state.scope"
+            },
+            {
+              "id": "search",
+              "field": { "text": { "live": true } },
+              "label": "Search",
+              "help": "Title, authors, abstract — within the library above",
+              "bind": "state.query"
+            },
+            {
+              "id": "papers",
+              "table": {
+                "rows": "{{source.papers}}",
+                "columns": ["•", "Title", "Authors", "Year", "Venue"],
+                "id_field": "id",
+                "on_select": [
+                  { "set": { "path": "state.selected", "value": "{{event.value}}" } }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "detail-pane",
+          "column": [
+            {
+              "id": "card",
+              "when": { "path": "state.selected.0" },
+              "column": [
+                { "id": "header", "text": "{{source.card.header}}" },
+                {
+                  "id": "actions",
+                  "row": [
+                    {
+                      "id": "mark-read",
+                      "button": {
+                        "label": "Mark read",
+                        "on_click": [
+                          { "call": { "verb": "imbib-library-service_set-read", "args": { "ids": "{{state.selected}}", "read": true } } },
+                          { "refresh": { "source": "papers" } },
+                          { "refresh": { "source": "card" } }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "mark-unread",
+                      "button": {
+                        "label": "Mark unread",
+                        "on_click": [
+                          { "call": { "verb": "imbib-library-service_set-read", "args": { "ids": "{{state.selected}}", "read": false } } },
+                          { "refresh": { "source": "papers" } },
+                          { "refresh": { "source": "card" } }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "star",
+                      "button": {
+                        "label": "Star",
+                        "on_click": [
+                          { "call": { "verb": "imbib-library-service_set-starred", "args": { "ids": "{{state.selected}}", "starred": true } } },
+                          { "refresh": { "source": "papers" } },
+                          { "refresh": { "source": "card" } }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "unstar",
+                      "button": {
+                        "label": "Unstar",
+                        "on_click": [
+                          { "call": { "verb": "imbib-library-service_set-starred", "args": { "ids": "{{state.selected}}", "starred": false } } },
+                          { "refresh": { "source": "papers" } },
+                          { "refresh": { "source": "card" } }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "abstract",
+                  "section": {
+                    "title": "Abstract",
+                    "collapsed": false,
+                    "body": { "id": "abstract-text", "text": "{{source.card.abstract}}" }
+                  }
+                },
+                {
+                  "id": "facts",
+                  "section": {
+                    "title": "Details",
+                    "collapsed": false,
+                    "body": { "id": "facts-kv", "kv": "{{source.card.facts}}" }
+                  }
+                },
+                {
+                  "id": "tags",
+                  "section": {
+                    "title": "Tags",
+                    "collapsed": true,
+                    "body": { "id": "tag-list", "list": { "rows": "{{source.card.tags}}" } }
+                  }
+                },
+                {
+                  "id": "bibtex",
+                  "section": {
+                    "title": "BibTeX",
+                    "collapsed": true,
+                    "body": { "id": "bibtex-code", "code": { "language": "bibtex", "text": "{{source.card.bibtex}}" } }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

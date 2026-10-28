@@ -1,0 +1,35 @@
+[package]
+name = "imbib-host"
+description = "imbib on koine's web frontend: koine-host serving imbib's verbs and pages over the suite's SQLite library"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "imbib-host"
+path = "src/main.rs"
+
+[dependencies]
+# The host: HTTP, /ui (the koine-web bundle), MCP, the layout and surface
+# verbs. No demo verbs; imbib registers its own source adapters.
+koine-host = { workspace = true, features = ["window-webview", "http-registries"] }
+koine-packages = { workspace = true }
+koine-store = { workspace = true }
+impress-item = { workspace = true }
+# imbib's verbs and the kit (store, layout, surfaces, triage, collections,
+# settings): the one linked inventory (ADR-0033 D4).
+impress-capabilities = { workspace = true, features = ["imbib", "kit", "smart-search"] }
+impress-core = { workspace = true }
+impress-store-service = { workspace = true }
+# imbib's secret source, layered in front of the host's (lib.rs).
+imbib-service = { workspace = true }
+impress-service-core = { workspace = true }
+impress-workspace-hack.workspace = true
+
+[dev-dependencies]
+impress-surface = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

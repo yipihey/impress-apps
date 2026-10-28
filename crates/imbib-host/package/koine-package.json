@@ -1,0 +1,40 @@
+{
+  "package": "1.0",
+  "name": "imbib",
+  "version": "0.1.0",
+  "description": "imbib's pages on koine's web frontend: the library, a paper, online search and import, and citation resolution — every one a surface over imbib's verbs.",
+  "surfaces": [
+    {
+      "name": "Library",
+      "file": "surfaces/library.surface.json"
+    },
+    {
+      "name": "Search online",
+      "file": "surfaces/search.surface.json"
+    },
+    {
+      "name": "Resolve a reference",
+      "file": "surfaces/resolve.surface.json"
+    }
+  ],
+  "skills": [
+    {
+      "name": "imbib",
+      "file": "SKILL.md"
+    }
+  ],
+  "requires": {
+    "verbs": [
+      "imbib-library-service_set-read",
+      "imbib-library-service_set-starred",
+      "imbib-sources-service_resolve-citation",
+      "imbib-sources-service_source-status",
+      "imbib-view-service_import-ids",
+      "imbib-view-service_library-choices",
+      "imbib-view-service_paper-card",
+      "imbib-view-service_paper-rows",
+      "imbib-view-service_search-rows"
+    ],
+    "secrets": []
+  }
+}

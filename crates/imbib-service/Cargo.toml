@@ -8,6 +8,8 @@ description = "Service-trait facade over imbib-core exposed via #[impress_servic
 
 [dependencies]
 imbib-core = { workspace = true, features = ["native"] }
+# The entity decoder the display verbs (view_service) clean titles and venues with.
+impress-smart-search = { workspace = true }
 impress-tags = { workspace = true }
 impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }

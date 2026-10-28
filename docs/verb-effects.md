@@ -272,6 +272,11 @@ catalogue, 168 on the exception table.
 | `imbib-undo-service_recent-undo-groups` | "core/operation" | — | — | — |
 | `imbib-undo-service_undo-batch` | "core/operation" | any("restores whatever kind the operations targeted") | — | example ×1 |
 | `imbib-undo-service_undo-operation` | "core/operation" | any("restores whatever kind the operations targeted") | — | example ×1 |
+| `imbib-view-service_import-ids` | "imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper" | "imbib/bibliography-entry", "imbib/collection" | network | — |
+| `imbib-view-service_library-choices` | "imbib/library", "imbib/collection", "imbib/bibliography-entry" | — | — | example ×1 |
+| `imbib-view-service_paper-card` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/collection" | — | — | — |
+| `imbib-view-service_paper-rows` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection" | — | — | example ×1 |
+| `imbib-view-service_search-rows` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | network | — |
 | `impart-service_add-message` | — | — | app("impart") | — |
 | `impart-service_branch-conversation` | — | — | app("impart") | — |
 | `impart-service_create-conversation` | — | — | app("impart") | — |
@@ -682,6 +687,9 @@ when one lands).
 | `imbib-tags-service_add-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-tags-service_remove-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-undo-service_recent-undo-groups` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `imbib-view-service_import-ids` | leaves the process (network) |
+| `imbib-view-service_paper-card` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `imbib-view-service_search-rows` | leaves the process (network) |
 | `impart-service_add-message` | needs a running app |
 | `impart-service_branch-conversation` | needs a running app |
 | `impart-service_create-conversation` | needs a running app |
