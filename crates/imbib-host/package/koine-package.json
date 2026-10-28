@@ -2,7 +2,7 @@
   "package": "1.0",
   "name": "imbib",
   "version": "0.1.0",
-  "description": "imbib's pages on koine's web frontend: the library, feeds, tags, collections, a paper (flags, tags, collections), online search and import, and citation resolution — every one a surface over imbib's verbs.",
+  "description": "imbib's pages on koine's web frontend: the library, feeds, tags, collections, saved searches, a paper (flags, tags, collections), online search and import, and citation resolution — every one a surface over imbib's verbs.",
   "surfaces": [
     {
       "name": "Library",
@@ -19,6 +19,10 @@
     {
       "name": "Collections",
       "file": "surfaces/collections.surface.json"
+    },
+    {
+      "name": "Smart searches",
+      "file": "surfaces/smart-searches.surface.json"
     },
     {
       "name": "Search online",
@@ -47,6 +51,8 @@
       "imbib-library-service_set-flag",
       "imbib-library-service_set-read",
       "imbib-library-service_set-starred",
+      "imbib-search-service_create-smart-search",
+      "imbib-search-service_delete-smart-search",
       "imbib-sources-service_source-status",
       "imbib-tags-service_add-tag",
       "imbib-tags-service_remove-tag",
@@ -60,6 +66,8 @@
       "imbib-view-service_paper-rows",
       "imbib-view-service_resolve-view",
       "imbib-view-service_search-rows",
+      "imbib-view-service_smart-search-libraries",
+      "imbib-view-service_smart-search-rows",
       "imbib-view-service_tag-rows",
       "imbib-view-service_tag-tree"
     ],

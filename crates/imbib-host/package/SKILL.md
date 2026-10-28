@@ -14,10 +14,16 @@ Reading:
 - `imbib-view-service_collection-rows`, `collection-choices` — every paper
   collection with its library and count; `paper-rows` with scope
   `collection:<id>` lists one.
+- `imbib-view-service_smart-search-rows` — the saved searches (smart searches
+  that do not feed the Inbox) with what each has found; `paper-rows` with
+  scope `collection:<search id>` lists a search's papers.
 
 Doing:
 - `imbib-feeds-service_refresh-feed` / `refresh-inbox-feeds` — run feeds now
   (search, drop muted and dismissed, import new papers into the Inbox).
+- `imbib-feeds-service_refresh-feed` with a saved search's id runs it and files
+  new papers in its library; `imbib-search-service_create-smart-search` /
+  `delete-smart-search` save and remove one (its papers stay).
 - `imbib-view-service_search-rows` + `import-ids` — search the online
   databases and import chosen papers into a library.
 - `imbib-view-service_resolve-view` — resolve a bibliography line (an

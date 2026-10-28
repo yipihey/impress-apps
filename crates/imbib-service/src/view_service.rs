@@ -189,6 +189,28 @@ pub struct ViewCollectionRow {
     pub papers: String,
 }
 
+/// One saved search as a table row. The field names are the column headings.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct ViewSmartSearchRow {
+    /// The search's id (the row's identity, not a column).
+    pub id: String,
+    /// The search's name.
+    #[serde(rename = "Search")]
+    pub name: String,
+    /// The query it runs.
+    #[serde(rename = "Query")]
+    pub query: String,
+    /// The sources it asks, `all` when it asks every one.
+    #[serde(rename = "Sources")]
+    pub sources: String,
+    /// The library its results are filed in.
+    #[serde(rename = "Library")]
+    pub library: String,
+    /// How many papers it has found so far.
+    #[serde(rename = "Papers")]
+    pub papers: String,
+}
+
 /// One row of the tag tree widget: `id` is the tag's path, `parent` its
 /// parent's path (null at the root), `label` the leaf with its count.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
@@ -309,6 +331,22 @@ pub trait ImbibViewService: Send + Sync + 'static {
     #[impress_method(effects(reads = ["imbib/library", "imbib/collection", "imbib/bibliography-entry"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
     async fn collection_choices(&self) -> Vec<ViewChoice>;
+
+    /// The saved searches (smart searches that do not feed the Inbox) as
+    /// table rows: name, query, sources, library, papers found so far.
+    /// `paper-rows` with scope `collection:<id>` lists one's papers, and
+    /// `imbib-feeds-service_refresh-feed` runs one.
+    #[impress_method(effects(reads = ["imbib/smart-search", "imbib/library", "imbib/collection", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
+    async fn smart_search_rows(&self) -> Vec<ViewSmartSearchRow>;
+
+    /// Every library as `{value: <library id>, label: <name>}`, for the
+    /// picker that saves a search, after a first `{value: "", label:
+    /// "Choose a library…"}`; the library already holding the most saved
+    /// searches comes first.
+    #[impress_method(effects(reads = ["imbib/smart-search", "imbib/library", "imbib/collection", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
+    async fn smart_search_libraries(&self) -> Vec<ViewChoice>;
 
     /// Resolve a reference without importing anything: the library first,
     /// then the online databases, every candidate scored. An empty reference
@@ -475,6 +513,77 @@ impl ImbibViewService for DefaultImbibViewService {
         out.extend(all_collections().await.into_iter().map(|c| ViewChoice {
             label: c.label(),
             value: c.id,
+        }));
+        out
+    }
+
+    async fn smart_search_rows(&self) -> Vec<ViewSmartSearchRow> {
+        let names: BTreeMap<String, String> = library_service_instance()
+            .list_libraries()
+            .await
+            .into_iter()
+            .map(|l| (l.id, l.name))
+            .collect();
+        let store = crate::store_singleton::store_instance();
+        let rows = tokio::task::spawn_blocking(move || {
+            let searches = store.list_smart_searches(None).unwrap_or_default();
+            searches
+                .into_iter()
+                .filter(|s| !s.feeds_to_inbox)
+                .map(|s| {
+                    let found = store
+                        .count_collection_members_public(s.id.clone())
+                        .unwrap_or(0);
+                    (s, found)
+                })
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        rows.into_iter()
+            .map(|(s, found)| ViewSmartSearchRow {
+                name: clean(&s.name),
+                query: s.query.clone(),
+                sources: if s.source_ids.is_empty() {
+                    "all".into()
+                } else {
+                    s.source_ids.join(", ")
+                },
+                library: s
+                    .library_id
+                    .as_ref()
+                    .and_then(|id| names.get(id).cloned())
+                    .unwrap_or_default(),
+                papers: found.to_string(),
+                id: s.id,
+            })
+            .collect()
+    }
+
+    async fn smart_search_libraries(&self) -> Vec<ViewChoice> {
+        let store = crate::store_singleton::store_instance();
+        let searches = tokio::task::spawn_blocking(move || store.list_smart_searches(None))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
+        let mut held: BTreeMap<String, usize> = BTreeMap::new();
+        for s in searches.iter().filter(|s| !s.feeds_to_inbox) {
+            if let Some(id) = &s.library_id {
+                *held.entry(id.clone()).or_default() += 1;
+            }
+        }
+        let mut libraries = library_service_instance().list_libraries().await;
+        libraries.sort_by_key(|l| std::cmp::Reverse(held.get(&l.id).copied().unwrap_or(0)));
+        // As in `collection-choices`: an untouched picker shows its first
+        // entry while its bound value is still empty.
+        let mut out = vec![ViewChoice {
+            value: String::new(),
+            label: "Choose a library…".into(),
+        }];
+        out.extend(libraries.into_iter().map(|l| ViewChoice {
+            value: l.id,
+            label: l.name,
         }));
         out
     }
@@ -1281,6 +1390,10 @@ impress_service_impl! {
         collection_rows() -> Vec<ViewCollectionRow>,
         /// Every paper collection as picker choices, after "Choose a collection…".
         collection_choices() -> Vec<ViewChoice>,
+        /// The saved searches as table rows.
+        smart_search_rows() -> Vec<ViewSmartSearchRow>,
+        /// Libraries a search can be saved in, as picker choices by bare id.
+        smart_search_libraries() -> Vec<ViewChoice>,
         /// Resolve a reference for display, importing nothing.
         resolve_view(
             /// A reference as a bibliography prints it, or a DOI, arXiv id, bibcode or BibTeX entry.

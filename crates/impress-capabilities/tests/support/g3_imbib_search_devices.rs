@@ -238,9 +238,9 @@ pub async fn prepare(
         | "imbib-search-service_find-by-bibcode"
         | "imbib-search-service_find-by-identifiers-batch"
         | "imbib-search-service_full-text-search" => paper(store, "02")?,
-        "imbib-search-service_list-smart-searches" | "imbib-search-service_get-smart-search" => {
-            smart_search(store)?
-        }
+        "imbib-search-service_list-smart-searches"
+        | "imbib-search-service_get-smart-search"
+        | "imbib-search-service_delete-smart-search" => smart_search(store)?,
         "imbib-search-service_create-smart-search" => library(store)?,
         "imbib-scix-service_list-scix-libraries"
         | "imbib-scix-service_get-scix-library"
@@ -296,6 +296,14 @@ pub fn verify(
 ) -> Result<(), String> {
     verify_annotations(verb, store, result)?;
     match verb {
+        "imbib-search-service_delete-smart-search" => {
+            if result != &Value::Bool(true) {
+                return Err(format!("{verb} did not report the delete: {result}"));
+            }
+            if store.get(id("03")?).map_err(|e| e.to_string())?.is_some() {
+                return Err(format!("{verb} left the scratch smart search in place"));
+            }
+        }
         "imbib-search-service_find-by-cite-key"
         | "imbib-search-service_get-smart-search"
         | "imbib-scix-service_get-scix-library" => {

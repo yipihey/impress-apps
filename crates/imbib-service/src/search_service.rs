@@ -189,7 +189,8 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     /// autoRefreshEnabled makes imbib re-run the query on a timer; both
     /// default OFF, so turn them on only when the user explicitly asks for
     /// an ongoing feed rather than a saved query. List with
-    /// `imbib-search-service_list-smart-searches`, remove with imbib_delete_smart_searches.
+    /// `imbib-search-service_list-smart-searches`, remove with
+    /// `imbib-search-service_delete-smart-search`.
     #[impress_method(safety = mutating, effects(reads = ["imbib/library"], writes = ["imbib/smart-search"]))]
     #[impress_example(
         name = "save-spectra-query",
@@ -207,6 +208,17 @@ pub trait ImbibSearchService: Send + Sync + 'static {
         auto_refresh_enabled: bool,
         refresh_interval_seconds: i64,
     ) -> Option<SmartSearchRecord>;
+    /// Delete a saved smart search (or feed). The papers it found stay in
+    /// their library; only the search and its links to them go. False when
+    /// there is no such search. Works with the app closed, unlike
+    /// `imbib-app-service_delete-smart-searches`, which asks the running app.
+    #[impress_method(safety = destructive, effects(reads = ["imbib/smart-search"], writes = ["imbib/smart-search"]))]
+    #[impress_example(
+        name = "drop-saved-search",
+        args = r#"{"id":"63000000-0000-4000-8000-000000000003"}"#,
+        expect = "true"
+    )]
+    async fn delete_smart_search(&self, id: String) -> bool;
 }
 
 #[derive(Clone)]
@@ -401,6 +413,21 @@ impl ImbibSearchService for DefaultImbibSearchService {
             .map(|r| SmartSearchRecord::from(&r))
             .map_err(|e| log("create_smart_search", e))
             .ok()
+    }
+    async fn delete_smart_search(&self, id: String) -> bool {
+        // Only a smart search: the store's delete would remove any item.
+        match self.store.get_smart_search(id.clone()) {
+            Ok(Some(_)) => {}
+            Ok(None) => return false,
+            Err(e) => {
+                log("delete_smart_search", e);
+                return false;
+            }
+        }
+        self.store
+            .delete_smart_search(id)
+            .map_err(|e| log("delete_smart_search", e))
+            .is_ok()
     }
 }
 
@@ -600,5 +627,9 @@ impress_service_impl! {
             /// Interval in seconds between automatic refreshes.
             refresh_interval_seconds: i64
         ) -> Option<SmartSearchRecord>,
+        delete_smart_search(
+            /// UUID of the smart search to delete.
+            id: String
+        ) -> bool,
     ],
 }

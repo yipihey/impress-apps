@@ -243,6 +243,7 @@ catalogue, 168 on the exception table.
 | `imbib-sources-service_search-sources` | — | — | network | — |
 | `imbib-sources-service_source-status` | — | — | — | example ×1 |
 | `imbib-search-service_create-smart-search` | "imbib/library" | "imbib/smart-search" | — | example ×1 |
+| `imbib-search-service_delete-smart-search` | "imbib/smart-search" | "imbib/smart-search" | — | example ×1 |
 | `imbib-search-service_find-by-arxiv` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-search-service_find-by-bibcode` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-search-service_find-by-cite-key` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
@@ -284,6 +285,8 @@ catalogue, 168 on the exception table.
 | `imbib-view-service_paper-rows` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection" | — | — | example ×1 |
 | `imbib-view-service_resolve-view` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/dismissed-paper" | — | network | — |
 | `imbib-view-service_search-rows` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | network | — |
+| `imbib-view-service_smart-search-libraries` | "imbib/smart-search", "imbib/library", "imbib/collection", "imbib/bibliography-entry" | — | — | example ×1 |
+| `imbib-view-service_smart-search-rows` | "imbib/smart-search", "imbib/library", "imbib/collection", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-view-service_tag-rows` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-view-service_tag-tree` | "imbib/tag-definition", "imbib/bibliography-entry" | — | — | example ×1 |
 | `impart-service_add-message` | — | — | app("impart") | — |

@@ -232,6 +232,46 @@ Online search results as display rows keyed by canonical identifier.
   []
   ```
 
+## `imbib-view-service_smart-search-libraries`
+
+Libraries a search can be saved in, as picker choices by bare id.
+
+- **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
+- **reads**: "imbib/smart-search", "imbib/library", "imbib/collection", "imbib/bibliography-entry"
+- **writes**: —
+- **reach**: —
+
+Takes no arguments.
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {}
+  ```
+
+## `imbib-view-service_smart-search-rows`
+
+The saved searches as table rows.
+
+- **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
+- **reads**: "imbib/smart-search", "imbib/library", "imbib/collection", "imbib/bibliography-entry"
+- **writes**: —
+- **reach**: —
+
+Takes no arguments.
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {}
+  ```
+
 ## `imbib-view-service_tag-rows`
 
 The papers carrying a tag as display rows.
