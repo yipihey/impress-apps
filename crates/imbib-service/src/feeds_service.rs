@@ -8,10 +8,11 @@
 //! 1. runs the query on the feed's sources (`search_sources`, the federated
 //!    `bib-source-service` search);
 //! 2. drops what a mute rule names (author, DOI, bibcode, venue, arXiv
-//!    category — `MuteService.shouldFilter`'s rules exactly) and what was
-//!    dismissed;
+//!    category — `MuteService.shouldFilter`'s rules exactly);
 //! 3. finds the papers the library already holds, by DOI, arXiv id or
-//!    bibcode, in one query;
+//!    bibcode, in one query (a copy in the Dismissed library is not held);
+//!    then drops what was dismissed — except, for a search that does not
+//!    feed the Inbox, a paper the library holds;
 //! 4. imports the rest into the Inbox (or the feed's library when it does
 //!    not feed the Inbox) through `import_work`, with the source's record
 //!    and no BibTeX export per row, and marks them unread;
@@ -414,6 +415,9 @@ fn is_muted(p: &ExternalPaper, rules: &[MutedItemRow]) -> bool {
     })
 }
 
+/// The name of the library dismissed papers are moved to (the trash).
+const DISMISSED_LIBRARY: &str = "Dismissed";
+
 async fn refresh(feed: &SmartSearchRow) -> FeedRefresh {
     let store = store_instance();
     let mut outcome = FeedRefresh {
@@ -442,32 +446,24 @@ async fn refresh(feed: &SmartSearchRow) -> FeedRefresh {
     };
     outcome.fetched = found.len() as u32;
 
-    // 2. Mute rules and dismissals.
+    // 2. Mute rules.
     let rules = store.list_muted_items(None).unwrap_or_default();
-    let mut kept: Vec<&ExternalPaper> = Vec::new();
+    let mut unmuted: Vec<&ExternalPaper> = Vec::new();
     for p in &found {
         if is_muted(p, &rules) {
             outcome.muted += 1;
-            continue;
+        } else {
+            unmuted.push(p);
         }
-        let dismissed = store
-            .is_paper_dismissed(
-                p.ids.get("doi").cloned().or_else(|| p.doi.clone()),
-                p.ids.get("arxiv").cloned().or_else(|| p.arxiv_id.clone()),
-                p.ids.get("bibcode").cloned().or_else(|| p.bibcode.clone()),
-                None,
-            )
-            .unwrap_or(false);
-        if dismissed {
-            outcome.dismissed += 1;
-            continue;
-        }
-        kept.push(p);
     }
 
-    // 3. What the library already holds, in one query.
+    // 3. What the library already holds, in one query. A copy in the
+    // Dismissed library is in the trash, not held. Swift keeps that
+    // library's id in its own UserDefaults, so it is known here by name,
+    // as Swift's SciX sync also knows it.
     let collect = |kind: &str| -> Vec<String> {
-        kept.iter()
+        unmuted
+            .iter()
             .filter_map(|p| p.ids.get(kind).cloned())
             .filter(|v| !v.is_empty())
             .collect()
@@ -475,8 +471,23 @@ async fn refresh(feed: &SmartSearchRow) -> FeedRefresh {
     let held_rows = store
         .find_by_identifiers_batch(collect("doi"), collect("arxiv"), collect("bibcode"))
         .unwrap_or_default();
+    let trash: Option<String> = store
+        .list_libraries()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|l| l.name == DISMISSED_LIBRARY)
+        .map(|l| l.id);
+    let homes = match &trash {
+        Some(_) => store
+            .owning_libraries(&held_rows.iter().map(|r| r.id.clone()).collect::<Vec<_>>())
+            .unwrap_or_default(),
+        None => HashMap::new(),
+    };
     let mut held: HashMap<String, String> = HashMap::new();
-    for r in &held_rows {
+    for r in held_rows
+        .iter()
+        .filter(|r| trash.is_none() || homes.get(&r.id) != trash.as_ref())
+    {
         if let Some(d) = r.doi.as_deref().filter(|d| !d.is_empty()) {
             held.insert(format!("doi:{}", d.to_lowercase()), r.id.clone());
         }
@@ -504,7 +515,34 @@ async fn refresh(feed: &SmartSearchRow) -> FeedRefresh {
             .cloned()
     };
 
-    // 4. Import the rest.
+    // 4. Dismissals. Dismissing is an Inbox verdict ("not for my Inbox"),
+    // so an Inbox feed never brings a dismissed paper back. A saved search
+    // is a question about the literature, and a paper the library holds
+    // answers it whether or not a copy was once dismissed from the Inbox
+    // (the user's choice, 2026-10-28); one the library does not hold stays
+    // out, as it always did.
+    let mut kept: Vec<&ExternalPaper> = Vec::new();
+    for p in unmuted {
+        if !feed.feeds_to_inbox && held_id(p, &held).is_some() {
+            kept.push(p);
+            continue;
+        }
+        let dismissed = store
+            .is_paper_dismissed(
+                p.ids.get("doi").cloned().or_else(|| p.doi.clone()),
+                p.ids.get("arxiv").cloned().or_else(|| p.arxiv_id.clone()),
+                p.ids.get("bibcode").cloned().or_else(|| p.bibcode.clone()),
+                None,
+            )
+            .unwrap_or(false);
+        if dismissed {
+            outcome.dismissed += 1;
+            continue;
+        }
+        kept.push(p);
+    }
+
+    // 5. Import the rest.
     let target = if feed.feeds_to_inbox {
         store.get_inbox_library().ok().flatten().map(|l| l.id)
     } else {
@@ -555,7 +593,7 @@ async fn refresh(feed: &SmartSearchRow) -> FeedRefresh {
     outcome.new = new_ids.len() as u32;
     outcome.existing = existing_ids.len() as u32;
 
-    // 5. New papers are unread; every paper found is linked to the feed.
+    // 6. New papers are unread; every paper found is linked to the feed.
     if !new_ids.is_empty() {
         if let Err(e) = store.set_read(new_ids.clone(), false) {
             tracing::warn!(target: "feeds", "refresh '{}': set unread failed: {e}", feed.name);

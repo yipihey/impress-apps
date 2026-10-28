@@ -4855,6 +4855,23 @@ impl ImbibStore {
 
 // Internal helpers (not exposed via UniFFI)
 impl ImbibStore {
+    /// The library that owns each of `ids` (its home: the envelope parent),
+    /// for the ids that exist and have one.
+    pub fn owning_libraries(
+        &self,
+        ids: &[String],
+    ) -> Result<std::collections::HashMap<String, String>, StoreApiError> {
+        let mut out = std::collections::HashMap::new();
+        for id in ids {
+            if let Some(item) = self.store.get(parse_uuid(id)?)? {
+                if let Some(parent) = item.parent {
+                    out.insert(id.clone(), parent.to_string());
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Every paper collection, whichever library owns it (or none), in
     /// `sort_order`. `list_collections` asks one library; collections made
     /// before libraries owned them have no library and only show up here.
@@ -5922,6 +5939,21 @@ mod tests {
         assert!(!store
             .is_paper_dismissed(None, Some("2609.13369".into()), None, None)
             .unwrap());
+    }
+
+    #[test]
+    fn owning_libraries_names_each_papers_home() {
+        let store = make_store();
+        let home = store.create_library("Home".into()).unwrap();
+        let ids = store
+            .import_bibtex("@article{A, title={A}}".into(), home.id.clone())
+            .unwrap();
+        let unknown = "5c000000-0000-4000-8000-0000000000ff".to_string();
+        let homes = store
+            .owning_libraries(&[ids[0].clone(), unknown.clone()])
+            .unwrap();
+        assert_eq!(homes.get(&ids[0]), Some(&home.id));
+        assert!(!homes.contains_key(&unknown));
     }
 
     #[test]
