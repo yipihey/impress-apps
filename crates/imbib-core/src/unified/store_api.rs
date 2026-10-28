@@ -2417,9 +2417,12 @@ impl ImbibStore {
             or_preds.push(Predicate::Eq("doi".into(), Value::String(d.to_lowercase())));
         }
         if let Some(a) = arxiv_id {
-            or_preds.push(Predicate::Eq(
+            or_preds.push(Predicate::In(
                 "arxiv_id".into(),
-                Value::String(a.to_lowercase()),
+                arxiv_id_spellings(&[a.to_lowercase()])
+                    .into_iter()
+                    .map(Value::String)
+                    .collect(),
             ));
         }
         if let Some(b) = bibcode {
@@ -2549,7 +2552,10 @@ impl ImbibStore {
         if !arxiv_ids.is_empty() {
             or_preds.push(Predicate::In(
                 "arxiv_id".into(),
-                arxiv_ids.into_iter().map(Value::String).collect(),
+                arxiv_id_spellings(&arxiv_ids)
+                    .into_iter()
+                    .map(Value::String)
+                    .collect(),
             ));
         }
         if !bibcodes.is_empty() {
@@ -5783,6 +5789,37 @@ fn manuscript_sort_descriptors(sort_field: &str, ascending: bool) -> Vec<SortDes
     }]
 }
 
+/// The ways an arXiv id is stored: bare and with a version. About 40% of the
+/// library's `arxiv_id`s carry one (`2609.13368v1`), because some importers
+/// keep what arXiv returned, so an exact match on the bare id from a feed
+/// missed the paper and the feed imported it a second time. An index-backed
+/// `IN` over the spellings stays one query; versions past v20 are not seen.
+fn arxiv_id_spellings(ids: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for id in ids {
+        let id = id
+            .trim()
+            .trim_start_matches("arXiv:")
+            .trim_start_matches("arxiv:");
+        let base = match id.rfind('v') {
+            Some(i)
+                if i > 0 && i + 1 < id.len() && id[i + 1..].chars().all(|c| c.is_ascii_digit()) =>
+            {
+                &id[..i]
+            }
+            _ => id,
+        };
+        if base.is_empty() {
+            continue;
+        }
+        out.push(base.to_string());
+        out.extend((1..=20).map(|v| format!("{base}v{v}")));
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5832,6 +5869,51 @@ mod tests {
         // Check library count
         let libs = store.list_libraries().unwrap();
         assert_eq!(libs[0].publication_count, 2);
+    }
+
+    #[test]
+    fn batch_lookup_finds_an_arxiv_id_stored_with_its_version() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let ids = store
+            .import_bibtex(
+                "@article{Reefe2026, title={Reigniting the FUSE II}, eprint={2609.13368v1}}".into(),
+                lib.id.clone(),
+            )
+            .unwrap();
+        for asked in ["2609.13368", "2609.13368v2", "arXiv:2609.13368v1"] {
+            let found = store
+                .find_by_identifiers_batch(vec![], vec![asked.into()], vec![])
+                .unwrap();
+            assert_eq!(
+                found.iter().map(|r| r.id.clone()).collect::<Vec<_>>(),
+                ids,
+                "{asked}"
+            );
+        }
+        let none = store
+            .find_by_identifiers_batch(vec![], vec!["2609.1336".into()], vec![])
+            .unwrap();
+        assert!(none.is_empty(), "a prefix of the id is another paper");
+    }
+
+    #[test]
+    fn a_paper_dismissed_at_one_arxiv_version_stays_dismissed_at_another() {
+        let store = make_store();
+        store
+            .dismiss_paper(None, Some("2609.13368v1".into()), None, None)
+            .unwrap();
+        for asked in ["2609.13368", "2609.13368v2"] {
+            assert!(
+                store
+                    .is_paper_dismissed(None, Some(asked.into()), None, None)
+                    .unwrap(),
+                "{asked}"
+            );
+        }
+        assert!(!store
+            .is_paper_dismissed(None, Some("2609.13369".into()), None, None)
+            .unwrap());
     }
 
     #[test]

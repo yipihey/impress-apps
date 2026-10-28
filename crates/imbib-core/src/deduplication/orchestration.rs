@@ -772,16 +772,20 @@ mod tests {
     }
 
     #[test]
-    fn source_priority_table_matches_the_swift_literals() {
+    // The table is koine's since a7689a65 (WoS 25 and SciX 31 joined the
+    // seven Swift literals); this asserted the old length of 7 until then.
+    fn source_priority_table_is_koines() {
         assert_eq!(source_priority_rank("crossref"), 10);
         assert_eq!(source_priority_rank("pubmed"), 20);
+        assert_eq!(source_priority_rank("wos"), 25);
         assert_eq!(source_priority_rank("ads"), 30);
+        assert_eq!(source_priority_rank("scix"), 31);
         assert_eq!(source_priority_rank("semanticscholar"), 40);
         assert_eq!(source_priority_rank("openalex"), 50);
         assert_eq!(source_priority_rank("arxiv"), 60);
         assert_eq!(source_priority_rank("dblp"), 70);
         assert_eq!(source_priority_rank("europepmc"), UNRANKED_SOURCE_PRIORITY);
-        assert_eq!(dedup_source_priorities_internal().len(), 7);
+        assert_eq!(dedup_source_priorities_internal().len(), 9);
     }
 
     #[test]
