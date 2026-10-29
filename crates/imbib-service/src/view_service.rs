@@ -930,7 +930,7 @@ fn candidate_row(c: &serde_json::Value) -> ViewCandidateRow {
             .and_then(|v| v.as_f64())
             .map(|x| format!("{x:.2}"))
             .unwrap_or_default(),
-        title: display_text(&text("title")),
+        title: title_text(&text("title")),
         authors: short_authors(&authors),
         year: c
             .get("year")
@@ -1028,7 +1028,7 @@ fn search_row_of(
         } else {
             String::new()
         },
-        title: display_text(&p.title),
+        title: title_text(&p.title),
         authors: short_authors(&authors),
         year: p.year.map(|y| y.to_string()).unwrap_or_default(),
         venue: display_text(p.venue.as_deref().unwrap_or("")),
@@ -1125,6 +1125,12 @@ fn display_text(text: &str) -> String {
     .join(" ")
 }
 
+/// A title as [`display_text`] shows it, recased when it is set in
+/// capitals throughout (`imbib_core::text::display_title`).
+fn title_text(text: &str) -> String {
+    imbib_core::text::display_title(&display_text(text)).into_owned()
+}
+
 /// HTML entities decoded (`&amp;` from a BibTeX export, `&#x2013;`), the
 /// surrounding whitespace trimmed.
 fn clean(text: &str) -> String {
@@ -1164,7 +1170,7 @@ fn row_of(p: &PublicationSummary) -> ViewPaperRow {
     ViewPaperRow {
         id: p.id.clone(),
         marks,
-        title: display_text(&p.title),
+        title: title_text(&p.title),
         authors: short_authors(&p.authors),
         year: p.year.map(|y| y.to_string()).unwrap_or_default(),
         venue: display_text(p.venue.as_deref().unwrap_or("")),
@@ -1202,7 +1208,7 @@ fn card_of(d: &PublicationDetailRecord, bibtex: String) -> ViewPaperCard {
             .find(|v| !v.is_empty())
             .unwrap_or_default()
     };
-    let title = display_text(&field("title"));
+    let title = title_text(&field("title"));
     let authors = d
         .authors
         .iter()

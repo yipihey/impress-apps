@@ -10,6 +10,7 @@ mod author_parser;
 mod math_display;
 mod mathml_parser;
 mod scientific_parser;
+mod title_display;
 
 pub use abstract_parser::{
     abstract_contains_math, mathml_to_latex, parse_abstract, AbstractSegment,
@@ -25,3 +26,4 @@ pub use scientific_parser::{
     decode_html_entities, preprocess_scientific_text, replace_greek_letters, strip_font_commands,
     strip_standalone_braces,
 };
+pub use title_display::{display_title, shouts};
