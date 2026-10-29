@@ -171,7 +171,11 @@ use serde_json::Value;
 // the write lands after the example has answered, so the spy sees none. Its
 // evidence is the overtaking test in triage_service.rs and the Inbox page
 // live (a paper left on screen turns read; one passed with `j` does not).
-const EXCEPTION_CEILING: usize = 190;
+// 190 → 191: `imbib-pdf-service_fetch-pdf` fetches a paper's PDF from
+// arXiv or its publisher and writes it beside the library's files, so it
+// leaves the process (network, fs). Its evidence is the PDF-check, naming and
+// candidate-order tests in pdf_service.rs and a live fetch through the host.
+const EXCEPTION_CEILING: usize = 191;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave

@@ -48,6 +48,7 @@ read.
 | `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 9 | 7 |
 | `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 17 | 7 |
 | `imbib-sources-service` | imbib-service | 3 | 3 | 10 (3) | 10 | 3 |
+| `imbib-pdf-service` | imbib-service | 1 | 1 | 1 (1) | 1 | 1 |
 | `imbib-search-service` | imbib-service | 11 | 11 | 24 (19) | 24 | 11 |
 | `imbib-semantic-service` | imbib-semantic-service | 3 | 3 | 4 (2) | 4 | 3 |
 | `imbib-tags-service` | imbib-service | 11 | 11 | 22 (14) | 22 | 11 |
@@ -86,7 +87,7 @@ read.
 | `review-service` | koine-tasks | 6 | 6 | 10 (4) | 10 | 6 |
 | `triage-service` | koine-triage | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 24 | 15 |
-| **Total** | 30 crates, 54 services | **567** | **567** | **1277 (813)** | **1277** | **567** |
+| **Total** | 30 crates, 55 services | **568** | **568** | **1278 (814)** | **1278** | **568** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -110,7 +111,7 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | `map` | 4 |
 | `other` | 51 |
 | `ref-object` | 6 |
-| `scalar` | 1136 |
+| `scalar` | 1137 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)

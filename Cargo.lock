@@ -4568,6 +4568,7 @@ dependencies = [
  "impress-workspace-hack",
  "koine-sources",
  "regex",
+ "reqwest",
  "schemars 0.8.22",
  "serde",
  "serde_json",

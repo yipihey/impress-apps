@@ -30,6 +30,10 @@ Doing:
 - `imbib-feeds-service_refresh-feed` with a saved search's id runs it and files
   new papers in its library; `imbib-search-service_create-smart-search` /
   `delete-smart-search` save and remove one (its papers stay).
+- `imbib-pdf-service_fetch-pdf` — get a paper's PDF (arXiv, else the
+  publisher's URL for its DOI, else its own PDF url; a paywall page is
+  refused) and keep it with the library's files; the card's "Local PDF"
+  link then opens it.
 - `imbib-view-service_search-rows` + `import-ids` — search the online
   databases and import chosen papers into a library.
 - `imbib-view-service_resolve-view` — resolve a bibliography line (an
@@ -42,7 +46,7 @@ Doing:
   Deleting a collection never deletes its papers.
 
 Keys (every paper list): `j`/`k` move and the card follows, `r`/`u`
-read/unread, `s` star, `m` the row menu; in the Inbox and a feed also `d`
+read/unread, `s` star, `g` get the PDF, `m` the row menu; in the Inbox and a feed also `d`
 dismiss and `*` keep in the library chosen under "Keep in", and the next
 paper comes up (`imbib-view-service_paper-after`). A paper shown for two
 seconds is marked read (`imbib-triage-service_viewing`).

@@ -242,6 +242,7 @@ catalogue, 168 on the exception table.
 | `imbib-sources-service_resolve-citation` | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry" | network, app("imbib") | — |
 | `imbib-sources-service_search-sources` | — | — | network | — |
 | `imbib-sources-service_source-status` | — | — | — | example ×1 |
+| `imbib-pdf-service_fetch-pdf` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/library", "imbib/tag-definition", "imbib/collection" | "imbib/linked-file" | network, fs | — |
 | `imbib-search-service_create-smart-search` | "imbib/library" | "imbib/smart-search" | — | example ×1 |
 | `imbib-search-service_delete-smart-search` | "imbib/smart-search" | "imbib/smart-search" | — | example ×1 |
 | `imbib-search-service_find-by-arxiv` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
@@ -698,6 +699,7 @@ when one lands).
 | `imbib-manuscripts-service_list-manuscripts` | needs a running app |
 | `imbib-manuscripts-service_list-templates` | needs a running app |
 | `imbib-manuscripts-service_write-manuscript-body` | needs a running app |
+| `imbib-pdf-service_fetch-pdf` | leaves the process (network, fs) |
 | `imbib-semantic-service_get-paper-chunks` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-semantic-service_list-indexed-papers` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-semantic-service_search-papers` | exercised, unobserved (example ran, spy saw no declared read or write) |

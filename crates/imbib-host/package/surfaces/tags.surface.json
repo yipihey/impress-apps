@@ -8,6 +8,7 @@
     "selected": [],
     "limit": 300,
     "new_tag": "",
+    "got": {},
     "add_to": ""
   },
   "sources": {
@@ -204,6 +205,31 @@
                         }
                       }
                     ]
+                  },
+                  {
+                    "label": "Get PDF",
+                    "key": "g",
+                    "on_click": [
+                      {
+                        "call": {
+                          "verb": "imbib-pdf-service_fetch-pdf",
+                          "args": {
+                            "id": "{{event.value.id}}"
+                          },
+                          "into": "state.got"
+                        }
+                      },
+                      {
+                        "refresh": {
+                          "source": "papers_by_tag"
+                        }
+                      },
+                      {
+                        "refresh": {
+                          "source": "card"
+                        }
+                      }
+                    ]
                   }
                 ]
               }
@@ -333,8 +359,42 @@
                           }
                         ]
                       }
+                    },
+                    {
+                      "id": "get-pdf",
+                      "button": {
+                        "label": "Get PDF",
+                        "on_click": [
+                          {
+                            "call": {
+                              "verb": "imbib-pdf-service_fetch-pdf",
+                              "args": {
+                                "id": "{{state.selected.0}}"
+                              },
+                              "into": "state.got"
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "papers_by_tag"
+                            }
+                          },
+                          {
+                            "refresh": {
+                              "source": "card"
+                            }
+                          }
+                        ]
+                      }
                     }
                   ]
+                },
+                {
+                  "id": "got-problem",
+                  "when": {
+                    "path": "state.got.problem"
+                  },
+                  "text": "No PDF: {{state.got.problem}}"
                 },
                 {
                   "id": "flag-row",

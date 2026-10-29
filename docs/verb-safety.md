@@ -274,6 +274,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-sources-service_resolve-citation` | external | name/doc |
 | `imbib-sources-service_search-sources` | external | E/R: name/doc |
 | `imbib-sources-service_source-status` | read_only | name/doc |
+| `imbib-pdf-service_fetch-pdf` | external | name/doc |
 | `imbib-search-service_create-smart-search` | mutating | name/doc |
 | `imbib-search-service_delete-smart-search` | destructive | crates/imbib-service/src/search_service.rs:417 -> crates/imbib-core/src/unified/store_api.rs:2324 store.delete(id) of the smart-search row; its Contains edges cascade, the papers stay; no undo |
 | `imbib-search-service_find-by-arxiv` | read_only | name/doc |

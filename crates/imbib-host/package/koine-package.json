@@ -55,6 +55,7 @@
       "imbib-library-service_set-flag",
       "imbib-library-service_set-read",
       "imbib-library-service_set-starred",
+      "imbib-pdf-service_fetch-pdf",
       "imbib-search-service_create-smart-search",
       "imbib-search-service_delete-smart-search",
       "imbib-sources-service_source-status",

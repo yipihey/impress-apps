@@ -36,6 +36,8 @@ regex = { workspace = true }
 # vocabulary (`Work`, the scorer and cascade), the six `bib-source-service_*`
 # verbs, and the seven adapters imbib registers at start (`sources.rs`).
 koine-sources = { workspace = true }
+# fetch-pdf downloads bytes (imbib-core's client reads text).
+reqwest = { workspace = true }
 source-service = { workspace = true }
 source-crossref = { workspace = true }
 source-arxiv = { workspace = true }
