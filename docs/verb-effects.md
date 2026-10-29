@@ -277,6 +277,7 @@ catalogue, 168 on the exception table.
 | `imbib-undo-service_undo-operation` | "core/operation" | any("restores whatever kind the operations targeted") | — | example ×1 |
 | `imbib-triage-service_dismiss` | "imbib/bibliography-entry", "imbib/library", "imbib/smart-search", "imbib/dismissed-paper", "imbib/collection" | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper", "imbib/collection" | — | example ×1 |
 | `imbib-triage-service_keep` | "imbib/bibliography-entry", "imbib/library", "imbib/smart-search", "imbib/dismissed-paper", "imbib/collection" | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper", "imbib/collection" | — | example ×1 |
+| `imbib-triage-service_viewing` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
 | `imbib-view-service_collection-choices` | "imbib/library", "imbib/collection", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-view-service_collection-rows` | "imbib/library", "imbib/collection", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-view-service_feed-choices` | "imbib/smart-search", "imbib/library", "imbib/bibliography-entry" | — | — | example ×1 |
@@ -284,6 +285,7 @@ catalogue, 168 on the exception table.
 | `imbib-view-service_import-ids` | "imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper" | "imbib/bibliography-entry", "imbib/collection" | network | — |
 | `imbib-view-service_keep-libraries` | "imbib/library", "imbib/collection", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-view-service_library-choices` | "imbib/library", "imbib/collection", "imbib/bibliography-entry" | — | — | example ×1 |
+| `imbib-view-service_paper-after` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection", "imbib/smart-search" | — | — | example ×1 |
 | `imbib-view-service_paper-card` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/collection" | — | — | — |
 | `imbib-view-service_paper-rows` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection" | — | — | example ×1 |
 | `imbib-view-service_resolve-view` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/dismissed-paper" | — | network | — |
@@ -703,6 +705,7 @@ when one lands).
 | `imbib-sources-service_search-sources` | leaves the process (network) |
 | `imbib-tags-service_add-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-tags-service_remove-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `imbib-triage-service_viewing` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-undo-service_recent-undo-groups` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-view-service_import-ids` | leaves the process (network) |
 | `imbib-view-service_paper-card` | exercised, unobserved (example ran, spy saw no declared read or write) |

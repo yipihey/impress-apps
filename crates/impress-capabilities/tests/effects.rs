@@ -166,7 +166,12 @@ use serde_json::Value;
 // author-matching tests in feeds_service.rs and live refreshes through the
 // host (an ADS feed: 100 fetched, 59 new, then 0 new and 85 held on the
 // second run).
-const EXCEPTION_CEILING: usize = 189;
+// 189 → 190: `imbib-triage-service_viewing` marks a paper read two seconds
+// after a page shows it, in a task of its own, unless the page has moved on;
+// the write lands after the example has answered, so the spy sees none. Its
+// evidence is the overtaking test in triage_service.rs and the Inbox page
+// live (a paper left on screen turns read; one passed with `j` does not).
+const EXCEPTION_CEILING: usize = 190;
 
 /// Narrow exceptions whose declared external reach does not change their
 /// primary safety class: two read-only verbs have P1 evidence that they leave

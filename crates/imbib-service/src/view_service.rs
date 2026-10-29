@@ -356,6 +356,25 @@ pub trait ImbibViewService: Send + Sync + 'static {
     #[impress_example(name = "default", args = r#"{}"#)]
     async fn keep_libraries(&self) -> Vec<ViewChoice>;
 
+    /// The paper that follows `id` in a list (`scope` as `paper-rows` takes
+    /// it, or `feed:<id>` for a feed's list, empty id the first feed), so a
+    /// page can show it once `id` is triaged away: the next paper, the one
+    /// before when `id` is last, and nothing when `id` is alone or absent.
+    /// One id or none, so a page can set its selection to the answer.
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection", "imbib/smart-search"]))]
+    #[impress_example(
+        name = "unknown-paper",
+        args = r#"{"scope":"inbox","query":"","id":"5c000000-0000-4000-8000-0000000000fc","limit":300}"#,
+        expect = r#"[]"#
+    )]
+    async fn paper_after(
+        &self,
+        scope: String,
+        query: String,
+        id: String,
+        limit: u32,
+    ) -> Vec<String>;
+
     /// Resolve a reference without importing anything: the library first,
     /// then the online databases, every candidate scored. An empty reference
     /// answers an empty resolution rather than a refusal.
@@ -619,6 +638,26 @@ impl ImbibViewService for DefaultImbibViewService {
                 }),
         );
         out
+    }
+
+    async fn paper_after(
+        &self,
+        scope: String,
+        query: String,
+        id: String,
+        limit: u32,
+    ) -> Vec<String> {
+        let rows = match scope.strip_prefix("feed:") {
+            Some(feed) => self.feed_rows(feed.to_string(), query, limit).await,
+            None => self.paper_rows(scope, query, limit).await,
+        };
+        let Some(at) = rows.iter().position(|r| r.id == id) else {
+            return Vec::new();
+        };
+        rows.get(at + 1)
+            .or_else(|| at.checked_sub(1).and_then(|before| rows.get(before)))
+            .map(|r| vec![r.id.clone()])
+            .unwrap_or_default()
     }
 
     async fn feed_choices(&self) -> Vec<ViewChoice> {
@@ -1462,6 +1501,17 @@ impress_service_impl! {
         smart_search_libraries() -> Vec<ViewChoice>,
         /// Libraries a triaged paper can be kept in, as picker choices.
         keep_libraries() -> Vec<ViewChoice>,
+        /// The paper after one in a list, to show once it is triaged away.
+        paper_after(
+            /// As `paper-rows`' scope, or `feed:<id>` (empty id: the first feed).
+            scope: String,
+            /// The list's free-text filter.
+            query: String,
+            /// The paper being triaged.
+            id: String,
+            /// The list's row limit; zero means 200.
+            limit: u32
+        ) -> Vec<String>,
         /// Resolve a reference for display, importing nothing.
         resolve_view(
             /// A reference as a bibliography prints it, or a DOI, arXiv id, bibcode or BibTeX entry.

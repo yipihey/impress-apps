@@ -154,6 +154,36 @@ Takes no arguments.
   {}
   ```
 
+## `imbib-view-service_paper-after`
+
+The paper after one in a list, to show once it is triaged away.
+
+- **safety**: `read_only`, idempotent
+- **adverbs**: tentatively, with_review, once, within
+- **reads**: "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection", "imbib/smart-search"
+- **writes**: —
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The paper being triaged. |
+| `limit` | integer | yes | The list's row limit; zero means 200. |
+| `query` | string | yes | The list's free-text filter. |
+| `scope` | string | yes | As `paper-rows`' scope, or `feed:<id>` (empty id: the first feed). |
+
+**Examples**
+
+- `unknown-paper` — Tier A:
+
+  ```json
+  {"scope":"inbox","query":"","id":"5c000000-0000-4000-8000-0000000000fc","limit":300}
+  ```
+  expects:
+
+  ```json
+  []
+  ```
+
 ## `imbib-view-service_paper-card`
 
 One paper as a display card.

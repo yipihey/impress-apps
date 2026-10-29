@@ -43,4 +43,6 @@ Doing:
 
 Keys (every paper list): `j`/`k` move and the card follows, `r`/`u`
 read/unread, `s` star, `m` the row menu; in the Inbox and a feed also `d`
-dismiss and `*` keep in the library chosen under "Keep in".
+dismiss and `*` keep in the library chosen under "Keep in", and the next
+paper comes up (`imbib-view-service_paper-after`). A paper shown for two
+seconds is marked read (`imbib-triage-service_viewing`).

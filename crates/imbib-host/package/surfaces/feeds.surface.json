@@ -11,7 +11,8 @@
     "refreshed": [],
     "last": {},
     "keep_to": "",
-    "triaged": {}
+    "triaged": {},
+    "next": []
   },
   "sources": {
     "feeds": {
@@ -166,6 +167,15 @@
                       "path": "state.selected",
                       "value": "{{event.value}}"
                     }
+                  },
+                  {
+                    "call": {
+                      "verb": "imbib-triage-service_viewing",
+                      "args": {
+                        "id": "{{event.value.0}}",
+                        "viewer": "feeds"
+                      }
+                    }
                   }
                 ],
                 "follow": true,
@@ -257,6 +267,18 @@
                     "on_click": [
                       {
                         "call": {
+                          "verb": "imbib-view-service_paper-after",
+                          "args": {
+                            "scope": "feed:{{state.feed}}",
+                            "query": "{{state.query}}",
+                            "id": "{{event.value.id}}",
+                            "limit": "{{state.limit}}"
+                          },
+                          "into": "state.next"
+                        }
+                      },
+                      {
+                        "call": {
                           "verb": "imbib-triage-service_dismiss",
                           "args": {
                             "ids": [
@@ -270,7 +292,7 @@
                       {
                         "set": {
                           "path": "state.selected",
-                          "value": []
+                          "value": "{{state.next}}"
                         }
                       },
                       {
@@ -291,6 +313,18 @@
                     "on_click": [
                       {
                         "call": {
+                          "verb": "imbib-view-service_paper-after",
+                          "args": {
+                            "scope": "feed:{{state.feed}}",
+                            "query": "{{state.query}}",
+                            "id": "{{event.value.id}}",
+                            "limit": "{{state.limit}}"
+                          },
+                          "into": "state.next"
+                        }
+                      },
+                      {
+                        "call": {
                           "verb": "imbib-triage-service_keep",
                           "args": {
                             "ids": [
@@ -305,7 +339,7 @@
                       {
                         "set": {
                           "path": "state.selected",
-                          "value": []
+                          "value": "{{state.next}}"
                         }
                       },
                       {
@@ -367,6 +401,18 @@
                           "on_click": [
                             {
                               "call": {
+                                "verb": "imbib-view-service_paper-after",
+                                "args": {
+                                  "scope": "feed:{{state.feed}}",
+                                  "query": "{{state.query}}",
+                                  "id": "{{state.selected.0}}",
+                                  "limit": "{{state.limit}}"
+                                },
+                                "into": "state.next"
+                              }
+                            },
+                            {
+                              "call": {
                                 "verb": "imbib-triage-service_keep",
                                 "args": {
                                   "ids": "{{state.selected}}",
@@ -379,7 +425,7 @@
                             {
                               "set": {
                                 "path": "state.selected",
-                                "value": []
+                                "value": "{{state.next}}"
                               }
                             },
                             {
@@ -402,6 +448,18 @@
                           "on_click": [
                             {
                               "call": {
+                                "verb": "imbib-view-service_paper-after",
+                                "args": {
+                                  "scope": "feed:{{state.feed}}",
+                                  "query": "{{state.query}}",
+                                  "id": "{{state.selected.0}}",
+                                  "limit": "{{state.limit}}"
+                                },
+                                "into": "state.next"
+                              }
+                            },
+                            {
+                              "call": {
                                 "verb": "imbib-triage-service_dismiss",
                                 "args": {
                                   "ids": "{{state.selected}}",
@@ -413,7 +471,7 @@
                             {
                               "set": {
                                 "path": "state.selected",
-                                "value": []
+                                "value": "{{state.next}}"
                               }
                             },
                             {

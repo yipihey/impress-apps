@@ -59,3 +59,31 @@ Keep papers in a library, recording that they were seen.
   {"ok":true,"moved":1,"recorded":0}
   ```
 
+## `imbib-triage-service_viewing`
+
+Mark a paper read once a page has shown it for two seconds.
+
+- **safety**: `mutating`
+- **adverbs**: tentatively, with_review, once
+- **reads**: "imbib/bibliography-entry"
+- **writes**: "imbib/bibliography-entry"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The paper shown now; empty when the page shows none. |
+| `viewer` | string | yes | The page's own name for itself (`inbox`, `library`, …). |
+
+**Examples**
+
+- `nothing-shown` — Tier A:
+
+  ```json
+  {"id":"","viewer":"example"}
+  ```
+  expects:
+
+  ```json
+  false
+  ```
+

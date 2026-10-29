@@ -79,6 +79,15 @@
                       "path": "state.selected",
                       "value": "{{event.value}}"
                     }
+                  },
+                  {
+                    "call": {
+                      "verb": "imbib-triage-service_viewing",
+                      "args": {
+                        "id": "{{event.value.0}}",
+                        "viewer": "library"
+                      }
+                    }
                   }
                 ],
                 "follow": true,

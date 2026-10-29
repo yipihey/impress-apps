@@ -78,6 +78,21 @@ pub trait ImbibTriageService: Send + Sync + 'static {
         expect = r#"{"ok":true,"moved":1,"recorded":0}"#
     )]
     async fn keep(&self, ids: Vec<String>, library_id: String, scope: String) -> TriageResult;
+
+    /// Note that a page (`viewer`, any name the page keeps to itself) now
+    /// shows paper `id`: if it still shows it two seconds later, the paper is
+    /// marked read, as a mail reader marks a message read once it has been
+    /// on screen a moment. Showing another paper, or an empty `id`, first
+    /// cancels the pending mark, so moving through a list with `j` marks only
+    /// the paper you stop at. The mark happens in this process after the
+    /// answer, so a one-shot CLI call exits before it; it is a page's verb.
+    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry"], writes = ["imbib/bibliography-entry"]))]
+    #[impress_example(
+        name = "nothing-shown",
+        args = r#"{"id":"","viewer":"example"}"#,
+        expect = "false"
+    )]
+    async fn viewing(&self, id: String, viewer: String) -> bool;
 }
 
 #[derive(Default, Clone, Copy)]
@@ -120,6 +135,64 @@ impl ImbibTriageService for DefaultImbibTriageService {
             .await
             .unwrap_or_else(|e| failed("keep", e.to_string()))
     }
+
+    async fn viewing(&self, id: String, viewer: String) -> bool {
+        let seen = next_view(&viewer);
+        let id = id.trim().to_string();
+        if id.is_empty() {
+            return false;
+        }
+        tokio::spawn(async move {
+            tokio::time::sleep(READ_AFTER).await;
+            if !still_viewing(&viewer, seen) {
+                return;
+            }
+            let store = store_instance();
+            let _ = tokio::task::spawn_blocking(move || {
+                let unread = matches!(store.get_publication(id.clone()), Ok(Some(p)) if !p.is_read);
+                if unread {
+                    match store.set_read(vec![id.clone()], true) {
+                        Ok(_) => tracing::info!(
+                            target: "triage",
+                            "viewing: marked {id} read after {READ_AFTER:?} on screen"
+                        ),
+                        Err(e) => tracing::warn!(target: "triage", "viewing: mark {id} read: {e}"),
+                    }
+                }
+            })
+            .await;
+        });
+        true
+    }
+}
+
+/// How long a paper is shown before it counts as read.
+const READ_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// What each viewer shows now: a counter that every `viewing` call bumps,
+/// so a pending mark can tell it has been overtaken.
+static VIEWING: std::sync::Mutex<Option<std::collections::HashMap<String, u64>>> =
+    std::sync::Mutex::new(None);
+
+/// Bump `viewer`'s counter and answer the new value.
+fn next_view(viewer: &str) -> u64 {
+    let mut map = VIEWING.lock().unwrap_or_else(|e| e.into_inner());
+    let entry = map
+        .get_or_insert_with(Default::default)
+        .entry(viewer.to_string())
+        .or_insert(0);
+    *entry += 1;
+    *entry
+}
+
+/// Whether `viewer` still shows what counter `seen` named.
+fn still_viewing(viewer: &str, seen: u64) -> bool {
+    VIEWING
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .and_then(|map| map.get(viewer).copied())
+        == Some(seen)
 }
 
 fn failed(verb: &str, why: impl std::fmt::Display) -> TriageResult {
@@ -315,12 +388,34 @@ impress_service_impl! {
             /// first feed) or `library:<id>`.
             scope: String
         ) -> TriageResult,
+        /// Mark a paper read once a page has shown it for two seconds.
+        viewing(
+            /// The paper shown now; empty when the page shows none.
+            id: String,
+            /// The page's own name for itself (`inbox`, `library`, …).
+            viewer: String
+        ) -> bool,
     ],
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_newer_view_overtakes_a_pending_one_on_the_same_page_only() {
+        let first = next_view("test-page");
+        assert!(still_viewing("test-page", first));
+        let other = next_view("test-other-page");
+        assert!(
+            still_viewing("test-page", first),
+            "another page does not overtake"
+        );
+        let second = next_view("test-page");
+        assert!(!still_viewing("test-page", first));
+        assert!(still_viewing("test-page", second));
+        assert!(still_viewing("test-other-page", other));
+    }
 
     #[test]
     fn only_the_inbox_and_feeds_record_a_verdict() {
