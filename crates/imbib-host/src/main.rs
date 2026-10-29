@@ -7,12 +7,19 @@
 //! imbib-host call imbib-library-service_list-libraries '{}'
 //! ```
 //!
-//! The flags are koine-host's (`--help`). Without `--store` it opens the
+//! Inside "imbib Web.app" a bare launch takes the bundle's arguments
+//! ([`imbib_host::bundle`]). The flags are koine-host's (`--help`). Without `--store` it opens the
 //! suite's SQLite library, not koine-host's `dir:` default.
 
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    if let Some(mut command) = imbib_host::bundle::relaunch() {
+        use std::os::unix::process::CommandExt;
+        let error = command.exec();
+        eprintln!("imbib-host: cannot relaunch with the bundle's arguments: {error}");
+        return ExitCode::FAILURE;
+    }
     imbib_host::link();
     let explicit_store = std::env::args().any(|a| a == "--store" || a.starts_with("--store="));
     koine_host::cli::main_configured(
@@ -23,6 +30,13 @@ fn main() -> ExitCode {
             }
             config.packages.push(imbib_host::package::package());
         },
-        |_, _, _| imbib_host::layer_imbib_secrets(),
+        |_, served, _| {
+            imbib_host::layer_imbib_secrets();
+            match served.waker() {
+                Some(waker) => imbib_host::elsewhere::listen(waker),
+                None => tracing::warn!(target: "koine-host",
+                    "the store has no feed; pages will not redraw on any write"),
+            }
+        },
     )
 }

@@ -146,6 +146,15 @@ public enum SiblingApp: String, CaseIterable, Sendable, Codable {
         /// launches the app when Rust reports the managed loopback endpoint
         /// unreachable, so the two constants must agree.
         public static let omlxPort: UInt16 = 8000
+
+        /// imbib-host ("imbib Web.app"): imbib's verbs and pages on koine's
+        /// web frontend, over the same suite store. A service, not a
+        /// `SiblingApp` case: a case would add a group to impress's sidebar
+        /// composition, and it has no URL scheme. 23127 because 23126 is
+        /// vw-mcp's HTTP bind (`crates/vw-mcp/run-http.sh`), which this table
+        /// does not yet list. `crates/imbib-host/run.sh` and `make-app.sh`
+        /// default to it.
+        public static let imbibWebPort: UInt16 = 23127
     }
 
     private static let byID: [SiblingApp: SiblingAppDescriptor] =

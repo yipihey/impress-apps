@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        "imbib Web.app" (make-app.sh). impress-mcp's entitlements are enough
+        for a bare binary, but inside a bundle the app-group grant is only
+        honoured when the app says which team and app it is, backed by an
+        embedded provisioning profile: make-app.sh embeds the team's wildcard
+        "Mac Team Provisioning Profile: *" (application identifier
+        QG3MEYVHMS.*), which these two keys must match. Without them the
+        store under ~/Library/Group Containers/QG3MEYVHMS.com.impress.suite
+        does not open ("unable to open database file").
+    -->
+    <key>com.apple.application-identifier</key>
+    <string>QG3MEYVHMS.com.impress.imbib-web</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>QG3MEYVHMS</string>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>QG3MEYVHMS.com.impress.suite</string>
+    </array>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+</dict>
+</plist>

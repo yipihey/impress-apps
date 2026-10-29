@@ -7,6 +7,8 @@
 //! as a package ([`package`]). Nothing here is a view: a page is a surface
 //! document over verbs, drawn by koine-web.
 
+pub mod bundle;
+pub mod elsewhere;
 pub mod package;
 
 use std::path::Path;
