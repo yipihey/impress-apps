@@ -386,7 +386,9 @@ impl From<impress_core::sync::SyncCounts> for SyncCounts {
 pub struct ImbibStore {
     // `pub(super)` so sibling modules of `unified` (e.g. `backup_api`) can add
     // exported methods without living in this 7k-line file.
-    pub(crate) store: SqliteItemStore,
+    // In an `Arc` so a host can serve this very handle (`item_store`): a
+    // SQLite store tells only its own subscribers of a write.
+    pub(crate) store: Arc<SqliteItemStore>,
     #[allow(dead_code)] // Available for validation in future phases
     registry: impress_core::SchemaRegistry,
     tag_defs_cache: std::sync::Mutex<Option<(i64, Vec<TagDisplayRow>)>>,
@@ -581,7 +583,7 @@ impl ImbibStore {
         let mut registry = impress_core::SchemaRegistry::new();
         schemas::register_all(&mut registry);
         Ok(Arc::new(Self {
-            store,
+            store: Arc::new(store),
             registry,
             tag_defs_cache: std::sync::Mutex::new(None),
             eink_marker_cache: std::sync::Mutex::new(None),
@@ -595,7 +597,7 @@ impl ImbibStore {
         let mut registry = impress_core::SchemaRegistry::new();
         schemas::register_all(&mut registry);
         Ok(Arc::new(Self {
-            store,
+            store: Arc::new(store),
             registry,
             tag_defs_cache: std::sync::Mutex::new(None),
             eink_marker_cache: std::sync::Mutex::new(None),
@@ -678,7 +680,8 @@ impl ImbibStore {
         // Parsed here, not only in the kernel, so a malformed library id keeps
         // returning `InvalidInput` from the same place it always has.
         parse_uuid(&library_id)?;
-        let rows = collection_ops::list_tree_in(&self.store, &IMBIB_COLLECTION, Some(&library_id))?;
+        let rows =
+            collection_ops::list_tree_in(&*self.store, &IMBIB_COLLECTION, Some(&library_id))?;
         Ok(rows.iter().map(kernel_collection_row).collect())
     }
 
@@ -734,7 +737,7 @@ impl ImbibStore {
         }
 
         let row = collection_ops::create_in_with_payload(
-            &self.store,
+            &*self.store,
             &IMBIB_COLLECTION,
             &name,
             None,
@@ -853,7 +856,7 @@ impl ImbibStore {
         new_name: String,
     ) -> Result<CollectionRow, StoreApiError> {
         let uuid = parse_uuid(&id)?;
-        let binding = collection_ops::resolve(&self.store, &IMBIB_COLLECTION)?;
+        let binding = collection_ops::resolve(&*self.store, &IMBIB_COLLECTION)?;
         match self.store.get(uuid)? {
             Some(item) if binding.matches(&item) => {}
             _ => return Err(StoreApiError::NotFound(id)),
@@ -900,7 +903,7 @@ impl ImbibStore {
         // different message.
         parse_uuid(&publication_id)?;
         let rows = collection_ops::collections_containing(
-            &self.store,
+            &*self.store,
             &IMBIB_COLLECTION,
             &publication_id,
         )?;
@@ -1711,7 +1714,7 @@ impl ImbibStore {
                 // so it must not start loading each containing collection's
                 // `Contains` edges just to compute a member count it discards.
                 let collection_ids = collection_ops::collections_containing_ids(
-                    &self.store,
+                    &*self.store,
                     &IMBIB_COLLECTION,
                     &id,
                 )?;
@@ -1881,7 +1884,7 @@ impl ImbibStore {
         // snapshot is complete on both sides of the `collections.unified`
         // marker).
         let child_collection_ids: Vec<String> =
-            collection_ops::list_tree_in(&self.store, &IMBIB_COLLECTION, Some(&id))?
+            collection_ops::list_tree_in(&*self.store, &IMBIB_COLLECTION, Some(&id))?
                 .into_iter()
                 .map(|c| c.id)
                 .collect();
@@ -2711,7 +2714,7 @@ impl ImbibStore {
     /// fork the resolution table. Still a `COUNT(*)`, not a tree read: this
     /// answers `/api/status` and has no use for per-row member counts.
     pub fn count_collections(&self) -> Result<u32, StoreApiError> {
-        let binding = collection_ops::resolve(&self.store, &IMBIB_COLLECTION)?;
+        let binding = collection_ops::resolve(&*self.store, &IMBIB_COLLECTION)?;
         let q = ItemQuery {
             schema: Some((*binding.schema_ref).clone()),
             predicates: binding.scope_predicates(),
@@ -4506,7 +4509,7 @@ impl ImbibStore {
                 // the manuscript half of the reverse-membership read stops
                 // being a third copy of the predicate.
                 let collections = collection_ops::collections_containing_ids(
-                    &self.store,
+                    &*self.store,
                     &MANUSCRIPT_COLLECTION,
                     &id,
                 )?;
@@ -4805,7 +4808,7 @@ impl ImbibStore {
     pub fn list_manuscript_collections(
         &self,
     ) -> Result<Vec<ManuscriptCollectionRow>, StoreApiError> {
-        let rows = collection_ops::list_tree(&self.store, &MANUSCRIPT_COLLECTION)?;
+        let rows = collection_ops::list_tree(&*self.store, &MANUSCRIPT_COLLECTION)?;
         let workspaces = self.manuscript_workspace_ids()?;
         Ok(rows
             .iter()
@@ -4855,22 +4858,12 @@ impl ImbibStore {
 
 // Internal helpers (not exposed via UniFFI)
 impl ImbibStore {
-    /// Every write made through this store, as it happens. A host that also
-    /// opens the database through a handle of its own (koine-host's store
-    /// feed) hears only that handle's writes; this is how it hears imbib's.
-    pub fn subscribe_events(
-        &self,
-    ) -> Result<std::sync::mpsc::Receiver<impress_core::event::ItemEvent>, StoreApiError> {
-        Ok(self.store.subscribe(ItemQuery::default())?)
-    }
-
-    /// The schema ref of one row, `None` when there is no such row.
-    pub fn schema_of(&self, id: uuid::Uuid) -> Option<String> {
-        self.store
-            .get(id)
-            .ok()
-            .flatten()
-            .map(|item| item.schema.as_str().to_string())
+    /// The store handle itself, for a host to serve as its own store
+    /// (`koine_store::register_shared`): one handle, so a write by either
+    /// side reaches the subscribers of both — two connections to one SQLite
+    /// file each tell only their own.
+    pub fn item_store(&self) -> Arc<SqliteItemStore> {
+        self.store.clone()
     }
 
     /// The library that owns each of `ids` (its home: the envelope parent),
@@ -4894,7 +4887,7 @@ impl ImbibStore {
     /// `sort_order`. `list_collections` asks one library; collections made
     /// before libraries owned them have no library and only show up here.
     pub fn list_all_collections(&self) -> Result<Vec<CollectionRow>, StoreApiError> {
-        let rows = collection_ops::list_tree(&self.store, &IMBIB_COLLECTION)?;
+        let rows = collection_ops::list_tree(&*self.store, &IMBIB_COLLECTION)?;
         Ok(rows.iter().map(kernel_collection_row).collect())
     }
 
@@ -5375,7 +5368,7 @@ impl ImbibStore {
     fn manuscript_workspace_ids(&self) -> Result<std::collections::HashSet<String>, StoreApiError> {
         use impress_core::collection_migration::LEGACY_EXTRAS_KEY;
 
-        let binding = collection_ops::resolve(&self.store, &MANUSCRIPT_COLLECTION)?;
+        let binding = collection_ops::resolve(&*self.store, &MANUSCRIPT_COLLECTION)?;
         let q = ItemQuery {
             schema: Some((*binding.schema_ref).clone()),
             predicates: binding.scope_predicates(),

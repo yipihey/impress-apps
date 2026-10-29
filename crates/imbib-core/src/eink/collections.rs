@@ -27,7 +27,7 @@ pub struct CollectionIndex {
 
 impl CollectionIndex {
     pub fn load(store: &ImbibStore) -> Result<Self, StoreApiError> {
-        let rows = collection_ops::list_tree_in(&store.store, &IMBIB_COLLECTION, None)?;
+        let rows = collection_ops::list_tree_in(&*store.store, &IMBIB_COLLECTION, None)?;
         let nodes = rows
             .into_iter()
             .map(|row| {
@@ -154,7 +154,7 @@ impl ImbibStore {
         publication_id: &str,
     ) -> Result<Vec<String>, StoreApiError> {
         Ok(collection_ops::collections_containing_ids(
-            &self.store,
+            &*self.store,
             &IMBIB_COLLECTION,
             publication_id,
         )?)
