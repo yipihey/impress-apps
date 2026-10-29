@@ -20,6 +20,7 @@ fn main() -> ExitCode {
         eprintln!("imbib-host: cannot relaunch with the bundle's arguments: {error}");
         return ExitCode::FAILURE;
     }
+    imbib_host::bundle::restore_home();
     imbib_host::link();
     let explicit_store = std::env::args().any(|a| a == "--store" || a.starts_with("--store="));
     koine_host::cli::main_configured(

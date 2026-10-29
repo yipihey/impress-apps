@@ -9,13 +9,14 @@
 #   bash crates/imbib-host/make-app.sh --no-agent  # remove that login agent
 #
 # The app is imbib-host in a bundle: Contents/MacOS/imbib-host (release,
-# signed with imbib-web.entitlements, the team's wildcard profile embedded —
-# without both the store under ~/Library/Group Containers is unreadable) and the
+# sandboxed and signed with imbib-web.entitlements — unsandboxed, a bundle is
+# refused the store under ~/Library/Group Containers; that file says why) and the
 # koine-web page in Contents/Resources/web, so it needs neither the koine
 # checkout nor dx at run time. Opened from the Finder, Spotlight or the Dock
 # it takes the bundle's arguments itself (src/bundle.rs): a native window on
 # port 23127 (SiblingApp.Services.imbibWebPort), its log in
-# ~/Library/Logs/Impress/imbib-web.log. Quitting the app stops the server.
+# ~/Library/Containers/com.impress.imbib-web/Data/Library/Logs/Impress/imbib-web.log.
+# Quitting the app stops the server.
 #
 # --agent installs a LaunchAgent that serves the same port at login with no
 # window, for a browser or a phone over Tailscale. While it runs, the port is
@@ -75,22 +76,6 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$TARGET/release/imbib-host" "$APP/Contents/MacOS/imbib-host"
 rsync -a --delete "$WEB_DIR/" "$APP/Contents/Resources/web/"
-
-# The team's wildcard development profile, which backs the app-group grant
-# inside a bundle (imbib-web.entitlements says why). Xcode keeps it; it is
-# per team and device, so it is found by name, never committed.
-PROFILE_NAME="Mac Team Provisioning Profile: *"
-PROFILE=""
-for candidate in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.provisionprofile; do
-    [ -f "$candidate" ] || continue
-    name="$(security cms -D -i "$candidate" 2>/dev/null | plutil -extract Name raw -o - - 2>/dev/null || true)"
-    if [ "$name" = "$PROFILE_NAME" ]; then PROFILE="$candidate"; break; fi
-done
-if [ -z "$PROFILE" ]; then
-    echo "make-app.sh: no \"$PROFILE_NAME\" in Xcode's profiles; build any suite app in Xcode once (automatic signing makes it)" >&2
-    exit 1
-fi
-cp "$PROFILE" "$APP/Contents/embedded.provisionprofile"
 
 # The icon: imbib's own, as an .icns.
 ICONSET="$STAGE/AppIcon.iconset"

@@ -7,6 +7,15 @@
 //! imbib Web (`SiblingApp.Services.imbibWebPort`, 23127), and the log in
 //! `~/Library/Logs/Impress/imbib-web.log`, since a Finder launch has no terminal.
 //! Any argument at all, or a binary outside a bundle, runs as given.
+//!
+//! The bundle is sandboxed (`imbib-web.entitlements` says why), and the
+//! sandbox sets `HOME` to the app's container. The suite's paths are built
+//! from `HOME` (the store, the library folders, the token files), so
+//! [`restore_home`] gives them the user's real home back — in the process
+//! itself, since the sandbox resets `HOME` again in the one the relaunch
+//! starts. The log stays in the container,
+//! which is the one Logs folder the sandbox lets it write:
+//! `~/Library/Containers/com.impress.imbib-web/Data/Library/Logs/Impress/imbib-web.log`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -57,6 +66,25 @@ fn resources_of(exe: &Path) -> Option<PathBuf> {
         .then(|| contents.join("Resources"))
 }
 
+/// Set `HOME` back to the user's home when the sandbox has pointed it at
+/// the app's container. Call first in `main`, before any thread starts, and
+/// after [`relaunch`], whose log belongs in the container.
+pub fn restore_home() {
+    if let Some(home) = std::env::var_os("HOME").and_then(|h| real_home(Path::new(&h))) {
+        std::env::set_var("HOME", home);
+    }
+}
+
+/// The user's home when `home` is a sandbox container's
+/// (`<home>/Library/Containers/<bundle id>/Data`), else `None`.
+fn real_home(home: &Path) -> Option<PathBuf> {
+    let data = home.file_name()? == "Data";
+    let containers = home.parent()?.parent()?;
+    (data && containers.ends_with("Library/Containers"))
+        .then(|| containers.parent()?.parent().map(Path::to_path_buf))
+        .flatten()
+}
+
 fn log_file() -> Option<PathBuf> {
     let logs = PathBuf::from(std::env::var_os("HOME")?).join("Library/Logs/Impress");
     std::fs::create_dir_all(&logs).ok()?;
@@ -77,5 +105,16 @@ mod tests {
             resources_of(Path::new("/repo/target/release/imbib-host")),
             None
         );
+    }
+
+    #[test]
+    fn a_sandbox_container_gives_back_the_real_home() {
+        assert_eq!(
+            real_home(Path::new(
+                "/Users/x/Library/Containers/com.impress.imbib-web/Data"
+            )),
+            Some(PathBuf::from("/Users/x"))
+        );
+        assert_eq!(real_home(Path::new("/Users/x")), None);
     }
 }
