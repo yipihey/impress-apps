@@ -4855,6 +4855,24 @@ impl ImbibStore {
 
 // Internal helpers (not exposed via UniFFI)
 impl ImbibStore {
+    /// Every write made through this store, as it happens. A host that also
+    /// opens the database through a handle of its own (koine-host's store
+    /// feed) hears only that handle's writes; this is how it hears imbib's.
+    pub fn subscribe_events(
+        &self,
+    ) -> Result<std::sync::mpsc::Receiver<impress_core::event::ItemEvent>, StoreApiError> {
+        Ok(self.store.subscribe(ItemQuery::default())?)
+    }
+
+    /// The schema ref of one row, `None` when there is no such row.
+    pub fn schema_of(&self, id: uuid::Uuid) -> Option<String> {
+        self.store
+            .get(id)
+            .ok()
+            .flatten()
+            .map(|item| item.schema.as_str().to_string())
+    }
+
     /// The library that owns each of `ids` (its home: the envelope parent),
     /// for the ids that exist and have one.
     pub fn owning_libraries(

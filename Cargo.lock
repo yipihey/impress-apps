@@ -4521,11 +4521,13 @@ dependencies = [
  "impress-service-core",
  "impress-store-service",
  "impress-surface",
+ "impress-surface-service",
  "impress-workspace-hack",
  "koine-host",
  "koine-packages",
  "koine-store",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]

@@ -25,6 +25,10 @@ impress-store-service = { workspace = true }
 # imbib's secret source, layered in front of the host's (lib.rs).
 imbib-service = { workspace = true }
 impress-service-core = { workspace = true }
+# The surface registry the host wakes pages through: imbib's own writes are
+# fed to it (lib.rs, `wake_pages_on_imbib_writes`).
+impress-surface-service = { workspace = true }
+tracing = { workspace = true }
 impress-workspace-hack.workspace = true
 
 [dev-dependencies]

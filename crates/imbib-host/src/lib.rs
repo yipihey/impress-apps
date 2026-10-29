@@ -122,6 +122,81 @@ pub fn layer_imbib_secrets() {
     ));
 }
 
+/// Wake the pages a write by imbib's own verbs changes, as koine-host's
+/// store feed wakes them for its own writes.
+///
+/// The host opens the library through its handle (`sqlite:`) and imbib's
+/// verbs through theirs (`imbib_service::store_singleton`): two connections
+/// to one file, and a SQLite store tells only its own subscribers. So the
+/// host's feed never heard a paper marked read, dismissed or filed by an
+/// imbib verb, and a page showed it only once something else redrew it —
+/// most visibly the read mark `imbib-triage-service_viewing` makes two
+/// seconds after the page asked. This thread listens to imbib's handle and
+/// hands the schema refs each write touched to the same registry the feed
+/// uses (`SessionRegistry::shared`), which marks the pages that read them.
+/// Call once, after the host is serving.
+pub fn wake_pages_on_imbib_writes() {
+    let store = imbib_service::store_singleton::store_instance();
+    let receiver = match store.subscribe_events() {
+        Ok(receiver) => receiver,
+        Err(error) => {
+            tracing::warn!(target: "koine-host", "imbib feed: cannot subscribe ({error}); \
+                pages will not redraw on imbib's own writes");
+            return;
+        }
+    };
+    let spawned = std::thread::Builder::new()
+        .name("imbib-host-feed".into())
+        .spawn(move || {
+            let registry = impress_surface_service::SessionRegistry::shared();
+            let mut schemas: std::collections::HashMap<ItemId, String> = Default::default();
+            while let Ok(first) = receiver.recv() {
+                let mut touched = std::collections::BTreeSet::new();
+                let mut unknown_delete = false;
+                let mut event = Some(first);
+                while let Some(current) = event.take() {
+                    use impress_item::ItemEvent;
+                    match current {
+                        ItemEvent::Created(item) => {
+                            let schema = item.schema.as_str().to_string();
+                            schemas.insert(item.id, schema.clone());
+                            touched.insert(schema);
+                        }
+                        ItemEvent::Updated { id, .. }
+                        | ItemEvent::OperationApplied { target_id: id, .. } => {
+                            let schema = match schemas.get(&id) {
+                                Some(schema) => Some(schema.clone()),
+                                None => store.schema_of(id),
+                            };
+                            if let Some(schema) = schema {
+                                schemas.insert(id, schema.clone());
+                                touched.insert(schema);
+                            }
+                        }
+                        ItemEvent::Deleted(id) => match schemas.remove(&id) {
+                            Some(schema) => {
+                                touched.insert(schema);
+                            }
+                            None => unknown_delete = true,
+                        },
+                    }
+                    event = receiver.try_recv().ok();
+                }
+                // A row gone before its kind was learned: every kind a page
+                // reads, as koine-host's feed does.
+                if unknown_delete {
+                    touched.extend(registry.watched_refs());
+                }
+                if !touched.is_empty() {
+                    registry.invalidate_refs(&touched);
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        tracing::warn!(target: "koine-host", "imbib feed: {error}");
+    }
+}
+
 /// The store URL the host opens when no `--store` was given: koine-host's
 /// own default is a `dir:` store under the workspace, which for imbib would
 /// be an empty library beside the real one.

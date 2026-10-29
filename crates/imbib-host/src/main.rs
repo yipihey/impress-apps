@@ -23,6 +23,9 @@ fn main() -> ExitCode {
             }
             config.packages.push(imbib_host::package::package());
         },
-        |_, _, _| imbib_host::layer_imbib_secrets(),
+        |_, _, _| {
+            imbib_host::layer_imbib_secrets();
+            imbib_host::wake_pages_on_imbib_writes();
+        },
     )
 }
